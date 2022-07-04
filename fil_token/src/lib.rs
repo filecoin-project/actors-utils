@@ -1,3 +1,4 @@
+pub mod blockstore;
 pub mod token;
 
 #[cfg(test)]

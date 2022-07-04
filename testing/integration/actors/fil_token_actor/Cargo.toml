@@ -1,0 +1,12 @@
+[package]
+name = "fil_token_actor"
+version = "0.1.0"
+repository = "https://github.com/helix-collective/filecoin"
+edition = "2021"
+
+[dependencies]
+fvm_sdk = { version = "1.0.0 "}
+fvm_shared = { version = "0.8.0" }
+
+[build-dependencies]
+wasm-builder = "3.0.1"

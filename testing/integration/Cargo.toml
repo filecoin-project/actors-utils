@@ -1,0 +1,4 @@
+[package]
+name = "fvm_integration_tests"
+version = "0.1.0"
+repository = "https://github.com/helix-collective/filecoin"
