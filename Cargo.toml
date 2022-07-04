@@ -1,5 +1,6 @@
 [workspace]
 
 members = [
-  "fvm_dispatch"
+  "fvm_dispatch",
+  "fil_token",
 ]
