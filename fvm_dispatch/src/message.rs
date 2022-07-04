@@ -10,12 +10,14 @@ pub struct MethodDispatcher<T: Hasher> {
 }
 
 impl<T: Hasher> MethodDispatcher<T> {
+    /// Create a new MethodDispatcher with a given hasher
     pub fn new(hasher: T) -> Self {
         Self {
             method_hasher: MethodHasher::new(hasher),
         }
     }
 
+    /// Call a method on another actor by conventional name
     pub fn call_method(
         &self,
         to: &Address,

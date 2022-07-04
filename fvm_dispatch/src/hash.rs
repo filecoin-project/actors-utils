@@ -26,10 +26,13 @@ pub struct MethodHasher<T: Hasher> {
 impl<T: Hasher> MethodHasher<T> {
     const CONSTRUCTOR_METHOD_NAME: &'static str = "Constructor";
     const CONSTRUCTOR_METHOD_NUMBER: u64 = 1_u64;
+
+    /// Create a new MethodHasher using the given hash algorithm
     pub fn new(hasher: T) -> Self {
         Self { hasher }
     }
 
+    /// Generate the conventional method number based off an exported name
     pub fn method_number(&self, method_name: &str) -> u64 {
         if method_name == Self::CONSTRUCTOR_METHOD_NAME {
             Self::CONSTRUCTOR_METHOD_NUMBER
