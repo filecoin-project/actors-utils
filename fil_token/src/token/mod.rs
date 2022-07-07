@@ -9,7 +9,6 @@ use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::bigint::BigInt;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
-use fvm_shared::ActorID;
 
 use self::errors::ActorError;
 use self::state::TokenState;
@@ -83,15 +82,7 @@ where
     /// Injected blockstore
     bs: BS,
     /// Access to the runtime
-    fvm: FVM,
-}
-
-/// Resolve an address to an ActorID
-fn resolve_address(address: &Address) -> Result<ActorID> {
-    match fvm_sdk::actor::resolve_address(address) {
-        Some(addr) => Ok(addr),
-        None => Err(ActorError::AddrNotFound(*address)),
-    }
+    _fvm: FVM,
 }
 
 impl<BS, FVM> StandardToken<BS, FVM>
@@ -114,7 +105,7 @@ where
         init_state.save(&self.bs);
 
         let mint_params = params.mint_params;
-        self.mint(mint_params);
+        self.mint(mint_params)?;
         Ok(())
     }
 
@@ -157,21 +148,16 @@ where
         let balance = balances
             .delete(&holder)?
             .map(|de| de.1 .0)
-            .unwrap_or(TokenAmount::zero());
+            .unwrap_or_else(TokenAmount::zero);
         let new_balance = balance
             .checked_add(&params.value)
-            .ok_or(ActorError::Arithmetic(String::from(
-                "Minting into caused overflow",
-            )))?;
+            .ok_or_else(|| ActorError::Arithmetic(String::from("Minting into caused overflow")))?;
         balances.set(holder, BigIntDe(new_balance))?;
 
         // set the global supply of the contract
-        let new_supply = state
-            .supply
-            .checked_add(&params.value)
-            .ok_or(ActorError::Arithmetic(String::from(
-                "Minting caused total supply to overflow",
-            )))?;
+        let new_supply = state.supply.checked_add(&params.value).ok_or_else(|| {
+            ActorError::Arithmetic(String::from("Minting caused total supply to overflow"))
+        })?;
         state.supply = new_supply;
 
         // commit the state if supply and balance increased
@@ -230,7 +216,7 @@ where
             },
             // No allowance recorded previously
             None => {
-                caller_allowances_map.set(spender, BigIntDe(params.value.clone()));
+                caller_allowances_map.set(spender, BigIntDe(params.value.clone()))?;
                 params.value
             }
         };
@@ -263,7 +249,7 @@ where
                     .checked_sub(&params.value)
                     .unwrap() // Unwrap should be safe as allowance always > 0
                     .max(BigInt::zero());
-                caller_allowances_map.set(spender, BigIntDe(new_allowance.clone()));
+                caller_allowances_map.set(spender, BigIntDe(new_allowance.clone()))?;
                 new_allowance
             }
             None => {
@@ -298,7 +284,7 @@ where
         };
 
         let new_allowance = TokenAmount::zero();
-        caller_allowances_map.set(spender, BigIntDe(new_allowance.clone()));
+        caller_allowances_map.set(spender, BigIntDe(new_allowance.clone()))?;
         state.save(&self.bs);
 
         Ok(AllowanceReturn {
@@ -336,11 +322,11 @@ where
         })
     }
 
-    fn burn(&self, params: BurnParams) -> Result<BurnReturn> {
+    fn burn(&self, _params: BurnParams) -> Result<BurnReturn> {
         todo!()
     }
 
-    fn transfer_from(&self, params: TransferParams) -> Result<TransferReturn> {
+    fn transfer_from(&self, _params: TransferParams) -> Result<TransferReturn> {
         todo!()
     }
 }

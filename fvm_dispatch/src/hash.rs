@@ -52,7 +52,7 @@ impl<T: Hasher> MethodHasher<T> {
 fn as_u32(bytes: &[u8]) -> u32 {
     ((bytes[0] as u32) << (8 * 3)) +
     ((bytes[1] as u32) << (8 * 2)) +
-    ((bytes[2] as u32) << (8 * 1)) +
+    ((bytes[2] as u32) << 8) +
     (bytes[3] as u32)
 }
 

@@ -1,6 +1,3 @@
-use std::ops::Add;
-use std::ops::Sub;
-
 use anyhow::anyhow;
 use cid::multihash::Code;
 use cid::Cid;
@@ -16,12 +13,9 @@ use fvm_sdk::sself;
 use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
-use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 use fvm_shared::HAMT_BIT_WIDTH;
-
-use crate::blockstore::Blockstore;
 
 /// A macro to abort concisely.
 macro_rules! abort {
@@ -96,7 +90,7 @@ impl TokenState {
             codec: DAG_CBOR,
             data: serialized,
         };
-        let cid = match bs.put(Code::Blake2b256.into(), &block) {
+        let cid = match bs.put(Code::Blake2b256, &block) {
             Ok(cid) => cid,
             Err(err) => abort!(USR_SERIALIZATION, "failed to store initial state: {:}", err),
         };
@@ -107,26 +101,24 @@ impl TokenState {
     }
 
     pub fn get_balance_map<BS: IpldStore + Copy>(&self, bs: &BS) -> Hamt<BS, BigIntDe, ActorID> {
-        let balances = match Hamt::<BS, BigIntDe, ActorID>::load(&self.balances, *bs) {
+        match Hamt::<BS, BigIntDe, ActorID>::load(&self.balances, *bs) {
             Ok(map) => map,
             Err(err) => abort!(USR_ILLEGAL_STATE, "Failed to load balances hamt: {:?}", err),
-        };
-        balances
+        }
     }
 
     /// Get the global allowances map
     ///
     /// Gets a HAMT with CIDs linking to other HAMTs
     pub fn get_allowances_map<BS: IpldStore + Copy>(&self, bs: &BS) -> Hamt<BS, Cid, ActorID> {
-        let allowances = match Hamt::<BS, Cid, ActorID>::load(&self.allowances, *bs) {
+        match Hamt::<BS, Cid, ActorID>::load(&self.allowances, *bs) {
             Ok(map) => map,
             Err(err) => abort!(
                 USR_ILLEGAL_STATE,
                 "Failed to load allowances hamt: {:?}",
                 err
             ),
-        };
-        allowances
+        }
     }
 
     /// Get the allowances map of a specific actor, lazily creating one if it didn't exist
@@ -258,8 +250,6 @@ pub struct TokenAmountDiff {
     pub required: TokenAmount,
     pub actual: TokenAmount,
 }
-
-type TransferResult<T> = std::result::Result<T, TransferError>;
 
 pub enum TransferError {
     NoRecrHook,
