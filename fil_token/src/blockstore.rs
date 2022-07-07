@@ -26,6 +26,7 @@ impl fvm_ipld_blockstore::Blockstore for Blockstore {
         }
         Ok(())
     }
+
     fn put<D>(&self, code: Code, block: &Block<D>) -> Result<Cid>
     where
         D: AsRef<[u8]>,
