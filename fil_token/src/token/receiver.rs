@@ -1,8 +1,5 @@
+use anyhow::Result;
 use fvm_shared::{address::Address, econ::TokenAmount};
-
-pub type Result<T> = std::result::Result<T, ReceiverError>;
-
-pub enum ReceiverError {}
 
 /// Standard interface for a contract that wishes to receive tokens
 pub trait TokenReceiver {

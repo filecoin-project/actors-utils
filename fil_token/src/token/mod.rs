@@ -2,18 +2,19 @@ pub mod errors;
 pub mod receiver;
 pub mod state;
 pub mod types;
+use self::errors::ActorError;
+use self::state::TokenState;
+use self::types::*;
+use crate::runtime::Runtime;
 
+use anyhow::bail;
+use anyhow::Result;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
 use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::bigint::BigInt;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
-
-use self::errors::ActorError;
-use self::state::TokenState;
-use self::types::*;
-use crate::runtime::Runtime;
 
 /// A macro to abort concisely.
 macro_rules! abort {
@@ -24,8 +25,6 @@ macro_rules! abort {
         )
     };
 }
-
-type Result<T> = std::result::Result<T, ActorError>;
 
 /// A standard fungible token interface allowing for on-chain transactions
 pub trait Token {
@@ -82,7 +81,7 @@ where
     /// Injected blockstore
     bs: BS,
     /// Access to the runtime
-    _fvm: FVM,
+    fvm: FVM,
 }
 
 impl<BS, FVM> StandardToken<BS, FVM>
@@ -132,10 +131,9 @@ where
         let mut state = self.load_state();
         let mut balances = state.get_balance_map(&self.bs);
 
-        // FIXME: replace fvm_sdk with abstraction
-        let holder = match fvm_sdk::actor::resolve_address(&params.initial_holder) {
-            Some(id) => id,
-            None => {
+        let holder = match self.fvm.resolve_address(&params.initial_holder) {
+            Ok(id) => id,
+            Err(_) => {
                 return Ok(MintReturn {
                     newly_minted: TokenAmount::zero(),
                     successful: false,
@@ -176,10 +174,7 @@ where
         let balances = state.get_balance_map(&self.bs);
 
         // Resolve the address
-        let addr_id = match fvm_sdk::actor::resolve_address(&holder) {
-            Some(id) => id,
-            None => return Err(ActorError::AddrNotFound(holder)),
-        };
+        let addr_id = self.fvm.resolve_address(&holder)?;
 
         match balances.get(&addr_id) {
             Ok(Some(bal)) => Ok(bal.clone().0),
@@ -196,15 +191,10 @@ where
         // Load the HAMT holding balances
         let state = self.load_state();
 
-        // FIXME: replace with runtime service call
-        let caller_id = fvm_sdk::message::caller();
+        let caller_id = self.fvm.caller();
         let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id);
 
-        let spender = match fvm_sdk::actor::resolve_address(&params.spender) {
-            Some(id) => id,
-            None => return Err(ActorError::AddrNotFound(params.spender)),
-        };
-
+        let spender = self.fvm.resolve_address(&&params.spender)?;
         let new_amount = match caller_allowances_map.get(&spender)? {
             // Allowance exists - attempt to calculate new allowance
             Some(existing_allowance) => match existing_allowance.0.checked_add(&params.value) {
@@ -212,7 +202,7 @@ where
                     caller_allowances_map.set(spender, BigIntDe(new_allowance.clone()))?;
                     new_allowance
                 }
-                None => return Err(ActorError::Arithmetic(String::from("Allowance overflowed"))),
+                None => bail!(ActorError::Arithmetic(String::from("Allowance overflowed"))),
             },
             // No allowance recorded previously
             None => {
@@ -234,13 +224,10 @@ where
         // Load the HAMT holding balances
         let state = self.load_state();
 
-        // FIXME: replace with runtime service call
-        let caller_id = fvm_sdk::message::caller();
+        let caller_id = self.fvm.caller();
         let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id);
-        let spender = match fvm_sdk::actor::resolve_address(&params.spender) {
-            Some(id) => id,
-            None => return Err(ActorError::AddrNotFound(params.spender)),
-        };
+
+        let spender = self.fvm.resolve_address(&&params.spender)?;
 
         let new_allowance = match caller_allowances_map.get(&spender)? {
             Some(existing_allowance) => {
@@ -275,16 +262,13 @@ where
         // Load the HAMT holding balances
         let state = self.load_state();
 
-        // FIXME: replace with runtime service call
-        let caller_id = fvm_sdk::message::caller();
+        let caller_id = self.fvm.caller();
         let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id);
-        let spender = match fvm_sdk::actor::resolve_address(&params.spender) {
-            Some(id) => id,
-            None => return Err(ActorError::AddrNotFound(params.spender)),
-        };
 
+        let spender = self.fvm.resolve_address(&&params.spender)?;
         let new_allowance = TokenAmount::zero();
         caller_allowances_map.set(spender, BigIntDe(new_allowance.clone()))?;
+
         state.save(&self.bs);
 
         Ok(AllowanceReturn {
@@ -298,17 +282,10 @@ where
         // Load the HAMT holding balances
         let state = self.load_state();
 
-        // FIXME: replace with runtime service call
-        let owner = match fvm_sdk::actor::resolve_address(&params.owner) {
-            Some(id) => id,
-            None => return Err(ActorError::AddrNotFound(params.spender)),
-        };
-
+        let owner = self.fvm.resolve_address(&params.owner)?;
         let owner_allowances_map = state.get_actor_allowance_map(&self.bs, owner);
-        let spender = match fvm_sdk::actor::resolve_address(&params.spender) {
-            Some(id) => id,
-            None => return Err(ActorError::AddrNotFound(params.spender)),
-        };
+
+        let spender = self.fvm.resolve_address(&&params.spender)?;
 
         let allowance = match owner_allowances_map.get(&spender)? {
             Some(allowance) => allowance.0.clone(),

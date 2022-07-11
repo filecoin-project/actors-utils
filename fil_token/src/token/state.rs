@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use anyhow::Result;
 use cid::multihash::Code;
 use cid::Cid;
 
@@ -10,7 +11,6 @@ use fvm_ipld_encoding::CborStore;
 use fvm_ipld_encoding::DAG_CBOR;
 use fvm_ipld_hamt::Hamt;
 use fvm_sdk::sself;
-use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::econ::TokenAmount;
@@ -46,7 +46,7 @@ pub struct TokenState {
 
 /// Functions to get and modify token state to and from the IPLD layer
 impl TokenState {
-    pub fn new<BS: IpldStore>(store: &BS, name: &str, symbol: &str) -> StateResult<Self> {
+    pub fn new<BS: IpldStore>(store: &BS, name: &str, symbol: &str) -> Result<Self> {
         let empty_balance_map = Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH)
             .flush()
             .map_err(|e| anyhow!("Failed to create empty balances map state {}", e))?;
@@ -245,42 +245,3 @@ impl TokenState {
 }
 
 impl Cbor for TokenState {}
-
-pub struct TokenAmountDiff {
-    pub required: TokenAmount,
-    pub actual: TokenAmount,
-}
-
-pub enum TransferError {
-    NoRecrHook,
-    InsufficientAllowance(TokenAmountDiff),
-    InsufficientBalance(TokenAmountDiff),
-}
-
-pub enum StateError {
-    AddrNotFound(Address),
-    Arithmetic,
-    Ipld(fvm_ipld_hamt::Error),
-    Err(anyhow::Error),
-    Transfer(TransferError),
-}
-
-pub type StateResult<T> = std::result::Result<T, StateError>;
-
-impl From<anyhow::Error> for StateError {
-    fn from(e: anyhow::Error) -> Self {
-        Self::Err(e)
-    }
-}
-
-impl From<fvm_ipld_hamt::Error> for StateError {
-    fn from(e: fvm_ipld_hamt::Error) -> Self {
-        Self::Ipld(e)
-    }
-}
-
-impl From<TransferError> for StateError {
-    fn from(e: TransferError) -> Self {
-        Self::Transfer(e)
-    }
-}
