@@ -3,6 +3,6 @@
 members = [
   "fvm_dispatch",
   "fil_token",
-  "testing/integration",
-  "testing/integration/actors/wfil_token_actor",
+  "testing/fil_token_integration",
+  "testing/fil_token_integration/actors/wfil_token_actor",
 ]
