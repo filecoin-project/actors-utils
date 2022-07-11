@@ -3,6 +3,7 @@ use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::econ::TokenAmount;
+use fvm_shared::ActorID;
 
 #[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct ConstructorParams {
@@ -14,7 +15,7 @@ pub struct ConstructorParams {
 /// Called during construction of the token actor to set a supply
 #[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct MintParams {
-    pub initial_holder: Address,
+    pub initial_holder: ActorID,
     #[serde(with = "bigint_ser")]
     pub value: TokenAmount,
 }

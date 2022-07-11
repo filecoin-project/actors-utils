@@ -1,3 +1,6 @@
+mod fvm;
+pub use fvm::*;
+
 use anyhow::Result;
 use fvm_shared::address::Address;
 

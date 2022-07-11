@@ -28,9 +28,6 @@ macro_rules! abort {
 
 /// A standard fungible token interface allowing for on-chain transactions
 pub trait Token {
-    /// Constructs the token
-    fn constructor(&self, params: ConstructorParams) -> Result<()>;
-
     /// Returns the name of the token
     fn name(&self) -> String;
 
@@ -86,8 +83,15 @@ where
     BS: IpldStore + Copy,
     FVM: Runtime,
 {
-    fn load_state(&self) -> TokenState {
-        TokenState::load(&self.bs)
+    pub fn new(bs: BS, fvm: FVM) -> Self {
+        Self { bs, fvm }
+    }
+
+    /// Constructs the token
+    pub fn init_state(&self, params: ConstructorParams) -> Result<()> {
+        let init_state = TokenState::new(&self.bs, &params.name, &params.symbol)?;
+        init_state.save(&self.bs);
+        Ok(())
     }
 
     // Utility function for token-authors to mint supply
@@ -99,26 +103,15 @@ where
         let mut state = self.load_state();
         let mut balances = state.get_balance_map(&self.bs);
 
-        let holder = match self.fvm.resolve_address(&params.initial_holder) {
-            Ok(id) => id,
-            Err(_) => {
-                return Ok(MintReturn {
-                    newly_minted: TokenAmount::zero(),
-                    successful: false,
-                    total_supply: state.supply,
-                })
-            }
-        };
-
         // Mint the tokens into a specified account
         let balance = balances
-            .delete(&holder)?
+            .delete(&params.initial_holder)?
             .map(|de| de.1 .0)
             .unwrap_or_else(TokenAmount::zero);
         let new_balance = balance
             .checked_add(&params.value)
             .ok_or_else(|| ActorError::Arithmetic(String::from("Minting into caused overflow")))?;
-        balances.set(holder, BigIntDe(new_balance))?;
+        balances.set(params.initial_holder, BigIntDe(new_balance))?;
 
         // set the global supply of the contract
         let new_supply = state.supply.checked_add(&params.value).ok_or_else(|| {
@@ -135,6 +128,11 @@ where
             total_supply: state.supply,
         })
     }
+
+    /// Helper function that loads the root of the state tree related to token-accounting
+    fn load_state(&self) -> TokenState {
+        TokenState::load(&self.bs)
+    }
 }
 
 impl<BS, FVM> Token for TokenHelper<BS, FVM>
@@ -142,12 +140,6 @@ where
     BS: IpldStore + Copy,
     FVM: Runtime,
 {
-    fn constructor(&self, params: ConstructorParams) -> Result<()> {
-        let init_state = TokenState::new(&self.bs, &params.name, &params.symbol)?;
-        init_state.save(&self.bs);
-        Ok(())
-    }
-
     fn name(&self) -> String {
         let state = self.load_state();
         state.name
