@@ -181,7 +181,7 @@ where
         let caller_id = self.fvm.caller();
         let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id);
 
-        let spender = self.fvm.resolve_address(&&params.spender)?;
+        let spender = self.fvm.resolve_address(&params.spender)?;
         let new_amount = match caller_allowances_map.get(&spender)? {
             // Allowance exists - attempt to calculate new allowance
             Some(existing_allowance) => match existing_allowance.0.checked_add(&params.value) {
@@ -214,7 +214,7 @@ where
         let caller_id = self.fvm.caller();
         let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id);
 
-        let spender = self.fvm.resolve_address(&&params.spender)?;
+        let spender = self.fvm.resolve_address(&params.spender)?;
 
         let new_allowance = match caller_allowances_map.get(&spender)? {
             Some(existing_allowance) => {
@@ -252,7 +252,7 @@ where
         let caller_id = self.fvm.caller();
         let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id);
 
-        let spender = self.fvm.resolve_address(&&params.spender)?;
+        let spender = self.fvm.resolve_address(&params.spender)?;
         let new_allowance = TokenAmount::zero();
         caller_allowances_map.set(spender, BigIntDe(new_allowance.clone()))?;
 
@@ -272,7 +272,7 @@ where
         let owner = self.fvm.resolve_address(&params.owner)?;
         let owner_allowances_map = state.get_actor_allowance_map(&self.bs, owner);
 
-        let spender = self.fvm.resolve_address(&&params.spender)?;
+        let spender = self.fvm.resolve_address(&params.spender)?;
 
         let allowance = match owner_allowances_map.get(&spender)? {
             Some(allowance) => allowance.0.clone(),
