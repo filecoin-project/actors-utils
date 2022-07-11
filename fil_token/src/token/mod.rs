@@ -40,9 +40,6 @@ pub trait Token {
     /// Returns the total amount of the token in existence
     fn total_supply(&self) -> TokenAmount;
 
-    /// Mint a number of tokens and assign them to a specific Actor
-    fn mint(&self, params: MintParams) -> Result<MintReturn>;
-
     /// Gets the balance of a particular address (if it exists).
     fn balance_of(&self, params: Address) -> Result<TokenAmount>;
 
@@ -73,7 +70,7 @@ pub trait Token {
 }
 
 /// Holds injectable services to access/interface with IPLD/FVM layer
-pub struct StandardToken<BS, FVM>
+pub struct TokenHelper<BS, FVM>
 where
     BS: IpldStore + Copy,
     FVM: Runtime,
@@ -84,7 +81,7 @@ where
     fvm: FVM,
 }
 
-impl<BS, FVM> StandardToken<BS, FVM>
+impl<BS, FVM> TokenHelper<BS, FVM>
 where
     BS: IpldStore + Copy,
     FVM: Runtime,
@@ -92,38 +89,9 @@ where
     fn load_state(&self) -> TokenState {
         TokenState::load(&self.bs)
     }
-}
 
-impl<BS, FVM> Token for StandardToken<BS, FVM>
-where
-    BS: IpldStore + Copy,
-    FVM: Runtime,
-{
-    fn constructor(&self, params: ConstructorParams) -> Result<()> {
-        let init_state = TokenState::new(&self.bs, &params.name, &params.symbol)?;
-        init_state.save(&self.bs);
-
-        let mint_params = params.mint_params;
-        self.mint(mint_params)?;
-        Ok(())
-    }
-
-    fn name(&self) -> String {
-        let state = self.load_state();
-        state.name
-    }
-
-    fn symbol(&self) -> String {
-        let state = self.load_state();
-        state.symbol
-    }
-
-    fn total_supply(&self) -> TokenAmount {
-        let state = self.load_state();
-        state.supply
-    }
-
-    fn mint(&self, params: MintParams) -> Result<MintReturn> {
+    // Utility function for token-authors to mint supply
+    pub fn mint(&self, params: MintParams) -> Result<MintReturn> {
         // TODO: check we are being called in the constructor by init system actor
         // - or that other (TBD) minting rules are satified
 
@@ -166,6 +134,33 @@ where
             successful: true,
             total_supply: state.supply,
         })
+    }
+}
+
+impl<BS, FVM> Token for TokenHelper<BS, FVM>
+where
+    BS: IpldStore + Copy,
+    FVM: Runtime,
+{
+    fn constructor(&self, params: ConstructorParams) -> Result<()> {
+        let init_state = TokenState::new(&self.bs, &params.name, &params.symbol)?;
+        init_state.save(&self.bs);
+        Ok(())
+    }
+
+    fn name(&self) -> String {
+        let state = self.load_state();
+        state.name
+    }
+
+    fn symbol(&self) -> String {
+        let state = self.load_state();
+        state.symbol
+    }
+
+    fn total_supply(&self) -> TokenAmount {
+        let state = self.load_state();
+        state.supply
     }
 
     fn balance_of(&self, holder: Address) -> Result<TokenAmount> {
