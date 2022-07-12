@@ -73,7 +73,7 @@ impl<T: Hasher> MethodResolver<T> {
             return Err(MethodNameErr::IllegalSymbol);
         }
 
-        if method_name.len() == 0 {
+        if method_name.is_empty() {
             return Err(MethodNameErr::EmptyString);
         }
 
@@ -102,7 +102,7 @@ impl<T: Hasher> MethodResolver<T> {
 #[rustfmt::skip]
 fn as_u32(bytes: &[u8]) -> u32 {
     (bytes[0] as u32)              + 
-    ((bytes[1] as u32) << (8 * 1)) +
+    (bytes[1] as u32)  <<  8       +
     ((bytes[2] as u32) << (8 * 2)) +
     ((bytes[3] as u32) << (8 * 3)) 
 }
