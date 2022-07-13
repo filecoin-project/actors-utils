@@ -1,4 +1,4 @@
-use std::{error::Error, fmt::Display};
+use thiserror::Error;
 
 use crate::hash::{Hasher, MethodNameErr, MethodResolver};
 
@@ -12,24 +12,13 @@ pub struct MethodMessenger<T: Hasher> {
     method_resolver: MethodResolver<T>,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(Error, PartialEq, Debug)]
 pub enum MethodMessengerError {
+    #[error("error when calculating method name: `{0}`")]
     MethodName(MethodNameErr),
+    #[error("error sending message: `{0}`")]
     Syscall(ErrorNumber),
 }
-
-impl Display for MethodMessengerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MethodMessengerError::Syscall(e) => write!(f, "Error when sending message: {:?}", e),
-            MethodMessengerError::MethodName(e) => {
-                write!(f, "Error calculating method name: {:?}", e)
-            }
-        }
-    }
-}
-
-impl Error for MethodMessengerError {}
 
 impl From<ErrorNumber> for MethodMessengerError {
     fn from(e: ErrorNumber) -> Self {

@@ -1,4 +1,4 @@
-use std::{error::Error, fmt::Display};
+use thiserror::Error;
 
 use fvm_sdk::crypto;
 
@@ -28,27 +28,15 @@ pub struct MethodResolver<T: Hasher> {
     hasher: T,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(Error, PartialEq, Debug)]
 pub enum MethodNameErr {
+    #[error("empty method name provided")]
     EmptyString,
+    #[error("illegal symbol used in method name")]
     IllegalSymbol,
+    #[error("unable to calculate method id, choose a another method name")]
     IndeterminableId,
 }
-
-impl Display for MethodNameErr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MethodNameErr::IllegalSymbol => write!(f, "Illegal symbol used in method name"),
-            MethodNameErr::IndeterminableId => write!(
-                f,
-                "Unable to calculate method id, choose another method name"
-            ),
-            MethodNameErr::EmptyString => write!(f, "Empty method name provided"),
-        }
-    }
-}
-
-impl Error for MethodNameErr {}
 
 impl<T: Hasher> MethodResolver<T> {
     const CONSTRUCTOR_METHOD_NAME: &'static str = "Constructor";
@@ -69,7 +57,7 @@ impl<T: Hasher> MethodResolver<T> {
     ///
     pub fn method_number(&self, method_name: &str) -> Result<u64, MethodNameErr> {
         // TODO: sanitise method_name before checking (or reject invalid whitespace)
-        if method_name.contains("|") {
+        if method_name.contains('|') {
             return Err(MethodNameErr::IllegalSymbol);
         }
 
@@ -78,21 +66,20 @@ impl<T: Hasher> MethodResolver<T> {
         }
 
         if method_name == Self::CONSTRUCTOR_METHOD_NAME {
-            Ok(Self::CONSTRUCTOR_METHOD_NUMBER)
-        } else {
-            let mut digest = self.hasher.hash(method_name.as_bytes());
-            while digest.len() >= 4 {
-                let method_id = as_u32(digest.as_slice()) as u64;
-                if method_id != Self::CONSTRUCTOR_METHOD_NUMBER
-                    && method_id != Self::RESERVED_METHOD_NUMBER
-                {
-                    return Ok(method_id);
-                } else {
-                    digest.remove(0);
-                }
-            }
-            Err(MethodNameErr::IndeterminableId)
+            return Ok(Self::CONSTRUCTOR_METHOD_NUMBER);
         }
+        let mut digest = self.hasher.hash(method_name.as_bytes());
+        while digest.len() >= 4 {
+            let method_id = as_u32(digest.as_slice()) as u64;
+            if method_id != Self::CONSTRUCTOR_METHOD_NUMBER
+                && method_id != Self::RESERVED_METHOD_NUMBER
+            {
+                return Ok(method_id);
+            } else {
+                digest.remove(0);
+            }
+        }
+        Err(MethodNameErr::IndeterminableId)
     }
 }
 
