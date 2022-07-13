@@ -138,7 +138,7 @@ mod tests {
         );
         assert_eq!(
             method_hasher.method_number("").unwrap_err(),
-            MethodNameErr::IllegalSymbol
+            MethodNameErr::EmptyString
         );
     }
 
@@ -155,7 +155,7 @@ mod tests {
         assert_ne!(method_hasher.method_number(contrived_0).unwrap(), 0);
 
         // This simulates a method name that would hash to 1
-        let contrived_1 = "\x01\0\0\0MethodName";
+        let contrived_1 = "\0\0\0\x01MethodName";
         let contrived_1_digest = hasher.hash(contrived_1.as_bytes());
         assert_eq!(super::as_u32(&contrived_1_digest), 1);
         // But the method number is not a collision
