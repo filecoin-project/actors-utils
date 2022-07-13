@@ -84,14 +84,15 @@ impl<T: Hasher> MethodResolver<T> {
 }
 
 /// Takes a byte array and interprets it as a u32 number
-/// 
-/// Using big-endian order interperets the first four bytes to an int
-#[rustfmt::skip]
+///
+/// Using big-endian order interperets the first four bytes to an int.
+/// The slice passed to this must be at least length 4
 fn as_u32(bytes: &[u8]) -> u32 {
-    (bytes[0] as u32)              + 
-    (bytes[1] as u32)  <<  8       +
-    ((bytes[2] as u32) << (8 * 2)) +
-    ((bytes[3] as u32) << (8 * 3)) 
+    u32::from_be_bytes(
+        bytes[0..4]
+            .try_into()
+            .expect("bytes was not at least length 4"),
+    )
 }
 
 #[cfg(test)]
