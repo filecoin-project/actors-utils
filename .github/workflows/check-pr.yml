@@ -1,0 +1,28 @@
+name: Rust PR check
+
+on:
+  pull_request:
+    # Default types for PR are opened, synchronize, reopened. Need
+    # ready_for_review to catch a PR that is moving from draft to not-draft
+    types: [opened, synchronize, reopened, ready_for_review]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-code:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Formatting
+        run: cargo fmt --check
+
+      - name: Linting
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace --all-targets --all-features
+
+      # TODO: run tests
