@@ -9,3 +9,4 @@ edition = "2021"
 fvm_ipld_encoding = { version = "0.2.2" }
 fvm_sdk = { version = "1.0.0" }
 fvm_shared = { version = "0.8.0" }
+thiserror = { version = "1.0.31" }
