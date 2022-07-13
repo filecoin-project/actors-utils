@@ -61,7 +61,6 @@ impl<T: Hasher> MethodMessenger<T> {
         value: TokenAmount,
     ) -> Result<Receipt, MethodMessengerError> {
         let method = self.method_resolver.method_number(method)?;
-        let res = send::send(to, method, params, value)?;
-        Ok(res)
+        send::send(to, method, params, value).map_err(MethodMessengerError::from)
     }
 }
