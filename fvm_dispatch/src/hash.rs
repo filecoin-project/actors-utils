@@ -82,11 +82,11 @@ impl<T: Hasher> MethodResolver<T> {
         } else {
             let mut digest = self.hasher.hash(method_name.as_bytes());
             while digest.len() >= 4 {
-                let method_id = as_u32(digest.as_slice());
-                if method_id as u64 != Self::CONSTRUCTOR_METHOD_NUMBER
-                    && method_id as u64 != Self::RESERVED_METHOD_NUMBER
+                let method_id = as_u32(digest.as_slice()) as u64;
+                if method_id != Self::CONSTRUCTOR_METHOD_NUMBER
+                    && method_id != Self::RESERVED_METHOD_NUMBER
                 {
-                    return Ok(as_u32(digest.as_slice()) as u64);
+                    return Ok(method_id);
                 } else {
                     digest.remove(0);
                 }
