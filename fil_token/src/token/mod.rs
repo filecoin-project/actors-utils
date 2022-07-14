@@ -1,73 +1,26 @@
 pub mod errors;
 pub mod receiver;
 pub mod state;
-pub mod types;
+mod types;
 use self::errors::ActorError;
 use self::state::TokenState;
-use self::types::*;
+pub use self::types::*;
 use crate::runtime::Runtime;
 
 use anyhow::bail;
+use anyhow::Ok;
 use anyhow::Result;
+use cid::Cid;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
-use fvm_sdk::sself;
-use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::bigint::BigInt;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
+use fvm_shared::ActorID;
 
-/// A macro to abort concisely.
-macro_rules! abort {
-    ($code:ident, $msg:literal $(, $ex:expr)*) => {
-        fvm_sdk::vm::abort(
-            fvm_shared::error::ExitCode::$code.value(),
-            Some(format!($msg, $($ex,)*).as_str()),
-        )
-    };
-}
-
-/// A standard fungible token interface allowing for on-chain transactions
-pub trait Token {
-    /// Returns the name of the token
-    fn name(&self) -> String;
-
-    /// Returns the ticker symbol of the token
-    fn symbol(&self) -> String;
-
-    /// Returns the total amount of the token in existence
-    fn total_supply(&self) -> TokenAmount;
-
-    /// Gets the balance of a particular address (if it exists).
-    fn balance_of(&self, params: Address) -> Result<TokenAmount>;
-
-    /// Atomically increase the amount that a spender can pull from an account
-    ///
-    /// Returns the new allowance between those two addresses
-    fn increase_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn>;
-
-    /// Atomically decrease the amount that a spender can pull from an account
-    ///
-    /// The allowance cannot go below 0 and will be capped if the requested decrease
-    /// is more than the current allowance
-    fn decrease_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn>;
-
-    /// Revoke the allowance between two addresses by setting it to 0
-    fn revoke_allowance(&self, params: RevokeAllowanceParams) -> Result<AllowanceReturn>;
-
-    /// Get the allowance between two addresses
-    ///
-    /// The spender can burn or transfer the allowance amount out of the owner's address
-    fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn>;
-
-    /// Burn tokens from a specified account, decreasing the total supply
-    fn burn(&self, params: BurnParams) -> Result<BurnReturn>;
-
-    /// Transfer between two addresses
-    fn transfer(&self, params: TransferParams) -> Result<TransferReturn>;
-}
-
-/// Holds injectable services to access/interface with IPLD/FVM layer
+/// Library functions that implement core FRC-??? standards
+///
+/// Holds injectable services to access/interface with IPLD/FVM layer.
 pub struct TokenHelper<BS, FVM>
 where
     BS: IpldStore + Copy,
@@ -76,7 +29,9 @@ where
     /// Injected blockstore
     bs: BS,
     /// Access to the runtime
-    fvm: FVM,
+    _runtime: FVM,
+    /// Root of the token state tree
+    token_state: Cid,
 }
 
 impl<BS, FVM> TokenHelper<BS, FVM>
@@ -84,68 +39,47 @@ where
     BS: IpldStore + Copy,
     FVM: Runtime,
 {
-    pub fn new(bs: BS, fvm: FVM) -> Self {
-        Self { bs, fvm }
+    /// Instantiate a token helper with access to a blockstore and runtime
+    pub fn new(bs: BS, runtime: FVM, token_state: Cid) -> Self {
+        Self {
+            bs,
+            _runtime: runtime,
+            token_state,
+        }
     }
 
-    /// Constructs the token
-    pub fn init_state(&self) -> Result<()> {
+    /// Constructs the token state tree and saves it at a CID
+    pub fn init_state(&self) -> Result<Cid> {
         let init_state = TokenState::new(&self.bs)?;
-        init_state.save(&self.bs);
-        Ok(())
-    }
-
-    // Utility function for token-authors to mint supply
-    pub fn mint(&self, params: MintParams) -> Result<MintReturn> {
-        // TODO: check we are being called in the constructor by init system actor
-        // - or that other (TBD) minting rules are satified
-
-        // these should be injectable by the token author
-        // TODO: proper error handling here
-        let state = self.load_state();
-        let mut state = state.unwrap();
-        let balances = state.get_balance_map(&self.bs);
-        let mut balances = balances.unwrap();
-
-        // Mint the tokens into a specified account
-        let balance = balances
-            .delete(&params.initial_holder)?
-            .map(|de| de.1 .0)
-            .unwrap_or_else(TokenAmount::zero);
-        let new_balance = balance
-            .checked_add(&params.value)
-            .ok_or_else(|| ActorError::Arithmetic(String::from("Minting into caused overflow")))?;
-        balances.set(params.initial_holder, BigIntDe(new_balance))?;
-
-        // set the global supply of the contract
-        let new_supply = state.supply.checked_add(&params.value).ok_or_else(|| {
-            ActorError::Arithmetic(String::from("Minting caused total supply to overflow"))
-        })?;
-        state.supply = new_supply;
-
-        // commit the state if supply and balance increased
-        state.save(&self.bs);
-
-        Ok(MintReturn {
-            newly_minted: params.value,
-            successful: true,
-            total_supply: state.supply,
-        })
+        init_state.save(&self.bs)
     }
 
     /// Helper function that loads the root of the state tree related to token-accounting
     fn load_state(&self) -> Result<TokenState> {
-        // TODO: replace sself usage with abstraction
-        TokenState::load(&self.bs, &sself::root().unwrap())
+        TokenState::load(&self.bs, &self.token_state)
     }
-}
 
-impl<BS, FVM> TokenHelper<BS, FVM>
-where
-    BS: IpldStore + Copy,
-    FVM: Runtime,
-{
-    /// Gets the total number of tokens in existence.
+    /// Mints the specified value of tokens into an account
+    ///
+    /// If the total supply or account balance overflows, this method returns an error. The mint
+    /// amount must be non-negative or the method returns an error.
+    pub fn mint(&self, initial_holder: ActorID, value: TokenAmount) -> Result<()> {
+        if value.lt(&TokenAmount::zero()) {
+            bail!("value of mint was negative {}", value);
+        }
+
+        // Increase the balance of the actor and increase total supply
+        let mut state = self.load_state()?;
+        state.increase_balance(&self.bs, initial_holder, &value)?;
+        state.increase_supply(&value)?;
+
+        // Commit the state atomically if supply and balance increased
+        state.save(&self.bs)?;
+
+        Ok(())
+    }
+
+    /// Gets the total number of tokens in existence
     ///
     /// This equals the sum of `balance_of` called on all addresses. This equals sum of all
     /// successful `mint` calls minus the sum of all successful `burn`/`burn_from` calls
@@ -156,140 +90,170 @@ where
 
     /// Returns the balance associated with a particular address
     ///
-    ///
-    pub fn balance_of(&self, holder: Address) -> Result<TokenAmount> {
+    /// Accounts that have never received transfers implicitly have a zero-balance
+    pub fn balance_of(&self, holder: ActorID) -> Result<TokenAmount> {
         // Load the HAMT holding balances
-        let state = self.load_state().unwrap();
-        let balances = state.get_balance_map(&self.bs).unwrap();
-
-        // Resolve the address
-        let addr_id = self.fvm.resolve_address(&holder)?;
-
-        match balances.get(&addr_id) {
-            Ok(Some(bal)) => Ok(bal.clone().0),
-            Ok(None) => Ok(TokenAmount::zero()),
-            Err(err) => abort!(
-                USR_ILLEGAL_STATE,
-                "Failed to get balance from hamt: {:?}",
-                err
-            ),
-        }
+        let state = self.load_state()?;
+        state.get_balance(&self.bs, holder)
     }
 
-    pub fn increase_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn> {
-        // Load the HAMT holding balances
-        let state = self.load_state().unwrap();
+    /// Increase the allowance that a spender controls of the owner's balance by the requested delta
+    ///
+    /// Returns an error if requested delta is negative or there are errors in (de)sereliazation of
+    /// state. Else returns the new allowance.
+    pub fn increase_allowance(
+        &self,
+        owner: ActorID,
+        spender: ActorID,
+        delta: TokenAmount,
+    ) -> Result<TokenAmount> {
+        if delta.lt(&TokenAmount::zero()) {
+            bail!("value of allowance increase was negative {}", delta);
+        }
 
-        let caller_id = self.fvm.caller();
-        let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id).unwrap();
+        // Retrieve the HAMT holding balances
+        let state = self.load_state()?;
+        let mut owner_allowances = state.get_actor_allowance_map(&self.bs, owner)?;
 
-        let spender = self.fvm.resolve_address(&params.spender)?;
-        let new_amount = match caller_allowances_map.get(&spender)? {
+        let new_amount = match owner_allowances.get(&spender)? {
             // Allowance exists - attempt to calculate new allowance
-            Some(existing_allowance) => match existing_allowance.0.checked_add(&params.value) {
+            Some(existing_allowance) => match existing_allowance.0.checked_add(&delta) {
                 Some(new_allowance) => {
-                    caller_allowances_map.set(spender, BigIntDe(new_allowance.clone()))?;
+                    owner_allowances.set(spender, BigIntDe(new_allowance.clone()))?;
                     new_allowance
                 }
-                None => bail!(ActorError::Arithmetic(String::from("Allowance overflowed"))),
+                None => bail!(ActorError::Arithmetic(format!(
+                    "allowance overflowed attempting to add {} to existing allowance of {} between {} {}",
+                    delta, existing_allowance.0, owner, spender
+                ))),
             },
             // No allowance recorded previously
             None => {
-                caller_allowances_map.set(spender, BigIntDe(params.value.clone()))?;
-                params.value
+                owner_allowances.set(spender, BigIntDe(delta.clone()))?;
+                delta
             }
         };
 
-        state.save(&self.bs);
+        state.save(&self.bs)?;
 
-        Ok(AllowanceReturn {
-            owner: params.owner,
-            spender: params.spender,
-            value: new_amount,
-        })
+        Ok(new_amount)
     }
 
-    pub fn decrease_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn> {
+    /// Decrease the allowance that a spender controls of the owner's balance by the requested delta
+    ///
+    /// If the resulting allowance would be negative, the allowance between owner and spender is set
+    /// to zero. If resulting allowance is zero, the entry is removed from the state map. Returns an
+    /// error if either the spender or owner address is unresolvable. Returns an error if requested
+    /// delta is negative. Else returns the new allowance
+    pub fn decrease_allowance(
+        &self,
+        owner: ActorID,
+        spender: ActorID,
+        delta: TokenAmount,
+    ) -> Result<TokenAmount> {
         // Load the HAMT holding balances
-        let state = self.load_state().unwrap();
+        let state = self.load_state()?;
 
-        let caller_id = self.fvm.caller();
-        let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id).unwrap();
+        // TODO: replace this with a higher level abstraction where you can call
+        // state.get_allowance (owner, spender)
+        let mut allowances_map = state.get_actor_allowance_map(&self.bs, owner)?;
 
-        let spender = self.fvm.resolve_address(&params.spender)?;
-
-        let new_allowance = match caller_allowances_map.get(&spender)? {
+        let new_allowance = match allowances_map.get(&spender)? {
             Some(existing_allowance) => {
                 let new_allowance = existing_allowance
                     .0
-                    .checked_sub(&params.value)
+                    .checked_sub(&delta)
                     .unwrap() // Unwrap should be safe as allowance always > 0
                     .max(BigInt::zero());
-                caller_allowances_map.set(spender, BigIntDe(new_allowance.clone()))?;
+                allowances_map.set(spender, BigIntDe(new_allowance.clone()))?;
                 new_allowance
             }
             None => {
                 // Can't decrease non-existent allowance
-                return Ok(AllowanceReturn {
-                    owner: params.owner,
-                    spender: params.spender,
-                    value: TokenAmount::zero(),
-                });
+                return Ok(TokenAmount::zero());
             }
         };
 
-        state.save(&self.bs);
+        state.save(&self.bs)?;
 
-        Ok(AllowanceReturn {
-            owner: params.owner,
-            spender: params.spender,
-            value: new_allowance,
-        })
+        Ok(new_allowance)
     }
 
-    pub fn revoke_allowance(&self, params: RevokeAllowanceParams) -> Result<AllowanceReturn> {
+    /// Sets the allowance between owner and spender to 0
+    pub fn revoke_allowance(&self, owner: ActorID, spender: ActorID) -> Result<()> {
         // Load the HAMT holding balances
-        let state = self.load_state().unwrap();
-
-        let caller_id = self.fvm.caller();
-        let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id).unwrap();
-
-        let spender = self.fvm.resolve_address(&params.spender)?;
+        let state = self.load_state()?;
+        let mut allowances_map = state.get_actor_allowance_map(&self.bs, owner)?;
         let new_allowance = TokenAmount::zero();
-        caller_allowances_map.set(spender, BigIntDe(new_allowance.clone()))?;
+        allowances_map.set(spender, BigIntDe(new_allowance.clone()))?;
 
-        state.save(&self.bs);
-
-        Ok(AllowanceReturn {
-            owner: params.owner,
-            spender: params.spender,
-            value: new_allowance,
-        })
+        state.save(&self.bs)?;
+        Ok(())
     }
 
-    pub fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn> {
+    /// Gets the allowance between owner and spender
+    ///
+    /// The allowance is the amount that the spender can transfer or burn out of the owner's account
+    /// via the `transfer_from` and `burn_from` methods.
+    pub fn allowance(&self, owner: ActorID, spender: ActorID) -> Result<TokenAmount> {
         // Load the HAMT holding balances
-        let state = self.load_state().unwrap();
+        let state = self.load_state()?;
 
-        let owner = self.fvm.resolve_address(&params.owner)?;
-        let owner_allowances_map = state.get_actor_allowance_map(&self.bs, owner).unwrap();
-
-        let spender = self.fvm.resolve_address(&params.spender)?;
-
+        let owner_allowances_map = state.get_actor_allowance_map(&self.bs, owner)?;
         let allowance = match owner_allowances_map.get(&spender)? {
             Some(allowance) => allowance.0.clone(),
             None => TokenAmount::zero(),
         };
 
-        Ok(AllowanceReturn {
-            owner: params.owner,
-            spender: params.spender,
-            value: allowance,
-        })
+        Ok(allowance)
     }
 
-    pub fn burn(&self, _params: BurnParams) -> Result<BurnReturn> {
-        todo!()
+    /// Burns an amount of token from the specified address, decreasing total token supply
+    ///
+    /// ## For all burn operations
+    /// Preconditions:
+    /// - The requested value MUST be non-negative
+    /// - The requested value MUST NOT exceed the target's balance
+    ///
+    /// Postconditions:
+    /// - The target's balance MUST decrease by the requested value
+    /// - The total_supply MUST decrease by the requested value
+    ///
+    /// ## Operator equals target address
+    /// If the operator is the targeted address, they are implicitly approved to burn an unlimited
+    /// amount of tokens (up to their balance)
+    ///
+    /// ## Operator burning on behalf of target address
+    /// If the operator is burning on behalf of the target token holder the following preconditions
+    /// must be met on top of the general burn conditions:
+    /// - The operator MUST have an allowance not less than the requested value
+    /// In addition to the general postconditions:
+    /// - The target-operator allowance MUST decrease by the requested value
+    ///
+    /// If the burn operation would result in a negative balance for the targeted address, the burn
+    /// is discarded and this method returns an error
+    pub fn burn(
+        &self,
+        operator: ActorID,
+        target: ActorID,
+        value: TokenAmount,
+    ) -> Result<TokenAmount> {
+        if value.lt(&TokenAmount::zero()) {
+            bail!("Cannot burn a negative amount");
+        }
+
+        let state = self.load_state()?;
+
+        if operator != target {
+            // attempt to use allowance and return early if not enough
+            state.attempt_use_allowance(&self.bs, operator, target, &value)?;
+        }
+        // attempt to burn the requested amount
+        let new_amount = state.attempt_burn(&self.bs, target, &value)?;
+
+        state.save(&self.bs)?;
+
+        Ok(new_amount)
     }
 
     pub fn transfer(&self, _params: TransferParams) -> Result<TransferReturn> {

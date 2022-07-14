@@ -1,9 +1,97 @@
+use anyhow::Result;
+
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
+
+/// A standard fungible token interface allowing for on-chain transactions that implements the
+/// FRC-XXX standard. This represents the external interface exposed to other on-chain actors
+///
+/// Token authors should implement this trait and link the methods to standard dispatch numbers in
+/// their actor's `invoke` entrypoint. A standard helper (TODO) is provided to aid method dispatch.
+///
+/// TODO: make non-pseudo code
+/// ```
+/// //struct Token {}
+/// //impl FrcXXXToken for Token {
+/// //    ...
+/// //}
+///
+/// //fn invoke(params: u32) -> u32 {
+/// //    let token = Token {};
+///
+/// //    match sdk::message::method_number() {
+/// //        1 => constructor(),
+/// //        2 => token.name(),
+/// //        _ => abort!()
+/// //        // etc.
+/// //    }
+/// //}
+/// ```
+pub trait FrcXXXToken {
+    /// Returns the name of the token
+    fn name(&self) -> String;
+
+    /// Returns the ticker symbol of the token
+    fn symbol(&self) -> String;
+
+    /// Returns the total amount of the token in existence
+    fn total_supply(&self) -> TokenAmount;
+
+    /// Gets the balance of a particular address (if it exists)
+    ///
+    /// This will method attempt to resolve addresses to ID-addresses
+    fn balance_of(&self, params: Address) -> Result<TokenAmount>;
+
+    /// Atomically increase the amount that a spender can pull from the owner account
+    ///
+    /// The increase must be non-negative. Returns the new allowance between those two addresses if
+    /// successful
+    fn increase_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn>;
+
+    /// Atomically decrease the amount that a spender can pull from an account
+    ///
+    /// The decrease must be non-negative. The resulting allowance is set to zero if the decrease is
+    /// more than the current allowance. Returns the new allowance between the two addresses if
+    /// successful
+    fn decrease_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn>;
+
+    /// Set the allowance a spender has on the owner's account to zero
+    fn revoke_allowance(&self, params: RevokeAllowanceParams) -> Result<AllowanceReturn>;
+
+    /// Get the allowance between two addresses
+    ///
+    /// The spender can burn or transfer the allowance amount out of the owner's address. If the
+    /// address of the owner cannot be resolved, this method returns an error. If the owner can be
+    /// resolved, but the spender address is not registered with an allowance, an implicit allowance
+    /// of 0 is returned
+    fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn>;
+
+    /// Burn tokens from the caller's account, decreasing the total supply
+    ///
+    /// When burning tokens:
+    /// - Any holder MUST be allowed to burn their own tokens
+    /// - The balance of the holder MUST decrease by the amount burned
+    /// - This method MUST revert if the burn amount is more than the holder's balance
+    fn burn(&self, params: BurnParams) -> Result<BurnReturn>;
+
+    /// Burn tokens from the owner's account, decreasing the total supply
+    ///
+    /// When burning on behalf of the owner:
+    /// - The same rules on the holder apply as `burn`
+    /// - This method MUST revert if the burn amount is more than the allowance authorised by the
+    /// owner
+    fn burn_from(&self, params: BurnParams) -> Result<BurnReturn>;
+
+    /// Transfer tokens from the caller to the receiver
+    ///
+    fn transfer(&self, params: TransferParams) -> Result<TransferReturn>;
+
+    fn transfer_from(&self, params: TransferParams) -> Result<TransferReturn>;
+}
 
 #[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct MintParams {

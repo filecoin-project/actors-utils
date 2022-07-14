@@ -13,11 +13,13 @@ use fvm_ipld_hamt::Hamt;
 use fvm_sdk::sself;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
+use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
-use fvm_shared::HAMT_BIT_WIDTH;
 
-/// Token state ipld structure
+const HAMT_BIT_WIDTH: u32 = 5;
+
+/// Token state IPLD structure
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct TokenState {
     /// Total supply of token
@@ -26,19 +28,16 @@ pub struct TokenState {
 
     /// Map<ActorId, TokenAmount> of balances as a Hamt
     pub balances: Cid,
-    /// Map<ActorId, Map<ActorId, TokenAmount>> as a Hamt
+    /// Map<ActorId, Map<ActorId, TokenAmount>> as a Hamt. Allowances are stored balances[owner][spender]
     pub allowances: Cid,
 }
 
-/// Functions to get and modify token state to and from the IPLD layer
+/// An abstraction over the IPLD layer to get and modify token state without dealing with HAMTs etc.
 impl TokenState {
     pub fn new<BS: IpldStore>(store: &BS) -> Result<Self> {
-        let empty_balance_map = Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH)
-            .flush()
-            .map_err(|e| anyhow!("Failed to create empty balances map state {}", e))?;
-        let empty_allowances_map = Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH)
-            .flush()
-            .map_err(|e| anyhow!("Failed to create empty balances map state {}", e))?;
+        let empty_balance_map = Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH).flush()?;
+        let empty_allowances_map =
+            Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH).flush()?;
 
         Ok(Self {
             supply: Default::default(),
@@ -77,13 +76,81 @@ impl TokenState {
         Ok(cid)
     }
 
-    pub fn get_balance_map<BS: IpldStore + Copy>(
+    /// Get the balance of an ActorID from the currently stored state
+    pub fn get_balance<BS: IpldStore + Copy>(
+        &self,
+        bs: &BS,
+        owner: ActorID,
+    ) -> Result<TokenAmount> {
+        let balances = self.get_balance_map(bs)?;
+
+        let balance: TokenAmount;
+        match balances.get(&owner)? {
+            Some(amount) => balance = amount.0.clone(),
+            None => balance = TokenAmount::zero(),
+        }
+
+        Ok(balance)
+    }
+
+    /// Retrieve the balance map as a HAMT
+    fn get_balance_map<BS: IpldStore + Copy>(
         &self,
         bs: &BS,
     ) -> Result<Hamt<BS, BigIntDe, ActorID>> {
         match Hamt::<BS, BigIntDe, ActorID>::load(&self.balances, *bs) {
             Ok(map) => Ok(map),
             Err(err) => return Err(anyhow!("Failed to load balances hamt: {:?}", err)),
+        }
+    }
+
+    /// Increase the total supply by the specified value
+    ///
+    /// The requested amount must be non-negative.
+    /// Returns an error if the total supply overflows, else returns the new total supply
+    pub fn increase_supply(&mut self, value: &TokenAmount) -> Result<TokenAmount> {
+        let new_supply = self.supply.checked_add(&value).ok_or_else(|| {
+            anyhow!(
+                "Overflow when adding {} to the total_supply of {}",
+                value,
+                self.supply
+            )
+        })?;
+        self.supply = new_supply.clone();
+        Ok(new_supply)
+    }
+
+    /// Attempts to increase the balance of the specified account by the value
+    ///
+    /// The requested amount must be non-negative.
+    /// Returns an error if the balance overflows, else returns the new balance
+    pub fn increase_balance<BS: IpldStore + Copy>(
+        &self,
+        bs: &BS,
+        actor: ActorID,
+        value: &TokenAmount,
+    ) -> Result<TokenAmount> {
+        let mut balance_map = self.get_balance_map(bs)?;
+        let balance = balance_map.get(&actor)?;
+        match balance {
+            Some(existing_amount) => {
+                let existing_amount = existing_amount.clone().0;
+                let new_amount = existing_amount.checked_add(&value).ok_or_else(|| {
+                    anyhow!(
+                        "Overflow when adding {} to {}'s balance of {}",
+                        value,
+                        actor,
+                        existing_amount
+                    )
+                })?;
+
+                balance_map.set(actor, BigIntDe(new_amount.clone()))?;
+                Ok(new_amount)
+            }
+            None => {
+                balance_map.set(actor, BigIntDe(value.clone()))?;
+                Ok(value.clone())
+            }
         }
     }
 
@@ -125,6 +192,27 @@ impl TokenState {
             }
             Err(e) => Err(anyhow!("failed to get actor's allowance map {:?}", e)),
         }
+    }
+
+    /// TODO: docs
+    pub fn attempt_burn<BS: IpldStore>(
+        &self,
+        _bs: BS,
+        _target: u64,
+        _value: &TokenAmount,
+    ) -> Result<TokenAmount> {
+        todo!()
+    }
+
+    /// TODO: docs
+    pub fn attempt_use_allowance<BS: IpldStore>(
+        &self,
+        _bs: BS,
+        _operator: u64,
+        _target: u64,
+        _value: &TokenAmount,
+    ) -> Result<TokenAmount> {
+        todo!()
     }
 
     // fn enough_allowance(

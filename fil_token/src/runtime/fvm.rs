@@ -5,6 +5,7 @@ use fvm_sdk as sdk;
 use sdk::actor;
 use sdk::message;
 
+/// Provides access to the FVM which acts as the runtime for actors deployed on-chain
 pub struct FvmRuntime {}
 
 impl Runtime for FvmRuntime {

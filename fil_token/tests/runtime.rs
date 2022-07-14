@@ -1,5 +1,3 @@
-use std::intrinsics::const_allocate;
-
 use fil_token::runtime::Runtime;
 pub struct TestRuntime {
     caller: u64,

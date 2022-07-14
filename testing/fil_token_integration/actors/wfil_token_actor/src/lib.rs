@@ -1,8 +1,7 @@
 use anyhow::Result;
 use fil_token::blockstore::Blockstore;
 use fil_token::runtime::FvmRuntime;
-use fil_token::token::types::*;
-use fil_token::token::{Token, TokenHelper};
+use fil_token::token::*;
 use fvm_ipld_encoding::{RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
 use fvm_shared::bigint::bigint_ser::BigIntSer;
@@ -14,9 +13,9 @@ struct WfilToken {
     util: TokenHelper<Blockstore, FvmRuntime>,
 }
 
-// TODO: Wrapper is unecessary?
-// Instead expose a
-impl Token for WfilToken {
+/// Implement the token API
+/// here addresses should be translated to actor id's etc.
+impl FrcXXXToken for WfilToken {
     fn name(&self) -> String {
         String::from("Wrapped FIL")
     }
@@ -33,31 +32,40 @@ impl Token for WfilToken {
         &self,
         params: fvm_shared::address::Address,
     ) -> Result<fvm_shared::econ::TokenAmount> {
-        self.util.balance_of(params)
+        todo!("reshape aprams")
     }
 
     fn increase_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn> {
-        self.util.increase_allowance(params)
+        todo!("resolve address to actorid");
     }
 
     fn decrease_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn> {
-        self.util.decrease_allowance(params)
+        todo!("add return")
     }
 
     fn revoke_allowance(&self, params: RevokeAllowanceParams) -> Result<AllowanceReturn> {
-        self.util.revoke_allowance(params)
+        todo!("add return")
     }
 
     fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn> {
-        self.util.allowance(params)
+        todo!();
     }
 
+    // TODO: change burn params
     fn burn(&self, params: BurnParams) -> Result<BurnReturn> {
-        self.util.burn(params)
+        todo!();
     }
 
     fn transfer(&self, params: TransferParams) -> Result<TransferReturn> {
-        self.util.transfer(params)
+        todo!()
+    }
+
+    fn burn_from(&self, params: BurnParams) -> Result<BurnReturn> {
+        todo!();
+    }
+
+    fn transfer_from(&self, params: TransferParams) -> Result<TransferReturn> {
+        todo!()
     }
 }
 
@@ -67,8 +75,9 @@ pub fn invoke(params: u32) -> u32 {
     // Conduct method dispatch. Handle input parameters and return data.
     let method_num = sdk::message::method_number();
 
+    let root_cid = sdk::sself::root().unwrap();
     let token_actor = WfilToken {
-        util: TokenHelper::new(Blockstore {}, FvmRuntime {}),
+        util: TokenHelper::new(Blockstore {}, FvmRuntime {}, root_cid),
     };
 
     //TODO: this internal dispatch can be pushed as a library function into the fil_token crate
@@ -129,12 +138,10 @@ pub fn invoke(params: u32) -> u32 {
         }
         // Custom actor interface
         12 => {
-            // Mint
-            let params = MintParams {
-                initial_holder: sdk::message::caller(),
-                value: sdk::message::value_received(),
-            };
-            let res = token_actor.util.mint(params).unwrap();
+            let res = token_actor
+                .util
+                .mint(sdk::message::caller(), sdk::message::value_received())
+                .unwrap();
             let res = RawBytes::new(fvm_ipld_encoding::to_vec(&res).unwrap());
             let cid = sdk::ipld::put_block(DAG_CBOR, res.bytes()).unwrap();
             cid
