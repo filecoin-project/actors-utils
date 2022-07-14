@@ -1,31 +1,55 @@
-use crate::hash::{Hasher, MethodHasher};
+use thiserror::Error;
+
+use crate::hash::{Hasher, MethodNameErr, MethodResolver};
 
 use fvm_ipld_encoding::RawBytes;
-use fvm_sdk::{send, SyscallResult};
+use fvm_sdk::{send, sys::ErrorNumber};
 use fvm_shared::{address::Address, econ::TokenAmount, receipt::Receipt};
 
+/// Utility to invoke standard methods on deployed actors
 #[derive(Default)]
-pub struct MethodDispatcher<T: Hasher> {
-    method_hasher: MethodHasher<T>,
+pub struct MethodMessenger<T: Hasher> {
+    method_resolver: MethodResolver<T>,
 }
 
-impl<T: Hasher> MethodDispatcher<T> {
-    /// Create a new MethodDispatcher with a given hasher
+#[derive(Error, PartialEq, Debug)]
+pub enum MethodMessengerError {
+    #[error("error when calculating method name: `{0}`")]
+    MethodName(MethodNameErr),
+    #[error("error sending message: `{0}`")]
+    Syscall(ErrorNumber),
+}
+
+impl From<ErrorNumber> for MethodMessengerError {
+    fn from(e: ErrorNumber) -> Self {
+        Self::Syscall(e)
+    }
+}
+
+impl From<MethodNameErr> for MethodMessengerError {
+    fn from(e: MethodNameErr) -> Self {
+        Self::MethodName(e)
+    }
+}
+
+impl<T: Hasher> MethodMessenger<T> {
+    /// Creates a new method messenger using a specified hashing function (blake2b by default)
     pub fn new(hasher: T) -> Self {
         Self {
-            method_hasher: MethodHasher::new(hasher),
+            method_resolver: MethodResolver::new(hasher),
         }
     }
 
-    /// Call a method on another actor by conventional name
+    /// Calls a method (by name) on a specified actor by constructing and publishing the underlying
+    /// on-chain Message
     pub fn call_method(
         &self,
         to: &Address,
         method: &str,
         params: RawBytes,
         value: TokenAmount,
-    ) -> SyscallResult<Receipt> {
-        let method = self.method_hasher.method_number(method);
-        send::send(to, method, params, value)
+    ) -> Result<Receipt, MethodMessengerError> {
+        let method = self.method_resolver.method_number(method)?;
+        send::send(to, method, params, value).map_err(MethodMessengerError::from)
     }
 }
