@@ -25,17 +25,17 @@ fn mint_tokens() {
 
     let minter: [Account; 1] = tester.create_accounts().unwrap();
 
-    // Get wasm bin
-    let wasm_path = env::current_dir()
-        .unwrap()
-        .join(WFIL_TOKEN_WASM_COMPILED_PATH)
-        .canonicalize()
-        .unwrap();
-    let wasm_bin = std::fs::read(wasm_path).expect("Unable to read file");
+    // // Get wasm bin
+    // let wasm_path = env::current_dir()
+    //     .unwrap()
+    //     .join(WFIL_TOKEN_WASM_COMPILED_PATH)
+    //     .canonicalize()
+    //     .unwrap();
+    // let wasm_bin = std::fs::read(wasm_path).expect("Unable to read file");
 
-    let actor_blockstore = ActorBlockstore::default();
-    let actor_state = TokenState::new(&actor_blockstore, "Wrapped FIL", "WFIL").unwrap();
-    let state_cid = tester.set_state(&actor_state).unwrap();
+    // let actor_blockstore = ActorBlockstore::default();
+    // let actor_state = TokenState::new(&actor_blockstore).unwrap();
+    // let state_cid = tester.set_state(&actor_state).unwrap();
 
     // let actor_address = Address::new_id(10000);
     // tester.set_actor_from_bin(&wasm_bin, state_cid, actor_address, TokenAmount::zero());

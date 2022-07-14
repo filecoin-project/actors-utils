@@ -6,14 +6,6 @@ use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 
 #[derive(Serialize_tuple, Deserialize_tuple)]
-pub struct ConstructorParams {
-    pub mint_params: MintParams,
-    pub name: String,
-    pub symbol: String,
-}
-
-/// Called during construction of the token actor to set a supply
-#[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct MintParams {
     pub initial_holder: ActorID,
     #[serde(with = "bigint_ser")]

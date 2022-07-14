@@ -10,6 +10,7 @@ use crate::runtime::Runtime;
 use anyhow::bail;
 use anyhow::Result;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
+use fvm_sdk::sself;
 use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::bigint::BigInt;
@@ -63,7 +64,7 @@ pub trait Token {
     fn burn(&self, params: BurnParams) -> Result<BurnReturn>;
 
     /// Transfer between two addresses
-    fn transfer_from(&self, params: TransferParams) -> Result<TransferReturn>;
+    fn transfer(&self, params: TransferParams) -> Result<TransferReturn>;
 }
 
 /// Holds injectable services to access/interface with IPLD/FVM layer
@@ -88,8 +89,8 @@ where
     }
 
     /// Constructs the token
-    pub fn init_state(&self, params: ConstructorParams) -> Result<()> {
-        let init_state = TokenState::new(&self.bs, &params.name, &params.symbol)?;
+    pub fn init_state(&self) -> Result<()> {
+        let init_state = TokenState::new(&self.bs)?;
         init_state.save(&self.bs);
         Ok(())
     }
@@ -100,8 +101,11 @@ where
         // - or that other (TBD) minting rules are satified
 
         // these should be injectable by the token author
-        let mut state = self.load_state();
-        let mut balances = state.get_balance_map(&self.bs);
+        // TODO: proper error handling here
+        let state = self.load_state();
+        let mut state = state.unwrap();
+        let balances = state.get_balance_map(&self.bs);
+        let mut balances = balances.unwrap();
 
         // Mint the tokens into a specified account
         let balance = balances
@@ -130,35 +134,33 @@ where
     }
 
     /// Helper function that loads the root of the state tree related to token-accounting
-    fn load_state(&self) -> TokenState {
-        TokenState::load(&self.bs)
+    fn load_state(&self) -> Result<TokenState> {
+        // TODO: replace sself usage with abstraction
+        TokenState::load(&self.bs, &sself::root().unwrap())
     }
 }
 
-impl<BS, FVM> Token for TokenHelper<BS, FVM>
+impl<BS, FVM> TokenHelper<BS, FVM>
 where
     BS: IpldStore + Copy,
     FVM: Runtime,
 {
-    fn name(&self) -> String {
-        let state = self.load_state();
-        state.name
-    }
-
-    fn symbol(&self) -> String {
-        let state = self.load_state();
-        state.symbol
-    }
-
-    fn total_supply(&self) -> TokenAmount {
-        let state = self.load_state();
+    /// Gets the total number of tokens in existence.
+    ///
+    /// This equals the sum of `balance_of` called on all addresses. This equals sum of all
+    /// successful `mint` calls minus the sum of all successful `burn`/`burn_from` calls
+    pub fn total_supply(&self) -> TokenAmount {
+        let state = self.load_state().unwrap();
         state.supply
     }
 
-    fn balance_of(&self, holder: Address) -> Result<TokenAmount> {
+    /// Returns the balance associated with a particular address
+    ///
+    ///
+    pub fn balance_of(&self, holder: Address) -> Result<TokenAmount> {
         // Load the HAMT holding balances
-        let state = self.load_state();
-        let balances = state.get_balance_map(&self.bs);
+        let state = self.load_state().unwrap();
+        let balances = state.get_balance_map(&self.bs).unwrap();
 
         // Resolve the address
         let addr_id = self.fvm.resolve_address(&holder)?;
@@ -174,12 +176,12 @@ where
         }
     }
 
-    fn increase_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn> {
+    pub fn increase_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn> {
         // Load the HAMT holding balances
-        let state = self.load_state();
+        let state = self.load_state().unwrap();
 
         let caller_id = self.fvm.caller();
-        let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id);
+        let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id).unwrap();
 
         let spender = self.fvm.resolve_address(&params.spender)?;
         let new_amount = match caller_allowances_map.get(&spender)? {
@@ -207,12 +209,12 @@ where
         })
     }
 
-    fn decrease_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn> {
+    pub fn decrease_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn> {
         // Load the HAMT holding balances
-        let state = self.load_state();
+        let state = self.load_state().unwrap();
 
         let caller_id = self.fvm.caller();
-        let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id);
+        let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id).unwrap();
 
         let spender = self.fvm.resolve_address(&params.spender)?;
 
@@ -245,12 +247,12 @@ where
         })
     }
 
-    fn revoke_allowance(&self, params: RevokeAllowanceParams) -> Result<AllowanceReturn> {
+    pub fn revoke_allowance(&self, params: RevokeAllowanceParams) -> Result<AllowanceReturn> {
         // Load the HAMT holding balances
-        let state = self.load_state();
+        let state = self.load_state().unwrap();
 
         let caller_id = self.fvm.caller();
-        let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id);
+        let mut caller_allowances_map = state.get_actor_allowance_map(&self.bs, caller_id).unwrap();
 
         let spender = self.fvm.resolve_address(&params.spender)?;
         let new_allowance = TokenAmount::zero();
@@ -265,12 +267,12 @@ where
         })
     }
 
-    fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn> {
+    pub fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn> {
         // Load the HAMT holding balances
-        let state = self.load_state();
+        let state = self.load_state().unwrap();
 
         let owner = self.fvm.resolve_address(&params.owner)?;
-        let owner_allowances_map = state.get_actor_allowance_map(&self.bs, owner);
+        let owner_allowances_map = state.get_actor_allowance_map(&self.bs, owner).unwrap();
 
         let spender = self.fvm.resolve_address(&params.spender)?;
 
@@ -286,11 +288,11 @@ where
         })
     }
 
-    fn burn(&self, _params: BurnParams) -> Result<BurnReturn> {
+    pub fn burn(&self, _params: BurnParams) -> Result<BurnReturn> {
         todo!()
     }
 
-    fn transfer_from(&self, _params: TransferParams) -> Result<TransferReturn> {
+    pub fn transfer(&self, _params: TransferParams) -> Result<TransferReturn> {
         todo!()
     }
 }

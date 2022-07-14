@@ -56,8 +56,8 @@ impl Token for WfilToken {
         self.util.burn(params)
     }
 
-    fn transfer_from(&self, params: TransferParams) -> Result<TransferReturn> {
-        self.util.transfer_from(params)
+    fn transfer(&self, params: TransferParams) -> Result<TransferReturn> {
+        self.util.transfer(params)
     }
 }
 
