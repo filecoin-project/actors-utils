@@ -34,6 +34,7 @@ pub struct TokenState {
 
 /// An abstraction over the IPLD layer to get and modify token state without dealing with HAMTs etc.
 impl TokenState {
+    /// Create a new token state-tree, without committing it to a blockstore
     pub fn new<BS: IpldStore>(store: &BS) -> Result<Self> {
         let empty_balance_map = Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH).flush()?;
         let empty_allowances_map =
@@ -93,33 +94,6 @@ impl TokenState {
         Ok(balance)
     }
 
-    /// Retrieve the balance map as a HAMT
-    fn get_balance_map<BS: IpldStore + Copy>(
-        &self,
-        bs: &BS,
-    ) -> Result<Hamt<BS, BigIntDe, ActorID>> {
-        match Hamt::<BS, BigIntDe, ActorID>::load(&self.balances, *bs) {
-            Ok(map) => Ok(map),
-            Err(err) => return Err(anyhow!("Failed to load balances hamt: {:?}", err)),
-        }
-    }
-
-    /// Increase the total supply by the specified value
-    ///
-    /// The requested amount must be non-negative.
-    /// Returns an error if the total supply overflows, else returns the new total supply
-    pub fn increase_supply(&mut self, value: &TokenAmount) -> Result<TokenAmount> {
-        let new_supply = self.supply.checked_add(&value).ok_or_else(|| {
-            anyhow!(
-                "Overflow when adding {} to the total_supply of {}",
-                value,
-                self.supply
-            )
-        })?;
-        self.supply = new_supply.clone();
-        Ok(new_supply)
-    }
-
     /// Attempts to increase the balance of the specified account by the value
     ///
     /// The requested amount must be non-negative.
@@ -154,44 +128,233 @@ impl TokenState {
         }
     }
 
-    /// Get the global allowances map
-    ///
-    /// Gets a HAMT with CIDs linking to other HAMTs
-    pub fn get_allowances_map<BS: IpldStore + Copy>(
+    /// Retrieve the balance map as a HAMT
+    fn get_balance_map<BS: IpldStore + Copy>(
         &self,
         bs: &BS,
-    ) -> Result<Hamt<BS, Cid, ActorID>> {
-        match Hamt::<BS, Cid, ActorID>::load(&self.allowances, *bs) {
+    ) -> Result<Hamt<BS, BigIntDe, ActorID>> {
+        match Hamt::<BS, BigIntDe, ActorID>::load(&self.balances, *bs) {
             Ok(map) => Ok(map),
-            Err(err) => return Err(anyhow!("Failed to load allowances hamt: {:?}", err)),
+            Err(err) => return Err(anyhow!("Failed to load balances hamt: {:?}", err)),
         }
     }
 
-    /// Get the allowances map of a specific actor, lazily creating one if it didn't exist
-    /// TODO: don't lazily create this, higher logic needed to get allowances etc.
-    pub fn get_actor_allowance_map<BS: IpldStore + Copy>(
+    /// Increase the total supply by the specified value
+    ///
+    /// The requested amount must be non-negative.
+    /// Returns an error if the total supply overflows, else returns the new total supply
+    pub fn increase_supply(&mut self, value: &TokenAmount) -> Result<TokenAmount> {
+        let new_supply = self.supply.checked_add(&value).ok_or_else(|| {
+            anyhow!(
+                "Overflow when adding {} to the total_supply of {}",
+                value,
+                self.supply
+            )
+        })?;
+        self.supply = new_supply.clone();
+        Ok(new_supply)
+    }
+
+    /// Get the allowance that an owner has approved for a spender
+    ///
+    /// If an existing allowance cannot be found, it is implicitly assumed to be zero
+    pub fn get_allowance_between<BS: IpldStore + Copy>(
         &self,
         bs: &BS,
         owner: ActorID,
-    ) -> Result<Hamt<BS, BigIntDe, ActorID>> {
-        let mut global_allowances = self.get_allowances_map(bs).unwrap();
-        match global_allowances.get(&owner) {
-            Ok(Some(map)) => {
-                // authorising actor already had an allowance map, return it
-                Ok(Hamt::<BS, BigIntDe, ActorID>::load(map, *bs).unwrap())
+        spender: ActorID,
+    ) -> Result<TokenAmount> {
+        let owner_allowances = self.get_owner_allowance_map(bs, owner)?;
+        match owner_allowances {
+            Some(hamt) => {
+                let maybe_allowance = hamt.get(&spender)?;
+                if let Some(allowance) = maybe_allowance {
+                    return Ok(allowance.clone().0);
+                }
+                Ok(TokenAmount::zero())
             }
-            Ok(None) => {
-                // authorising actor does not have an allowance map, create one and return it
-                let mut new_actor_allowances = Hamt::new(*bs);
-                let cid = new_actor_allowances
-                    .flush()
-                    .map_err(|e| anyhow!("Failed to create empty balances map state {}", e))
-                    .unwrap();
-                global_allowances.set(owner, cid).unwrap();
-                Ok(new_actor_allowances)
-            }
-            Err(e) => Err(anyhow!("failed to get actor's allowance map {:?}", e)),
+            None => Ok(TokenAmount::zero()),
         }
+    }
+
+    /// Increase the allowance between owner and spender by the specified value
+    ///
+    /// Caller must ensure that value is non-negative.
+    pub fn increase_allowance<BS: IpldStore + Copy>(
+        &mut self,
+        bs: &BS,
+        owner: ActorID,
+        spender: ActorID,
+        value: &TokenAmount,
+    ) -> Result<TokenAmount> {
+        if value.is_zero() {
+            // This is a no-op as far as mutating state
+            return self.get_allowance_between(bs, owner, spender);
+        }
+
+        let allowance_map = self.get_owner_allowance_map(bs, owner)?;
+
+        // If allowance map exists, modify or insert the allowance
+        if let Some(mut hamt) = allowance_map {
+            let previous_allowance = hamt.get(&spender)?;
+
+            // Calculate the new allowance
+            let new_allowance = match previous_allowance {
+                Some(prev_allowance) => prev_allowance.0.checked_add(&value).ok_or_else(|| {
+                    anyhow!(
+                        "Overflow when adding {} to {}'s allowance of {}",
+                        value,
+                        spender,
+                        prev_allowance.0
+                    )
+                })?,
+                None => value.clone(),
+            };
+
+            // TODO: should this be set as a BigIntSer rather than BigIntDe?
+            hamt.set(spender, BigIntDe(new_allowance.clone()))?;
+
+            {
+                // TODO: helper functions for saving hamts?, this can probably be done more efficiently rather than
+                // getting the root allowance map again, by abstracting the nested hamt structure
+                let new_cid = hamt.flush()?;
+                let mut root_allowance_map = self.get_allowances_map(bs)?;
+                root_allowance_map.set(owner, new_cid)?;
+                let new_cid = root_allowance_map.flush();
+                self.allowances = new_cid?;
+            }
+
+            return Ok(new_allowance);
+        }
+
+        // If allowance map does not exist, create it and insert the allowance
+        let mut owner_allowances =
+            Hamt::<BS, BigIntDe, ActorID>::new_with_bit_width(*bs, HAMT_BIT_WIDTH);
+        owner_allowances.set(spender, BigIntDe(value.clone()))?;
+
+        {
+            // TODO: helper functions for saving hamts?, this can probably be done more efficiently rather than
+            // getting the root allowance map again, by abstracting the nested hamt structure
+            let mut root_allowance_map = self.get_allowances_map(bs)?;
+            root_allowance_map.set(owner, owner_allowances.flush()?)?;
+            self.allowances = root_allowance_map.flush()?;
+        }
+
+        return Ok((*value).clone());
+    }
+
+    /// Decrease the allowance between owner and spender by the specified value. If the resulting
+    /// allowance is negative, it is set to zero.
+    ///
+    /// Caller must ensure that value is non-negative.
+    ///
+    /// If the allowance is decreased to zero, the entry is removed from the map.
+    /// If the map is empty, it is removed from the root map.
+    pub fn decrease_allowance<BS: IpldStore + Copy>(
+        &mut self,
+        bs: &BS,
+        owner: ActorID,
+        spender: ActorID,
+        value: &TokenAmount,
+    ) -> Result<TokenAmount> {
+        if value.is_zero() {
+            // This is a no-op as far as mutating state
+            return self.get_allowance_between(bs, owner, spender);
+        }
+
+        let allowance_map = self.get_owner_allowance_map(bs, owner)?;
+
+        // If allowance map exists, modify or insert the allowance
+        if let Some(mut hamt) = allowance_map {
+            let previous_allowance = hamt.get(&spender)?;
+
+            // Calculate the new allowance, and max with zero
+            let new_allowance = match previous_allowance {
+                Some(prev_allowance) => prev_allowance.0.checked_sub(&value).ok_or_else(|| {
+                    anyhow!(
+                        "Overflow when adding {} to {}'s allowance of {}",
+                        value,
+                        spender,
+                        prev_allowance.0
+                    )
+                })?,
+                None => value.clone(),
+            }
+            .max(TokenAmount::zero());
+
+            // Update the Hamts
+            let mut root_allowance_map = self.get_allowances_map(bs)?;
+
+            if new_allowance.is_zero() {
+                hamt.delete(&spender)?;
+
+                if hamt.is_empty() {
+                    root_allowance_map.delete(&owner)?;
+                } else {
+                    root_allowance_map.set(owner, hamt.flush()?)?;
+                }
+
+                self.allowances = root_allowance_map.flush()?;
+                return Ok(TokenAmount::zero());
+            }
+
+            // TODO: should this be set as a BigIntSer rather than BigIntDe?
+            hamt.set(spender, BigIntDe(new_allowance.clone()))?;
+            {
+                // TODO: helper functions for saving hamts?, this can probably be done more efficiently rather than
+                // getting the root allowance map again, by abstracting the nested hamt structure
+                root_allowance_map.set(owner, hamt.flush()?)?;
+                self.allowances = root_allowance_map.flush()?;
+            }
+
+            return Ok(new_allowance);
+        }
+
+        // If allowance map does not exist, decreasing is a no-op
+        Ok(TokenAmount::zero())
+    }
+
+    /// Revokes an approved allowance by removing the entry from the owner-spender map
+    ///
+    /// If that map becomes empty, it is removed from the root map.
+    pub fn revoke_allowance<BS: IpldStore + Copy>(
+        &self,
+        bs: &BS,
+        owner: ActorID,
+        spender: ActorID,
+    ) -> Result<()> {
+        let allowance_map = self.get_owner_allowance_map(bs, owner)?;
+        if let Some(mut map) = allowance_map {
+            map.delete(&spender)?;
+        }
+
+        Ok(())
+    }
+
+    /// Get the allowances map of a specific actor, resolving the CID link to a Hamt
+    ///
+    /// Ok(Some) if the owner has allocated allowances to other actors
+    /// Ok(None) if the owner has no current non-zero allowances to other actors
+    /// Err if operations on the underlying Hamt failed
+    fn get_owner_allowance_map<BS: IpldStore + Copy>(
+        &self,
+        bs: &BS,
+        owner: ActorID,
+    ) -> Result<Option<Hamt<BS, BigIntDe, ActorID>>> {
+        let allowances_map = self.get_allowances_map(bs)?;
+        let owner_allowances = match allowances_map.get(&owner)? {
+            Some(cid) => Some(Hamt::<BS, BigIntDe, ActorID>::load(cid, *bs)?),
+            None => None,
+        };
+        Ok(owner_allowances)
+    }
+
+    /// Get the global allowances map
+    ///
+    /// Gets a HAMT with CIDs linking to other HAMTs
+    fn get_allowances_map<BS: IpldStore + Copy>(&self, bs: &BS) -> Result<Hamt<BS, Cid, ActorID>> {
+        Hamt::<BS, Cid, ActorID>::load(&self.allowances, *bs)
+            .map_err(|e| anyhow!("Failed to load base allowances map {}", e))
     }
 
     /// TODO: docs

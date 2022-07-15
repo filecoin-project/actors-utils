@@ -1,7 +1,6 @@
 use std::env;
 
 use fil_token::blockstore::Blockstore as ActorBlockstore;
-use fil_token::token::state::TokenState;
 use fvm_integration_tests::tester::{Account, Tester};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_shared::address::Address;
