@@ -150,7 +150,7 @@ where
 
     /// Sets the allowance between owner and spender to 0
     pub fn revoke_allowance(&self, owner: ActorID, spender: ActorID) -> Result<()> {
-        let state = self.load_state()?;
+        let mut state = self.load_state()?;
         state.revoke_allowance(&self.bs, owner, spender)?;
         state.save(&self.bs)?;
         Ok(())
@@ -159,11 +159,10 @@ where
     /// Burns an amount of token from the specified address, decreasing total token supply
     ///
     /// ## For all burn operations
-    /// Preconditions:
     /// - The requested value MUST be non-negative
     /// - The requested value MUST NOT exceed the target's balance
     ///
-    /// Postconditions:
+    /// Upon successful burn
     /// - The target's balance MUST decrease by the requested value
     /// - The total_supply MUST decrease by the requested value
     ///
@@ -182,29 +181,82 @@ where
     /// is discarded and this method returns an error
     pub fn burn(
         &self,
-        operator: ActorID,
-        target: ActorID,
+        spender: ActorID,
+        owner: ActorID,
         value: TokenAmount,
     ) -> Result<TokenAmount> {
         if value.lt(&TokenAmount::zero()) {
             bail!("Cannot burn a negative amount");
         }
 
-        let state = self.load_state()?;
+        let mut state = self.load_state()?;
 
-        if operator != target {
+        if spender != owner {
             // attempt to use allowance and return early if not enough
-            state.attempt_use_allowance(&self.bs, operator, target, &value)?;
+            state.attempt_use_allowance(&self.bs, spender, owner, &value)?;
         }
         // attempt to burn the requested amount
-        let new_amount = state.attempt_burn(&self.bs, target, &value)?;
+        let new_amount = state.decrease_balance(&self.bs, owner, &value)?;
 
         // if both succeeded, atomically commit the transaction
         state.save(&self.bs)?;
         Ok(new_amount)
     }
 
-    pub fn transfer(&self, _params: TransferParams) -> Result<TransferReturn> {
-        todo!()
+    /// Transfers an amount from one actor to another
+    ///
+    /// ## For all transfer operations
+    ///
+    /// - The requested value MUST be non-negative
+    /// - The requested value MUST NOT exceed the sender's balance
+    /// - The receiver actor MUST implement a method called `tokens_received`, corresponding to the
+    /// interface specified for FRC-XXX token receivers
+    /// - The receiver's `tokens_received` hook MUST NOT abort
+    ///
+    /// Upon successful transfer:
+    /// - The senders's balance MUST decrease by the requested value
+    /// - The receiver's balance MUST increase by the requested value
+    ///
+    /// ## Operator equals target address
+    /// If the operator is the 'from' address, they are implicitly approved to transfer an unlimited
+    /// amount of tokens (up to their balance)
+    ///
+    /// ## Operator transferring on behalf of target address
+    /// If the operator is transferring on behalf of the target token holder the following preconditions
+    /// must be met on top of the general burn conditions:
+    /// - The operator MUST have an allowance not less than the requested value
+    /// In addition to the general postconditions:
+    /// - The from-operator allowance MUST decrease by the requested value
+    pub fn transfer(
+        &self,
+        operator: ActorID,
+        from: ActorID,
+        to: ActorID,
+        value: TokenAmount,
+    ) -> Result<()> {
+        if value.lt(&TokenAmount::zero()) {
+            bail!("Cannot transfer a negative amount");
+        }
+
+        let mut state = self.load_state()?;
+
+        if operator != from {
+            // attempt to use allowance and return early if not enough
+            state.attempt_use_allowance(&self.bs, operator, from, &value)?;
+        }
+
+        // call the receiver hook
+        // FIXME: use fvm_dispatch to make a standard runtime call to the receiver
+        // - ensure the hook did not abort
+
+        // attempt to debit from the sender
+        state.decrease_balance(&self.bs, from, &value)?;
+        // attempt to credit the receiver
+        state.increase_balance(&self.bs, to, &value)?;
+
+        // if all succeeded, atomically commit the transaction
+        state.save(&self.bs)?;
+
+        Ok(())
     }
 }

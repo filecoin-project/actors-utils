@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::Result;
 use cid::multihash::Code;
 use cid::Cid;
@@ -10,7 +11,6 @@ use fvm_ipld_encoding::Cbor;
 use fvm_ipld_encoding::CborStore;
 use fvm_ipld_encoding::DAG_CBOR;
 use fvm_ipld_hamt::Hamt;
-use fvm_sdk::sself;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::bigint::Zero;
@@ -33,6 +33,12 @@ pub struct TokenState {
 }
 
 /// An abstraction over the IPLD layer to get and modify token state without dealing with HAMTs etc.
+///
+/// This is a simple wrapper of state and in general does not account for token protocol level
+/// checks such as ensuring necessary approvals are enforced during transfers. This is left for the
+/// caller to handle. However, some invariants such as enforcing non-negative balances, allowances
+/// and total supply are enforced. Furthermore, this layer returns errors if any of the underlying
+/// arithmetic overflows.
 impl TokenState {
     /// Create a new token state-tree, without committing it to a blockstore
     pub fn new<BS: IpldStore>(store: &BS) -> Result<Self> {
@@ -57,7 +63,7 @@ impl TokenState {
         }
     }
 
-    /// Saves the current state to the blockstore
+    /// Saves the current state to the blockstore, returning the cid
     pub fn save<BS: IpldStore + Copy>(&self, bs: &BS) -> Result<Cid> {
         let serialized = match fvm_ipld_encoding::to_vec(self) {
             Ok(s) => s,
@@ -71,9 +77,6 @@ impl TokenState {
             Ok(cid) => cid,
             Err(err) => return Err(anyhow!("failed to store initial state: {:}", err)),
         };
-        if let Err(err) = sself::set_root(&cid) {
-            return Err(anyhow!("failed to set root ciid: {:}", err));
-        }
         Ok(cid)
     }
 
@@ -96,17 +99,19 @@ impl TokenState {
 
     /// Attempts to increase the balance of the specified account by the value
     ///
-    /// The requested amount must be non-negative.
+    /// Caller must ensure the requested amount is non-negative.
     /// Returns an error if the balance overflows, else returns the new balance
     pub fn increase_balance<BS: IpldStore + Copy>(
-        &self,
+        &mut self,
         bs: &BS,
         actor: ActorID,
         value: &TokenAmount,
     ) -> Result<TokenAmount> {
         let mut balance_map = self.get_balance_map(bs)?;
         let balance = balance_map.get(&actor)?;
-        match balance {
+
+        // calculate the new balance
+        let new_balance = match balance {
             Some(existing_amount) => {
                 let existing_amount = existing_amount.clone().0;
                 let new_amount = existing_amount.checked_add(&value).ok_or_else(|| {
@@ -118,14 +123,67 @@ impl TokenState {
                     )
                 })?;
 
-                balance_map.set(actor, BigIntDe(new_amount.clone()))?;
-                Ok(new_amount)
+                new_amount
             }
             None => {
                 balance_map.set(actor, BigIntDe(value.clone()))?;
-                Ok(value.clone())
+                self.balances = balance_map.flush()?;
+                value.clone()
             }
+        };
+
+        // update the state with the new balance
+        balance_map.set(actor, BigIntDe(new_balance.clone()))?;
+        self.balances = balance_map.flush()?;
+        Ok(new_balance)
+    }
+
+    /// Attempts to decrease the balance of the specified account by the value
+    ///
+    /// Caller must ensure the requested amount is non-negative.
+    /// Returns an error if the balance overflows, or if resulting balance would be negative.
+    /// Else returns the new balance
+    pub fn decrease_balance<BS: IpldStore + Copy>(
+        &mut self,
+        bs: &BS,
+        actor: ActorID,
+        value: &TokenAmount,
+    ) -> Result<TokenAmount> {
+        let mut balance_map = self.get_balance_map(bs)?;
+        let balance = balance_map.get(&actor)?;
+
+        if balance.is_none() {
+            bail!(
+                "Balance would be negative after subtracting {} from {}'s balance of {}",
+                value,
+                actor,
+                TokenAmount::zero()
+            );
         }
+
+        let existing_amount = balance.unwrap().clone().0;
+        let new_amount = existing_amount.checked_sub(&value).ok_or_else(|| {
+            anyhow!(
+                "Overflow when subtracting {} from {}'s balance of {}",
+                value,
+                actor,
+                existing_amount
+            )
+        })?;
+
+        if new_amount.lt(&TokenAmount::zero()) {
+            bail!(
+                "Balance would be negative after subtracting {} from {}'s balance of {}",
+                value,
+                actor,
+                existing_amount
+            );
+        }
+
+        balance_map.set(actor, BigIntDe(new_amount.clone()))?;
+        self.balances = balance_map.flush()?;
+
+        Ok(new_amount)
     }
 
     /// Retrieve the balance map as a HAMT
@@ -318,7 +376,7 @@ impl TokenState {
     ///
     /// If that map becomes empty, it is removed from the root map.
     pub fn revoke_allowance<BS: IpldStore + Copy>(
-        &self,
+        &mut self,
         bs: &BS,
         owner: ActorID,
         spender: ActorID,
@@ -326,9 +384,66 @@ impl TokenState {
         let allowance_map = self.get_owner_allowance_map(bs, owner)?;
         if let Some(mut map) = allowance_map {
             map.delete(&spender)?;
+            if map.is_empty() {
+                let mut root_allowance_map = self.get_allowances_map(bs)?;
+                root_allowance_map.delete(&owner)?;
+                self.allowances = root_allowance_map.flush()?;
+            } else {
+                let new_cid = map.flush()?;
+                let mut root_allowance_map = self.get_allowances_map(bs)?;
+                root_allowance_map.set(owner, new_cid)?;
+                self.allowances = root_allowance_map.flush()?;
+            }
         }
 
         Ok(())
+    }
+
+    /// Atomically checks if value is less than the allowance and deducts it if so
+    ///
+    /// Returns new allowance if successful, else returns an error and the allowance is unchanged
+    pub fn attempt_use_allowance<BS: IpldStore + Copy>(
+        &mut self,
+        bs: &BS,
+        spender: u64,
+        owner: u64,
+        value: &TokenAmount,
+    ) -> Result<TokenAmount> {
+        let current_allowance = self.get_allowance_between(bs, owner, spender)?;
+
+        if value.is_zero() {
+            return Ok(current_allowance);
+        }
+
+        let new_allowance = current_allowance.checked_sub(value).ok_or_else(|| {
+            anyhow!(
+                "Overflow when subtracting {} from {}'s allowance of {}",
+                value,
+                owner,
+                current_allowance
+            )
+        })?;
+
+        if new_allowance.lt(&TokenAmount::zero()) {
+            return Err(anyhow!(
+                "Attempted to use {} of {}'s tokens from {}'s allowance of {}",
+                value,
+                owner,
+                spender,
+                current_allowance
+            ));
+        }
+
+        // TODO: helper function to set a new allowance and flush hamts
+        let owner_allowances = self.get_owner_allowance_map(bs, owner)?;
+        // to reach here, allowance must have been previously non zero; so safe to assume the map exists
+        let mut owner_allowances = owner_allowances.unwrap();
+        owner_allowances.set(spender, BigIntDe(new_allowance.clone()))?;
+        let mut allowance_map = self.get_allowances_map(bs)?;
+        allowance_map.set(owner, owner_allowances.flush()?)?;
+        self.allowances = allowance_map.flush()?;
+
+        Ok(new_allowance)
     }
 
     /// Get the allowances map of a specific actor, resolving the CID link to a Hamt
@@ -356,119 +471,6 @@ impl TokenState {
         Hamt::<BS, Cid, ActorID>::load(&self.allowances, *bs)
             .map_err(|e| anyhow!("Failed to load base allowances map {}", e))
     }
-
-    /// TODO: docs
-    pub fn attempt_burn<BS: IpldStore>(
-        &self,
-        _bs: BS,
-        _target: u64,
-        _value: &TokenAmount,
-    ) -> Result<TokenAmount> {
-        todo!()
-    }
-
-    /// TODO: docs
-    pub fn attempt_use_allowance<BS: IpldStore>(
-        &self,
-        _bs: BS,
-        _operator: u64,
-        _target: u64,
-        _value: &TokenAmount,
-    ) -> Result<TokenAmount> {
-        todo!()
-    }
-
-    // fn enough_allowance(
-    //     &self,
-    //     bs: &Blockstore,
-    //     from: ActorID,
-    //     spender: ActorID,
-    //     to: ActorID,
-    //     amount: &TokenAmount,
-    // ) -> std::result::Result<(), TokenAmountDiff> {
-    //     if spender == from {
-    //         return std::result::Result::Ok(());
-    //     }
-
-    //     let allowances = self.get_actor_allowance_map(bs, from);
-    //     let allowance = match allowances.get(&to) {
-    //         Ok(Some(amount)) => amount.0.clone(),
-    //         _ => TokenAmount::zero(),
-    //     };
-
-    //     if allowance.lt(&amount) {
-    //         Err(TokenAmountDiff {
-    //             actual: allowance,
-    //             required: amount.clone(),
-    //         })
-    //     } else {
-    //         std::result::Result::Ok(())
-    //     }
-    // }
-
-    // fn enough_balance(
-    //     &self,
-    //     bs: &Blockstore,
-    //     from: ActorID,
-    //     amount: &TokenAmount,
-    // ) -> std::result::Result<(), TokenAmountDiff> {
-    //     let balances = self.get_balance_map(bs);
-    //     let balance = match balances.get(&from) {
-    //         Ok(Some(amount)) => amount.0.clone(),
-    //         _ => TokenAmount::zero(),
-    //     };
-
-    //     if balance.lt(&amount) {
-    //         Err(TokenAmountDiff {
-    //             actual: balance,
-    //             required: amount.clone(),
-    //         })
-    //     } else {
-    //         std::result::Result::Ok(())
-    //     }
-    // }
-
-    // /// Atomically make a transfer
-    // fn make_transfer(
-    //     &self,
-    //     bs: &Blockstore,
-    //     amount: &TokenAmount,
-    //     from: ActorID,
-    //     spender: ActorID,
-    //     to: ActorID,
-    // ) -> TransferResult<TokenAmount> {
-    //     if let Err(e) = self.enough_allowance(bs, from, spender, to, amount) {
-    //         return Err(TransferError::InsufficientAllowance(e));
-    //     }
-    //     if let Err(e) = self.enough_balance(bs, from, amount) {
-    //         return Err(TransferError::InsufficientBalance(e));
-    //     }
-
-    //     // Decrease allowance, decrease balance
-    //     // From the above checks, we know these exist
-    //     // TODO: do this in a transaction to avoid re-entrancy bugs
-    //     let mut allowances = self.get_actor_allowance_map(bs, from);
-    //     let allowance = allowances.get(&to).unwrap().unwrap();
-    //     let new_allowance = allowance.0.clone().sub(amount);
-    //     allowances.set(to, BigIntDe(new_allowance)).unwrap();
-
-    //     let mut balances = self.get_balance_map(bs);
-    //     let sender_balance = balances.get(&from).unwrap().unwrap();
-    //     let new_sender_balance = sender_balance.0.clone().sub(amount);
-    //     balances.set(from, BigIntDe(new_sender_balance)).unwrap();
-
-    //     // TODO: call the receive hook
-
-    //     // TODO: if no hook, revert the balance and allowance change
-
-    //     // if successful, mark the balance as having been credited
-
-    //     let receiver_balance = balances.get(&to).unwrap().unwrap();
-    //     let new_receiver_balance = receiver_balance.0.clone().add(amount);
-    //     balances.set(to, BigIntDe(new_receiver_balance)).unwrap();
-
-    //     Ok(amount.clone())
-    // }
 }
 
 impl Cbor for TokenState {}
