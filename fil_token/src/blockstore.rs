@@ -41,3 +41,32 @@ impl fvm_ipld_blockstore::Blockstore for Blockstore {
         Ok(k)
     }
 }
+
+// TODO: put this somewhere more appropriate when a tests folder exists
+/// An in-memory blockstore impl taken from filecoin-project/ref-fvm
+#[derive(Debug, Default, Clone)]
+pub struct MemoryBlockstore {
+    blocks: RefCell<HashMap<Cid, Vec<u8>>>,
+}
+
+use std::{cell::RefCell, collections::HashMap};
+impl MemoryBlockstore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl fvm_ipld_blockstore::Blockstore for MemoryBlockstore {
+    fn has(&self, k: &Cid) -> Result<bool> {
+        Ok(self.blocks.borrow().contains_key(k))
+    }
+
+    fn get(&self, k: &Cid) -> Result<Option<Vec<u8>>> {
+        Ok(self.blocks.borrow().get(k).cloned())
+    }
+
+    fn put_keyed(&self, k: &Cid, block: &[u8]) -> Result<()> {
+        self.blocks.borrow_mut().insert(*k, block.into());
+        Ok(())
+    }
+}

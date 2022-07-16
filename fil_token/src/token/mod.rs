@@ -4,7 +4,6 @@ mod state;
 mod types;
 use self::state::TokenState;
 pub use self::types::*;
-use crate::runtime::Runtime;
 
 use anyhow::bail;
 use anyhow::Ok;
@@ -18,31 +17,23 @@ use fvm_shared::ActorID;
 /// Library functions that implement core FRC-??? standards
 ///
 /// Holds injectable services to access/interface with IPLD/FVM layer.
-pub struct TokenHelper<BS, FVM>
+pub struct TokenHelper<BS>
 where
-    BS: IpldStore + Copy,
-    FVM: Runtime,
+    BS: IpldStore + Clone,
 {
     /// Injected blockstore
     bs: BS,
-    /// Access to the runtime
-    _runtime: FVM,
     /// Root of the token state tree
     token_state: Cid,
 }
 
-impl<BS, FVM> TokenHelper<BS, FVM>
+impl<BS> TokenHelper<BS>
 where
-    BS: IpldStore + Copy,
-    FVM: Runtime,
+    BS: IpldStore + Clone,
 {
     /// Instantiate a token helper with access to a blockstore and runtime
-    pub fn new(bs: BS, runtime: FVM, token_state: Cid) -> Self {
-        Self {
-            bs,
-            _runtime: runtime,
-            token_state,
-        }
+    pub fn new(bs: BS, token_state: Cid) -> Self {
+        Self { bs, token_state }
     }
 
     /// Constructs the token state tree and saves it at a CID

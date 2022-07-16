@@ -17,10 +17,12 @@ use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 
+use crate::blockstore::Blockstore;
+
 const HAMT_BIT_WIDTH: u32 = 5;
 
 /// Token state IPLD structure
-#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Clone, Debug)]
 pub struct TokenState {
     /// Total supply of token
     #[serde(with = "bigint_ser")]
@@ -39,6 +41,10 @@ pub struct TokenState {
 /// caller to handle. However, some invariants such as enforcing non-negative balances, allowances
 /// and total supply are enforced. Furthermore, this layer returns errors if any of the underlying
 /// arithmetic overflows.
+///
+/// Some methods on TokenState require the caller to pass in a blockstore implementing the Clone
+/// trait. It is assumed that when cloning the blockstore implementation does a "shallow-clone"
+/// of the blockstore and provides access to the same underlying data.
 impl TokenState {
     /// Create a new token state-tree, without committing it to a blockstore
     pub fn new<BS: IpldStore>(store: &BS) -> Result<Self> {
@@ -64,7 +70,12 @@ impl TokenState {
     }
 
     /// Saves the current state to the blockstore, returning the cid
-    pub fn save<BS: IpldStore + Copy>(&self, bs: &BS) -> Result<Cid> {
+    /// TODO: Potentially should replaced with more targeted saving of different branches of the state tree for
+    /// efficiency
+    /// - possibly keep track of "dirty" branches that need to be flushed and put into the blockstore
+    /// on save
+    /// - hack for now is that each method that touches a hamt, will itself commit the changes to the blockstore
+    pub fn save<BS: IpldStore>(&self, bs: &BS) -> Result<Cid> {
         let serialized = match fvm_ipld_encoding::to_vec(self) {
             Ok(s) => s,
             Err(err) => return Err(anyhow!("failed to serialize state: {:?}", err)),
@@ -81,7 +92,7 @@ impl TokenState {
     }
 
     /// Get the balance of an ActorID from the currently stored state
-    pub fn get_balance<BS: IpldStore + Copy>(
+    pub fn get_balance<BS: IpldStore + Clone>(
         &self,
         bs: &BS,
         owner: ActorID,
@@ -101,7 +112,7 @@ impl TokenState {
     ///
     /// Caller must ensure the requested amount is non-negative.
     /// Returns an error if the balance overflows, else returns the new balance
-    pub fn increase_balance<BS: IpldStore + Copy>(
+    pub fn increase_balance<BS: IpldStore + Clone>(
         &mut self,
         bs: &BS,
         actor: ActorID,
@@ -125,16 +136,20 @@ impl TokenState {
 
                 new_amount
             }
-            None => {
-                balance_map.set(actor, BigIntDe(value.clone()))?;
-                self.balances = balance_map.flush()?;
-                value.clone()
-            }
+            None => value.clone(),
         };
 
-        // update the state with the new balance
         balance_map.set(actor, BigIntDe(new_balance.clone()))?;
+
         self.balances = balance_map.flush()?;
+        // let serialised = match fvm_ipld_encoding::to_vec(&self.balances) {
+        //     Ok(s) => s,
+        //     Err(err) => return Err(anyhow!("failed to serialize state: {:?}", err)),
+        // };
+        // bs.put_keyed(&self.balances, serialised.as_slice())?;
+        // HACK: This should be done at library level
+        bs.put_cbor(&self, Code::Blake2b256)?;
+
         Ok(new_balance)
     }
 
@@ -143,7 +158,7 @@ impl TokenState {
     /// Caller must ensure the requested amount is non-negative.
     /// Returns an error if the balance overflows, or if resulting balance would be negative.
     /// Else returns the new balance
-    pub fn decrease_balance<BS: IpldStore + Copy>(
+    pub fn decrease_balance<BS: IpldStore + Clone>(
         &mut self,
         bs: &BS,
         actor: ActorID,
@@ -187,11 +202,11 @@ impl TokenState {
     }
 
     /// Retrieve the balance map as a HAMT
-    fn get_balance_map<BS: IpldStore + Copy>(
+    fn get_balance_map<BS: IpldStore + Clone>(
         &self,
         bs: &BS,
     ) -> Result<Hamt<BS, BigIntDe, ActorID>> {
-        match Hamt::<BS, BigIntDe, ActorID>::load(&self.balances, *bs) {
+        match Hamt::<BS, BigIntDe, ActorID>::load(&self.balances, (*bs).clone()) {
             Ok(map) => Ok(map),
             Err(err) => return Err(anyhow!("Failed to load balances hamt: {:?}", err)),
         }
@@ -216,7 +231,7 @@ impl TokenState {
     /// Get the allowance that an owner has approved for a spender
     ///
     /// If an existing allowance cannot be found, it is implicitly assumed to be zero
-    pub fn get_allowance_between<BS: IpldStore + Copy>(
+    pub fn get_allowance_between<BS: IpldStore + Clone>(
         &self,
         bs: &BS,
         owner: ActorID,
@@ -238,7 +253,7 @@ impl TokenState {
     /// Increase the allowance between owner and spender by the specified value
     ///
     /// Caller must ensure that value is non-negative.
-    pub fn increase_allowance<BS: IpldStore + Copy>(
+    pub fn increase_allowance<BS: IpldStore + Clone>(
         &mut self,
         bs: &BS,
         owner: ActorID,
@@ -287,7 +302,7 @@ impl TokenState {
 
         // If allowance map does not exist, create it and insert the allowance
         let mut owner_allowances =
-            Hamt::<BS, BigIntDe, ActorID>::new_with_bit_width(*bs, HAMT_BIT_WIDTH);
+            Hamt::<BS, BigIntDe, ActorID>::new_with_bit_width((*bs).clone(), HAMT_BIT_WIDTH);
         owner_allowances.set(spender, BigIntDe(value.clone()))?;
 
         {
@@ -308,7 +323,7 @@ impl TokenState {
     ///
     /// If the allowance is decreased to zero, the entry is removed from the map.
     /// If the map is empty, it is removed from the root map.
-    pub fn decrease_allowance<BS: IpldStore + Copy>(
+    pub fn decrease_allowance<BS: IpldStore + Clone>(
         &mut self,
         bs: &BS,
         owner: ActorID,
@@ -375,7 +390,7 @@ impl TokenState {
     /// Revokes an approved allowance by removing the entry from the owner-spender map
     ///
     /// If that map becomes empty, it is removed from the root map.
-    pub fn revoke_allowance<BS: IpldStore + Copy>(
+    pub fn revoke_allowance<BS: IpldStore + Clone>(
         &mut self,
         bs: &BS,
         owner: ActorID,
@@ -402,7 +417,7 @@ impl TokenState {
     /// Atomically checks if value is less than the allowance and deducts it if so
     ///
     /// Returns new allowance if successful, else returns an error and the allowance is unchanged
-    pub fn attempt_use_allowance<BS: IpldStore + Copy>(
+    pub fn attempt_use_allowance<BS: IpldStore + Clone>(
         &mut self,
         bs: &BS,
         spender: u64,
@@ -451,14 +466,14 @@ impl TokenState {
     /// Ok(Some) if the owner has allocated allowances to other actors
     /// Ok(None) if the owner has no current non-zero allowances to other actors
     /// Err if operations on the underlying Hamt failed
-    fn get_owner_allowance_map<BS: IpldStore + Copy>(
+    fn get_owner_allowance_map<BS: IpldStore + Clone>(
         &self,
         bs: &BS,
         owner: ActorID,
     ) -> Result<Option<Hamt<BS, BigIntDe, ActorID>>> {
         let allowances_map = self.get_allowances_map(bs)?;
         let owner_allowances = match allowances_map.get(&owner)? {
-            Some(cid) => Some(Hamt::<BS, BigIntDe, ActorID>::load(cid, *bs)?),
+            Some(cid) => Some(Hamt::<BS, BigIntDe, ActorID>::load(cid, (*bs).clone())?),
             None => None,
         };
         Ok(owner_allowances)
@@ -467,10 +482,48 @@ impl TokenState {
     /// Get the global allowances map
     ///
     /// Gets a HAMT with CIDs linking to other HAMTs
-    fn get_allowances_map<BS: IpldStore + Copy>(&self, bs: &BS) -> Result<Hamt<BS, Cid, ActorID>> {
-        Hamt::<BS, Cid, ActorID>::load(&self.allowances, *bs)
+    fn get_allowances_map<BS: IpldStore + Clone>(&self, bs: &BS) -> Result<Hamt<BS, Cid, ActorID>> {
+        Hamt::<BS, Cid, ActorID>::load(&self.allowances, (*bs).clone())
             .map_err(|e| anyhow!("Failed to load base allowances map {}", e))
     }
 }
 
 impl Cbor for TokenState {}
+
+#[cfg(test)]
+mod test {
+    use fvm_shared::{
+        bigint::{BigInt, Zero},
+        ActorID,
+    };
+
+    use crate::blockstore::MemoryBlockstore;
+
+    use super::TokenState;
+
+    #[test]
+    fn it_instantiates() {
+        let bs = MemoryBlockstore::new();
+        let state = TokenState::new(&bs).unwrap();
+        let cid = state.save(&bs).unwrap();
+        let saved_state = TokenState::load(&bs, &cid).unwrap();
+        assert_eq!(state, saved_state);
+    }
+
+    #[test]
+    fn it_increases_balance_of_new_actor() {
+        let bs = MemoryBlockstore::new();
+        let mut state = TokenState::new(&bs).unwrap();
+
+        let actor: ActorID = 1;
+
+        assert_eq!(state.get_balance(&bs, actor).unwrap(), BigInt::zero());
+
+        let amount = BigInt::from(100);
+        state.increase_balance(&bs, actor, &amount).unwrap();
+        let new_cid = state.save(&bs).unwrap();
+
+        let state = TokenState::load(&bs, &new_cid).unwrap();
+        assert_eq!(state.get_balance(&bs, actor).unwrap(), amount);
+    }
+}
