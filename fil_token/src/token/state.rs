@@ -6,6 +6,7 @@ use cid::Cid;
 
 use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
+use fvm_ipld_encoding::ser;
 use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::Cbor;
 use fvm_ipld_encoding::CborStore;
@@ -140,16 +141,12 @@ impl TokenState {
         };
 
         balance_map.set(actor, BigIntDe(new_balance.clone()))?;
-
         self.balances = balance_map.flush()?;
-        // let serialised = match fvm_ipld_encoding::to_vec(&self.balances) {
-        //     Ok(s) => s,
-        //     Err(err) => return Err(anyhow!("failed to serialize state: {:?}", err)),
-        // };
-        // bs.put_keyed(&self.balances, serialised.as_slice())?;
-        // HACK: This should be done at library level
-        bs.put_cbor(&self, Code::Blake2b256)?;
-
+        let serialised = match fvm_ipld_encoding::to_vec(&balance_map) {
+            Ok(s) => s,
+            Err(err) => return Err(anyhow!("failed to serialize state: {:?}", err)),
+        };
+        bs.put_keyed(&self.balances, &serialised)?;
         Ok(new_balance)
     }
 
@@ -197,6 +194,12 @@ impl TokenState {
 
         balance_map.set(actor, BigIntDe(new_amount.clone()))?;
         self.balances = balance_map.flush()?;
+
+        let serialised = match fvm_ipld_encoding::to_vec(&balance_map) {
+            Ok(s) => s,
+            Err(err) => return Err(anyhow!("failed to serialize state: {:?}", err)),
+        };
+        bs.put_keyed(&self.balances, &serialised)?;
 
         Ok(new_amount)
     }
@@ -514,9 +517,9 @@ mod test {
     fn it_increases_balance_of_new_actor() {
         let bs = MemoryBlockstore::new();
         let mut state = TokenState::new(&bs).unwrap();
-
         let actor: ActorID = 1;
 
+        // Initially any actor has an implicit balance of 0
         assert_eq!(state.get_balance(&bs, actor).unwrap(), BigInt::zero());
 
         let amount = BigInt::from(100);

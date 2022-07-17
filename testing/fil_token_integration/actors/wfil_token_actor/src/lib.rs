@@ -1,6 +1,5 @@
 use anyhow::Result;
 use fil_token::blockstore::Blockstore;
-use fil_token::runtime::FvmRuntime;
 use fil_token::token::*;
 use fvm_ipld_encoding::{RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
@@ -10,7 +9,7 @@ use sdk::NO_DATA_BLOCK_ID;
 
 struct WfilToken {
     /// Default token helper impl
-    util: TokenHelper<Blockstore, FvmRuntime>,
+    util: TokenHelper<Blockstore>,
 }
 
 /// Implement the token API
@@ -77,7 +76,7 @@ pub fn invoke(params: u32) -> u32 {
 
     let root_cid = sdk::sself::root().unwrap();
     let token_actor = WfilToken {
-        util: TokenHelper::new(Blockstore {}, FvmRuntime {}, root_cid),
+        util: TokenHelper::new(Blockstore {}, root_cid),
     };
 
     //TODO: this internal dispatch can be pushed as a library function into the fil_token crate
