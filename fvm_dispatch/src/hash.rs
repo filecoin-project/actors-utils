@@ -104,7 +104,7 @@ mod tests {
     struct FakeHasher {}
     impl Hasher for FakeHasher {
         fn hash(&self, bytes: &[u8]) -> Vec<u8> {
-            return bytes.to_vec();
+            bytes.to_vec()
         }
     }
 
