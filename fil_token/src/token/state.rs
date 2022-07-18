@@ -6,7 +6,6 @@ use cid::Cid;
 
 use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
-use fvm_ipld_encoding::ser;
 use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::Cbor;
 use fvm_ipld_encoding::CborStore;
@@ -17,8 +16,6 @@ use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
-
-use crate::blockstore::Blockstore;
 
 const HAMT_BIT_WIDTH: u32 = 5;
 
@@ -63,7 +60,7 @@ impl TokenState {
     /// Loads a fresh copy of the state from a blockstore from a given cid
     pub fn load<BS: IpldStore>(bs: &BS, cid: &Cid) -> Result<Self> {
         // Load the actor state from the state tree.
-        match bs.get_cbor::<Self>(&cid) {
+        match bs.get_cbor::<Self>(cid) {
             Ok(Some(state)) => Ok(state),
             Ok(None) => Err(anyhow!("No state at this cid {:?}", cid)),
             Err(err) => Err(anyhow!("failed to get state: {}", err)),
@@ -100,11 +97,10 @@ impl TokenState {
     ) -> Result<TokenAmount> {
         let balances = self.get_balance_map(bs)?;
 
-        let balance: TokenAmount;
-        match balances.get(&owner)? {
-            Some(amount) => balance = amount.0.clone(),
-            None => balance = TokenAmount::zero(),
-        }
+        let balance = match balances.get(&owner)? {
+            Some(amount) => amount.0.clone(),
+            None => TokenAmount::zero(),
+        };
 
         Ok(balance)
     }
@@ -126,16 +122,14 @@ impl TokenState {
         let new_balance = match balance {
             Some(existing_amount) => {
                 let existing_amount = existing_amount.clone().0;
-                let new_amount = existing_amount.checked_add(&value).ok_or_else(|| {
+                existing_amount.checked_add(value).ok_or_else(|| {
                     anyhow!(
                         "Overflow when adding {} to {}'s balance of {}",
                         value,
                         actor,
                         existing_amount
                     )
-                })?;
-
-                new_amount
+                })?
             }
             None => value.clone(),
         };
@@ -174,7 +168,7 @@ impl TokenState {
         }
 
         let existing_amount = balance.unwrap().clone().0;
-        let new_amount = existing_amount.checked_sub(&value).ok_or_else(|| {
+        let new_amount = existing_amount.checked_sub(value).ok_or_else(|| {
             anyhow!(
                 "Overflow when subtracting {} from {}'s balance of {}",
                 value,
@@ -220,7 +214,7 @@ impl TokenState {
     /// The requested amount must be non-negative.
     /// Returns an error if the total supply overflows, else returns the new total supply
     pub fn increase_supply(&mut self, value: &TokenAmount) -> Result<TokenAmount> {
-        let new_supply = self.supply.checked_add(&value).ok_or_else(|| {
+        let new_supply = self.supply.checked_add(value).ok_or_else(|| {
             anyhow!(
                 "Overflow when adding {} to the total_supply of {}",
                 value,
@@ -276,7 +270,7 @@ impl TokenState {
 
             // Calculate the new allowance
             let new_allowance = match previous_allowance {
-                Some(prev_allowance) => prev_allowance.0.checked_add(&value).ok_or_else(|| {
+                Some(prev_allowance) => prev_allowance.0.checked_add(value).ok_or_else(|| {
                     anyhow!(
                         "Overflow when adding {} to {}'s allowance of {}",
                         value,
@@ -316,7 +310,7 @@ impl TokenState {
             self.allowances = root_allowance_map.flush()?;
         }
 
-        return Ok((*value).clone());
+        Ok((*value).clone())
     }
 
     /// Decrease the allowance between owner and spender by the specified value. If the resulting
@@ -346,7 +340,7 @@ impl TokenState {
 
             // Calculate the new allowance, and max with zero
             let new_allowance = match previous_allowance {
-                Some(prev_allowance) => prev_allowance.0.checked_sub(&value).ok_or_else(|| {
+                Some(prev_allowance) => prev_allowance.0.checked_sub(value).ok_or_else(|| {
                     anyhow!(
                         "Overflow when adding {} to {}'s allowance of {}",
                         value,
