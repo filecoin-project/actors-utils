@@ -19,4 +19,5 @@ jobs:
       - name: Build
         run: make check-build
 
-      # TODO: run tests
+      - name: Test
+        run: make test
