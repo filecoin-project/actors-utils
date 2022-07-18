@@ -1,0 +1,9 @@
+[package]
+name = "fvm_dispatch_helper"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "3.2.12", features = ["derive"] }
+fvm_dispatch = { version = "0.1.0", path = "../fvm_dispatch" }
+multihash = { version = "0.16.1", default-features = false }
