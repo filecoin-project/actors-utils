@@ -12,8 +12,5 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Formatting
-        run: cargo fmt --check
-
-      - name: Linting
-        run: cargo clippy --all-targets --all-features
+      - name: Code checks
+        run: make check

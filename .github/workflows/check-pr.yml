@@ -16,13 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Formatting
-        run: cargo fmt --check
-
-      - name: Linting
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
       - name: Build
-        run: cargo build --workspace --all-targets --all-features
+        run: make check-build
 
       # TODO: run tests
