@@ -8,5 +8,8 @@ check:
 	cargo fmt --check
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+test:
+	cargo test
+
 clean:
 	cargo clean
