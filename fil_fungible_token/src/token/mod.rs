@@ -2,6 +2,8 @@ pub mod errors;
 pub mod receiver;
 mod state;
 mod types;
+use std::ops::Neg;
+
 use self::state::TokenState;
 pub use self::types::*;
 
@@ -13,6 +15,7 @@ use fvm_ipld_blockstore::Blockstore as IpldStore;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
+use num_traits::Signed;
 
 /// Library functions that implement core FRC-??? standards
 ///
@@ -21,7 +24,7 @@ pub struct Token<BS>
 where
     BS: IpldStore + Clone,
 {
-    /// Injected blockstore
+    /// Injected blockstore. The blockstore must reference the same underlying storage under Clone
     bs: BS,
     /// Root of the token state tree
     state_cid: Cid,
@@ -58,13 +61,13 @@ where
     /// If the total supply or account balance overflows, this method returns an error. The mint
     /// amount must be non-negative or the method returns an error.
     pub fn mint(&self, initial_holder: ActorID, value: TokenAmount) -> Result<()> {
-        if value.lt(&TokenAmount::zero()) {
+        if value.is_negative() {
             bail!("value of mint was negative {}", value);
         }
 
         // Increase the balance of the actor and increase total supply
         let mut state = self.load_state();
-        state.increase_balance(&self.bs, initial_holder, &value)?;
+        state.change_balance_by(&self.bs, initial_holder, &value)?;
         state.increase_supply(&value)?;
 
         // Commit the state atomically if supply and balance increased
@@ -118,7 +121,7 @@ where
         }
 
         let mut state = self.load_state();
-        let new_amount = state.increase_allowance(&self.bs, owner, spender, &delta)?;
+        let new_amount = state.change_allowance_by(&self.bs, owner, spender, &delta)?;
         state.save(&self.bs)?;
 
         Ok(new_amount)
@@ -140,7 +143,7 @@ where
         }
 
         let mut state = self.load_state();
-        let new_allowance = state.decrease_allowance(&self.bs, owner, spender, &delta)?;
+        let new_allowance = state.change_allowance_by(&self.bs, owner, spender, &delta.neg())?;
         state.save(&self.bs)?;
 
         Ok(new_allowance)
@@ -183,7 +186,7 @@ where
         owner: ActorID,
         value: TokenAmount,
     ) -> Result<TokenAmount> {
-        if value.lt(&TokenAmount::zero()) {
+        if value.is_negative() {
             bail!("Cannot burn a negative amount");
         }
 
@@ -194,7 +197,7 @@ where
             state.attempt_use_allowance(&self.bs, spender, owner, &value)?;
         }
         // attempt to burn the requested amount
-        let new_amount = state.decrease_balance(&self.bs, owner, &value)?;
+        let new_amount = state.change_balance_by(&self.bs, owner, &value.neg())?;
 
         // if both succeeded, atomically commit the transaction
         state.save(&self.bs)?;
@@ -232,7 +235,7 @@ where
         receiver: ActorID,
         value: TokenAmount,
     ) -> Result<()> {
-        if value.lt(&TokenAmount::zero()) {
+        if value.is_negative() {
             bail!("Cannot transfer a negative amount");
         }
 
@@ -243,14 +246,15 @@ where
             state.attempt_use_allowance(&self.bs, spender, owner, &value)?;
         }
 
+        // attempt to credit the receiver
+        state.change_balance_by(&self.bs, receiver, &value)?;
+        // attempt to debit from the sender
+        state.change_balance_by(&self.bs, owner, &value.neg())?;
+
         // call the receiver hook
         // FIXME: use fvm_dispatch to make a standard runtime call to the receiver
         // - ensure the hook did not abort
-
-        // attempt to debit from the sender
-        state.decrease_balance(&self.bs, owner, &value)?;
-        // attempt to credit the receiver
-        state.increase_balance(&self.bs, receiver, &value)?;
+        // - receiver hook should see the new balances...
 
         // if all succeeded, atomically commit the transaction
         state.save(&self.bs)?;

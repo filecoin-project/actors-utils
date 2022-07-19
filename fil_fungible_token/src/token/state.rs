@@ -16,6 +16,7 @@ use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
+use num_traits::Signed;
 
 const HAMT_BIT_WIDTH: u32 = 5;
 
@@ -102,97 +103,42 @@ impl TokenState {
         Ok(balance)
     }
 
-    /// Attempts to increase the balance of the specified account by the value
+    /// Changes the balance of the specified account by the delta
     ///
-    /// Caller must ensure the requested amount is non-negative.
-    /// Returns an error if the balance overflows, else returns the new balance
-    pub fn increase_balance<BS: IpldStore + Clone>(
+    /// Caller must ensure that the sign of of the delta is consistent with token rules (i.e.
+    /// negative transfers, burns etc. are not allowed)
+    pub fn change_balance_by<BS: IpldStore + Clone>(
         &mut self,
         bs: &BS,
-        actor: ActorID,
-        value: &TokenAmount,
+        owner: ActorID,
+        delta: &TokenAmount,
     ) -> Result<TokenAmount> {
-        let mut balance_map = self.get_balance_map(bs)?;
-        let balance = balance_map.get(&actor)?;
+        if delta.is_zero() {
+            // This is a no-op as far as mutating state
+            return self.get_balance(bs, owner);
+        }
 
-        // calculate the new balance
+        let mut balance_map = self.get_balance_map(bs)?;
+        let balance = balance_map.get(&owner)?;
+
         let new_balance = match balance {
-            Some(existing_amount) => {
-                let existing_amount = existing_amount.clone().0;
-                existing_amount.checked_add(value).ok_or_else(|| {
-                    anyhow!(
-                        "Overflow when adding {} to {}'s balance of {}",
-                        value,
-                        actor,
-                        existing_amount
-                    )
-                })?
-            }
-            None => value.clone(),
+            Some(existing_amount) => existing_amount.0.clone() + delta,
+            None => (*delta).clone(),
         };
 
-        balance_map.set(actor, BigIntDe(new_balance.clone()))?;
+        // if the new_balance is negative, return an error
+        if new_balance.is_negative() {
+            bail!(
+                "resulting balance was negative adding {:?} to {:?}",
+                delta,
+                balance.unwrap_or(&BigIntDe(TokenAmount::zero())).0
+            );
+        }
+
+        balance_map.set(owner, BigIntDe(new_balance.clone()))?;
         self.balances = balance_map.flush()?;
-        let serialised = match fvm_ipld_encoding::to_vec(&balance_map) {
-            Ok(s) => s,
-            Err(err) => return Err(anyhow!("failed to serialize state: {:?}", err)),
-        };
-        bs.put_keyed(&self.balances, &serialised)?;
+
         Ok(new_balance)
-    }
-
-    /// Attempts to decrease the balance of the specified account by the value
-    ///
-    /// Caller must ensure the requested amount is non-negative.
-    /// Returns an error if the balance overflows, or if resulting balance would be negative.
-    /// Else returns the new balance
-    pub fn decrease_balance<BS: IpldStore + Clone>(
-        &mut self,
-        bs: &BS,
-        actor: ActorID,
-        value: &TokenAmount,
-    ) -> Result<TokenAmount> {
-        let mut balance_map = self.get_balance_map(bs)?;
-        let balance = balance_map.get(&actor)?;
-
-        if balance.is_none() {
-            bail!(
-                "Balance would be negative after subtracting {} from {}'s balance of {}",
-                value,
-                actor,
-                TokenAmount::zero()
-            );
-        }
-
-        let existing_amount = balance.unwrap().clone().0;
-        let new_amount = existing_amount.checked_sub(value).ok_or_else(|| {
-            anyhow!(
-                "Overflow when subtracting {} from {}'s balance of {}",
-                value,
-                actor,
-                existing_amount
-            )
-        })?;
-
-        if new_amount.lt(&TokenAmount::zero()) {
-            bail!(
-                "Balance would be negative after subtracting {} from {}'s balance of {}",
-                value,
-                actor,
-                existing_amount
-            );
-        }
-
-        balance_map.set(actor, BigIntDe(new_amount.clone()))?;
-        self.balances = balance_map.flush()?;
-
-        let serialised = match fvm_ipld_encoding::to_vec(&balance_map) {
-            Ok(s) => s,
-            Err(err) => return Err(anyhow!("failed to serialize state: {:?}", err)),
-        };
-        bs.put_keyed(&self.balances, &serialised)?;
-
-        Ok(new_amount)
     }
 
     /// Retrieve the balance map as a HAMT
@@ -200,9 +146,13 @@ impl TokenState {
         &self,
         bs: &BS,
     ) -> Result<Hamt<BS, BigIntDe, ActorID>> {
-        match Hamt::<BS, BigIntDe, ActorID>::load(&self.balances, (*bs).clone()) {
+        match Hamt::<BS, BigIntDe, ActorID>::load_with_bit_width(
+            &self.balances,
+            (*bs).clone(),
+            HAMT_BIT_WIDTH,
+        ) {
             Ok(map) => Ok(map),
-            Err(err) => return Err(anyhow!("Failed to load balances hamt: {:?}", err)),
+            Err(err) => return Err(anyhow!("failed to load balances hamt: {:?}", err)),
         }
     }
 
@@ -244,139 +194,65 @@ impl TokenState {
         }
     }
 
-    /// Increase the allowance between owner and spender by the specified value
-    ///
-    /// Caller must ensure that value is non-negative.
-    pub fn increase_allowance<BS: IpldStore + Clone>(
+    /// Change the allowance between owner and spender by the specified delta
+    pub fn change_allowance_by<BS: IpldStore + Clone>(
         &mut self,
         bs: &BS,
         owner: ActorID,
         spender: ActorID,
-        value: &TokenAmount,
+        delta: &TokenAmount,
     ) -> Result<TokenAmount> {
-        if value.is_zero() {
+        if delta.is_zero() {
             // This is a no-op as far as mutating state
             return self.get_allowance_between(bs, owner, spender);
         }
 
-        let allowance_map = self.get_owner_allowance_map(bs, owner)?;
+        let mut global_allowances_map = self.get_allowances_map(bs)?;
 
-        // If allowance map exists, modify or insert the allowance
-        if let Some(mut hamt) = allowance_map {
-            let previous_allowance = hamt.get(&spender)?;
-
-            // Calculate the new allowance
-            let new_allowance = match previous_allowance {
-                Some(prev_allowance) => prev_allowance.0.checked_add(value).ok_or_else(|| {
-                    anyhow!(
-                        "Overflow when adding {} to {}'s allowance of {}",
-                        value,
-                        spender,
-                        prev_allowance.0
-                    )
-                })?,
-                None => value.clone(),
-            };
-
-            hamt.set(spender, BigIntDe(new_allowance.clone()))?;
-
-            {
-                // TODO: helper functions for saving hamts?, this can probably be done more efficiently rather than
-                // getting the root allowance map again, by abstracting the nested hamt structure
-                let new_cid = hamt.flush()?;
-                let mut root_allowance_map = self.get_allowances_map(bs)?;
-                root_allowance_map.set(owner, new_cid)?;
-                let new_cid = root_allowance_map.flush();
-                self.allowances = new_cid?;
-            }
-
-            return Ok(new_allowance);
-        }
-
-        // If allowance map does not exist, create it and insert the allowance
-        let mut owner_allowances =
-            Hamt::<BS, BigIntDe, ActorID>::new_with_bit_width((*bs).clone(), HAMT_BIT_WIDTH);
-        owner_allowances.set(spender, BigIntDe(value.clone()))?;
-
-        {
-            // TODO: helper functions for saving hamts?, this can probably be done more efficiently rather than
-            // getting the root allowance map again, by abstracting the nested hamt structure
-            let mut root_allowance_map = self.get_allowances_map(bs)?;
-            root_allowance_map.set(owner, owner_allowances.flush()?)?;
-            self.allowances = root_allowance_map.flush()?;
-        }
-
-        Ok((*value).clone())
-    }
-
-    /// Decrease the allowance between owner and spender by the specified value. If the resulting
-    /// allowance is negative, it is set to zero.
-    ///
-    /// Caller must ensure that value is non-negative.
-    ///
-    /// If the allowance is decreased to zero, the entry is removed from the map.
-    /// If the map is empty, it is removed from the root map.
-    pub fn decrease_allowance<BS: IpldStore + Clone>(
-        &mut self,
-        bs: &BS,
-        owner: ActorID,
-        spender: ActorID,
-        value: &TokenAmount,
-    ) -> Result<TokenAmount> {
-        if value.is_zero() {
-            // This is a no-op as far as mutating state
-            return self.get_allowance_between(bs, owner, spender);
-        }
-
-        let allowance_map = self.get_owner_allowance_map(bs, owner)?;
-
-        // If allowance map exists, modify or insert the allowance
-        if let Some(mut hamt) = allowance_map {
-            let previous_allowance = hamt.get(&spender)?;
-
-            // Calculate the new allowance, and max with zero
-            let new_allowance = match previous_allowance {
-                Some(prev_allowance) => prev_allowance.0.checked_sub(value).ok_or_else(|| {
-                    anyhow!(
-                        "Overflow when adding {} to {}'s allowance of {}",
-                        value,
-                        spender,
-                        prev_allowance.0
-                    )
-                })?,
-                None => value.clone(),
-            }
-            .max(TokenAmount::zero());
-
-            // Update the Hamts
-            let mut root_allowance_map = self.get_allowances_map(bs)?;
-
-            if new_allowance.is_zero() {
-                hamt.delete(&spender)?;
-
-                if hamt.is_empty() {
-                    root_allowance_map.delete(&owner)?;
-                } else {
-                    root_allowance_map.set(owner, hamt.flush()?)?;
+        // get or create the owner's allowance map
+        let mut allowance_map = match global_allowances_map.get(&owner)? {
+            Some(hamt) => Hamt::<BS, BigIntDe, ActorID>::load_with_bit_width(
+                hamt,
+                (*bs).clone(),
+                HAMT_BIT_WIDTH,
+            )?,
+            None => {
+                // the owner doesn't have any allowances, and the delta is negative, this is a no-op
+                if delta.is_negative() {
+                    return Ok(TokenAmount::zero());
                 }
 
-                self.allowances = root_allowance_map.flush()?;
-                return Ok(TokenAmount::zero());
+                // else create a new map for the owner
+                Hamt::<BS, BigIntDe, ActorID>::new_with_bit_width((*bs).clone(), HAMT_BIT_WIDTH)
             }
+        };
 
-            hamt.set(spender, BigIntDe(new_allowance.clone()))?;
-            {
-                // TODO: helper functions for saving hamts?, this can probably be done more efficiently rather than
-                // getting the root allowance map again, by abstracting the nested hamt structure
-                root_allowance_map.set(owner, hamt.flush()?)?;
-                self.allowances = root_allowance_map.flush()?;
-            }
+        // calculate new allowance (max with zero)
+        let new_allowance = match allowance_map.get(&spender)? {
+            Some(existing_allowance) => existing_allowance.0.clone() + delta,
+            None => (*delta).clone(),
+        }
+        .max(TokenAmount::zero());
 
-            return Ok(new_allowance);
+        // if the new allowance is zero, we can remove the entry from the state tree
+        if new_allowance.is_zero() {
+            allowance_map.delete(&spender)?;
+        } else {
+            allowance_map.set(spender, BigIntDe(new_allowance.clone()))?;
         }
 
-        // If allowance map does not exist, decreasing is a no-op
-        Ok(TokenAmount::zero())
+        // if the owner-allowance map is empty, remove it from the global allowances map
+        if allowance_map.is_empty() {
+            global_allowances_map.delete(&owner)?;
+        } else {
+            // else update the global-allowance map
+            global_allowances_map.set(owner, allowance_map.flush()?)?;
+        }
+
+        // update the state with the updated global map
+        self.allowances = global_allowances_map.flush()?;
+
+        Ok(new_allowance)
     }
 
     /// Revokes an approved allowance by removing the entry from the owner-spender map
@@ -431,7 +307,7 @@ impl TokenState {
             )
         })?;
 
-        if new_allowance.lt(&TokenAmount::zero()) {
+        if new_allowance.is_negative() {
             return Err(anyhow!(
                 "Attempted to use {} of {}'s tokens from {}'s allowance of {}",
                 value,
@@ -465,7 +341,11 @@ impl TokenState {
     ) -> Result<Option<Hamt<BS, BigIntDe, ActorID>>> {
         let allowances_map = self.get_allowances_map(bs)?;
         let owner_allowances = match allowances_map.get(&owner)? {
-            Some(cid) => Some(Hamt::<BS, BigIntDe, ActorID>::load(cid, (*bs).clone())?),
+            Some(cid) => Some(Hamt::<BS, BigIntDe, ActorID>::load_with_bit_width(
+                cid,
+                (*bs).clone(),
+                HAMT_BIT_WIDTH,
+            )?),
             None => None,
         };
         Ok(owner_allowances)
@@ -475,8 +355,12 @@ impl TokenState {
     ///
     /// Gets a HAMT with CIDs linking to other HAMTs
     fn get_allowances_map<BS: IpldStore + Clone>(&self, bs: &BS) -> Result<Hamt<BS, Cid, ActorID>> {
-        Hamt::<BS, Cid, ActorID>::load(&self.allowances, (*bs).clone())
-            .map_err(|e| anyhow!("Failed to load base allowances map {}", e))
+        Hamt::<BS, Cid, ActorID>::load_with_bit_width(
+            &self.allowances,
+            (*bs).clone(),
+            HAMT_BIT_WIDTH,
+        )
+        .map_err(|e| anyhow!("failed to load base allowances map {}", e))
     }
 }
 
@@ -490,31 +374,103 @@ mod test {
     };
 
     use super::TokenState;
-    use crate::blockstore::MemoryBlockstore;
+    use crate::blockstore::SharedMemoryBlockstore;
 
     #[test]
     fn it_instantiates() {
-        let bs = MemoryBlockstore::new();
-        let state = TokenState::new(&bs).unwrap();
-        let cid = state.save(&bs).unwrap();
-        let saved_state = TokenState::load(&bs, &cid).unwrap();
+        let bs = &SharedMemoryBlockstore::new();
+        let state = TokenState::new(bs).unwrap();
+        let cid = state.save(bs).unwrap();
+        let saved_state = TokenState::load(bs, &cid).unwrap();
         assert_eq!(state, saved_state);
     }
 
     #[test]
-    fn it_increases_balance_of_new_actor() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
+    fn it_increases_balance_from_zero() {
+        let bs = &SharedMemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
         let actor: ActorID = 1;
 
         // Initially any actor has an implicit balance of 0
-        assert_eq!(state.get_balance(&bs, actor).unwrap(), BigInt::zero());
+        assert_eq!(state.get_balance(bs, actor).unwrap(), BigInt::zero());
 
         let amount = BigInt::from(100);
-        state.increase_balance(&bs, actor, &amount).unwrap();
-        let new_cid = state.save(&bs).unwrap();
+        state.change_balance_by(bs, actor, &amount).unwrap();
 
-        let state = TokenState::load(&bs, &new_cid).unwrap();
-        assert_eq!(state.get_balance(&bs, actor).unwrap(), amount);
+        assert_eq!(state.get_balance(bs, actor).unwrap(), amount);
+    }
+
+    #[test]
+    fn it_fails_to_decrease_balance_below_zero() {
+        let bs = &SharedMemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
+        let actor: ActorID = 1;
+
+        // can't decrease from zero
+        let err = state
+            .change_balance_by(bs, actor, &BigInt::from(-1))
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "resulting balance was negative adding -1 to 0"
+        );
+        let balance = state.get_balance(bs, actor).unwrap();
+        assert_eq!(balance, BigInt::zero());
+
+        // can't become negative from a positive balance
+        state
+            .change_balance_by(bs, actor, &BigInt::from(50))
+            .unwrap();
+        let err = state
+            .change_balance_by(bs, actor, &BigInt::from(-100))
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "resulting balance was negative adding -100 to 50"
+        );
+    }
+
+    #[test]
+    fn it_sets_allowances_between_actors() {
+        let bs = &SharedMemoryBlockstore::new();
+        let mut state = TokenState::new(&bs).unwrap();
+        let owner: ActorID = 1;
+        let spender: ActorID = 2;
+
+        // initial allowance is zero
+        let initial_allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(initial_allowance, BigInt::zero());
+
+        // can set a positive allowance
+        let delta = BigInt::from(100);
+        let ret = state
+            .change_allowance_by(bs, owner, spender, &delta)
+            .unwrap();
+        assert_eq!(ret, delta);
+        let allowance_1 = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(allowance_1, delta);
+
+        // vice-versa allowance was unaffected
+        let reverse_allowance = state.get_allowance_between(bs, spender, owner).unwrap();
+        assert_eq!(reverse_allowance, BigInt::zero());
+
+        // can subtract an allowance
+        let delta = BigInt::from(-50);
+        let ret = state
+            .change_allowance_by(bs, owner, spender, &delta)
+            .unwrap();
+        assert_eq!(ret, BigInt::from(50));
+        let allowance_2 = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(allowance_2, allowance_1 + delta);
+        assert_eq!(allowance_2, BigInt::from(50));
+
+        // allowance won't go negative
+        let delta = BigInt::from(-100);
+        let ret = state
+            .change_allowance_by(bs, owner, spender, &delta)
+            .unwrap();
+        assert_eq!(ret, BigInt::zero());
+        let allowance_3 = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(allowance_3, BigInt::zero());
     }
 }
