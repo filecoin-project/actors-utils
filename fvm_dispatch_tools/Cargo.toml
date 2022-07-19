@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+blake2b_simd = { version = "1.0.0" }
 clap = { version = "3.2.12", features = ["derive"] }
 fvm_dispatch = { version = "0.1.0", path = "../fvm_dispatch" }
-multihash = { version = "0.16.1", default-features = false }
