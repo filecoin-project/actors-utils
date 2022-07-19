@@ -32,16 +32,25 @@ pub struct MethodResolver<T: Hasher> {
 pub enum MethodNameErr {
     #[error("empty method name provided")]
     EmptyString,
-    #[error("illegal symbol used in method name")]
-    IllegalSymbol,
+    #[error("method name does not conform to the FRCXXX convention {0}")]
+    IllegalName(#[from] IllegalNameErr),
     #[error("unable to calculate method id, choose a another method name")]
     IndeterminableId,
+}
+
+#[derive(Error, PartialEq, Debug)]
+pub enum IllegalNameErr {
+    #[error("method name doesn't start with capital letter")]
+    NotCapitalStart,
+    #[error("method name contains letters outside [a-zA-Z0-9_]")]
+    IllegalCharacters,
 }
 
 impl<T: Hasher> MethodResolver<T> {
     const CONSTRUCTOR_METHOD_NAME: &'static str = "Constructor";
     const CONSTRUCTOR_METHOD_NUMBER: u64 = 1_u64;
     const RESERVED_METHOD_NUMBER: u64 = 0_u64;
+    const DIGEST_CHUNK_LENGTH: usize = 4;
 
     /// Creates a MethodResolver with an instance of a hasher (blake2b by convention)
     pub fn new(hasher: T) -> Self {
@@ -53,34 +62,57 @@ impl<T: Hasher> MethodResolver<T> {
     /// The method number is calculated as the first four bytes of `hash(method-name)`.
     /// The name `Constructor` is always hashed to 1 and other method names that hash to
     /// 0 or 1 are avoided via rejection sampling.
-    ///
-    ///
     pub fn method_number(&self, method_name: &str) -> Result<u64, MethodNameErr> {
-        // TODO: sanitise method_name before checking (or reject invalid whitespace)
-        if method_name.contains('|') {
-            return Err(MethodNameErr::IllegalSymbol);
-        }
-
-        if method_name.is_empty() {
-            return Err(MethodNameErr::EmptyString);
-        }
+        check_method_name(method_name)?;
 
         if method_name == Self::CONSTRUCTOR_METHOD_NAME {
             return Ok(Self::CONSTRUCTOR_METHOD_NUMBER);
         }
-        let mut digest = self.hasher.hash(method_name.as_bytes());
-        while digest.len() >= 4 {
-            let method_id = as_u32(digest.as_slice()) as u64;
+
+        let digest = self.hasher.hash(method_name.as_bytes());
+
+        for chunk in digest.chunks(Self::DIGEST_CHUNK_LENGTH) {
+            if chunk.len() < Self::DIGEST_CHUNK_LENGTH {
+                // last chunk may be smaller than 4 bytes
+                break;
+            }
+
+            let method_id = as_u32(chunk) as u64;
             if method_id != Self::CONSTRUCTOR_METHOD_NUMBER
                 && method_id != Self::RESERVED_METHOD_NUMBER
             {
                 return Ok(method_id);
-            } else {
-                digest.remove(0);
             }
         }
+
         Err(MethodNameErr::IndeterminableId)
     }
+}
+
+/// Checks that a method name is valid and compliant with the FRC-XXX standard recommendations
+///
+/// - Only ASCII characters in `[a-zA-Z0-9_]` are allowed
+/// - Starts with a character in `[A-Z_]`
+fn check_method_name(method_name: &str) -> Result<(), MethodNameErr> {
+    if method_name.is_empty() {
+        return Err(MethodNameErr::EmptyString);
+    }
+
+    // Check starts with capital letter
+    let first_letter = method_name.chars().next().unwrap(); // safe because we checked for empty string
+    if !first_letter.is_ascii_uppercase() {
+        return Err(IllegalNameErr::NotCapitalStart.into());
+    }
+
+    // Check that all characters are legal
+    if !method_name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(IllegalNameErr::IllegalCharacters.into());
+    }
+
+    Ok(())
 }
 
 /// Takes a byte array and interprets it as a u32 number
@@ -98,7 +130,7 @@ fn as_u32(bytes: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
 
-    use super::{Hasher, MethodNameErr, MethodResolver};
+    use super::{Hasher, IllegalNameErr, MethodNameErr, MethodResolver};
 
     #[derive(Clone, Copy)]
     struct FakeHasher {}
@@ -134,31 +166,61 @@ mod tests {
         let method_hasher = MethodResolver::new(FakeHasher {});
         assert_eq!(
             method_hasher.method_number("Invalid|Method").unwrap_err(),
-            MethodNameErr::IllegalSymbol
+            MethodNameErr::IllegalName(IllegalNameErr::IllegalCharacters)
         );
         assert_eq!(
             method_hasher.method_number("").unwrap_err(),
             MethodNameErr::EmptyString
         );
+        assert_eq!(
+            method_hasher.method_number("invalidMethod").unwrap_err(),
+            MethodNameErr::IllegalName(IllegalNameErr::NotCapitalStart)
+        );
+    }
+
+    /// Fake hasher that always returns a digest beginning with b"\0\0\0\0"
+    #[derive(Clone, Copy)]
+    struct FakeHasher0 {}
+    impl Hasher for FakeHasher0 {
+        fn hash(&self, bytes: &[u8]) -> Vec<u8> {
+            let mut hash: Vec<u8> = vec![0, 0, 0, 0];
+            let mut suffix = bytes.to_vec();
+            hash.append(suffix.as_mut());
+            hash
+        }
+    }
+
+    /// Fake hasher that always returns a digest beginning with b"\0\0\0\1"
+    #[derive(Clone, Copy)]
+    struct FakeHasher1 {}
+    impl Hasher for FakeHasher1 {
+        fn hash(&self, bytes: &[u8]) -> Vec<u8> {
+            let mut hash: Vec<u8> = vec![0, 0, 0, 1];
+            let mut suffix = bytes.to_vec();
+            hash.append(suffix.as_mut());
+            hash
+        }
     }
 
     #[test]
     fn avoids_disallowed_method_numbers() {
-        let hasher = FakeHasher {};
-        let method_hasher = MethodResolver::new(hasher);
+        let hasher_0 = FakeHasher0 {};
+        let method_hasher_0 = MethodResolver::new(hasher_0);
 
         // This simulates a method name that would hash to 0
-        let contrived_0 = "\0\0\0\0MethodName";
-        let contrived_0_digest = hasher.hash(contrived_0.as_bytes());
+        let contrived_0 = "MethodName";
+        let contrived_0_digest = hasher_0.hash(contrived_0.as_bytes());
         assert_eq!(super::as_u32(&contrived_0_digest), 0);
         // But the method number is not a collision
-        assert_ne!(method_hasher.method_number(contrived_0).unwrap(), 0);
+        assert_ne!(method_hasher_0.method_number(contrived_0).unwrap(), 0);
 
+        let hasher_1 = FakeHasher1 {};
+        let method_hasher_1 = MethodResolver::new(hasher_1);
         // This simulates a method name that would hash to 1
-        let contrived_1 = "\0\0\0\x01MethodName";
-        let contrived_1_digest = hasher.hash(contrived_1.as_bytes());
+        let contrived_1 = "MethodName";
+        let contrived_1_digest = hasher_1.hash(contrived_1.as_bytes());
         assert_eq!(super::as_u32(&contrived_1_digest), 1);
         // But the method number is not a collision
-        assert_ne!(method_hasher.method_number(contrived_1).unwrap(), 1);
+        assert_ne!(method_hasher_1.method_number(contrived_1).unwrap(), 1);
     }
 }
