@@ -46,8 +46,11 @@ where
     }
 
     /// Helper function that loads the root of the state tree related to token-accounting
-    fn load_state(&self) -> Result<TokenState> {
-        TokenState::load(&self.bs, &self.state_cid)
+    ///
+    /// Actors can't usefully recover if state wasn't initialized (failure to call `init_state`) in
+    /// the constructor so this method panics if the state tree if missing
+    fn load_state(&self) -> TokenState {
+        TokenState::load(&self.bs, &self.state_cid).unwrap()
     }
 
     /// Mints the specified value of tokens into an account
@@ -60,7 +63,7 @@ where
         }
 
         // Increase the balance of the actor and increase total supply
-        let mut state = self.load_state()?;
+        let mut state = self.load_state();
         state.increase_balance(&self.bs, initial_holder, &value)?;
         state.increase_supply(&value)?;
 
@@ -75,7 +78,7 @@ where
     /// This equals the sum of `balance_of` called on all addresses. This equals sum of all
     /// successful `mint` calls minus the sum of all successful `burn`/`burn_from` calls
     pub fn total_supply(&self) -> TokenAmount {
-        let state = self.load_state().unwrap();
+        let state = self.load_state();
         state.supply
     }
 
@@ -84,7 +87,7 @@ where
     /// Accounts that have never received transfers implicitly have a zero-balance
     pub fn balance_of(&self, holder: ActorID) -> Result<TokenAmount> {
         // Load the HAMT holding balances
-        let state = self.load_state()?;
+        let state = self.load_state();
         state.get_balance(&self.bs, holder)
     }
 
@@ -93,7 +96,7 @@ where
     /// The allowance is the amount that the spender can transfer or burn out of the owner's account
     /// via the `transfer_from` and `burn_from` methods.
     pub fn allowance(&self, owner: ActorID, spender: ActorID) -> Result<TokenAmount> {
-        let state = self.load_state()?;
+        let state = self.load_state();
         let allowance = state.get_allowance_between(&self.bs, owner, spender)?;
         Ok(allowance)
     }
@@ -114,7 +117,7 @@ where
             bail!("value of delta was negative {}", delta);
         }
 
-        let mut state = self.load_state()?;
+        let mut state = self.load_state();
         let new_amount = state.increase_allowance(&self.bs, owner, spender, &delta)?;
         state.save(&self.bs)?;
 
@@ -136,7 +139,7 @@ where
             bail!("value of delta was negative {}", delta);
         }
 
-        let mut state = self.load_state()?;
+        let mut state = self.load_state();
         let new_allowance = state.decrease_allowance(&self.bs, owner, spender, &delta)?;
         state.save(&self.bs)?;
 
@@ -145,7 +148,7 @@ where
 
     /// Sets the allowance between owner and spender to 0
     pub fn revoke_allowance(&self, owner: ActorID, spender: ActorID) -> Result<()> {
-        let mut state = self.load_state()?;
+        let mut state = self.load_state();
         state.revoke_allowance(&self.bs, owner, spender)?;
         state.save(&self.bs)?;
         Ok(())
@@ -184,7 +187,7 @@ where
             bail!("Cannot burn a negative amount");
         }
 
-        let mut state = self.load_state()?;
+        let mut state = self.load_state();
 
         if spender != owner {
             // attempt to use allowance and return early if not enough
@@ -233,7 +236,7 @@ where
             bail!("Cannot transfer a negative amount");
         }
 
-        let mut state = self.load_state()?;
+        let mut state = self.load_state();
 
         if spender != owner {
             // attempt to use allowance and return early if not enough

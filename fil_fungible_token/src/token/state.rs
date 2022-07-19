@@ -62,7 +62,7 @@ impl TokenState {
         // Load the actor state from the state tree.
         match bs.get_cbor::<Self>(cid) {
             Ok(Some(state)) => Ok(state),
-            Ok(None) => Err(anyhow!("No state at this cid {:?}", cid)),
+            Ok(None) => Err(anyhow!("no state at this cid {:?}", cid)),
             Err(err) => Err(anyhow!("failed to get state: {}", err)),
         }
     }
