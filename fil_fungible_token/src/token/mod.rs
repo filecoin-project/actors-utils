@@ -17,23 +17,26 @@ use fvm_shared::ActorID;
 /// Library functions that implement core FRC-??? standards
 ///
 /// Holds injectable services to access/interface with IPLD/FVM layer.
-pub struct TokenHelper<BS>
+pub struct Token<BS>
 where
     BS: IpldStore + Clone,
 {
     /// Injected blockstore
     bs: BS,
     /// Root of the token state tree
-    token_state: Cid,
+    state_cid: Cid,
 }
 
-impl<BS> TokenHelper<BS>
+impl<BS> Token<BS>
 where
     BS: IpldStore + Clone,
 {
     /// Instantiate a token helper with access to a blockstore and runtime
     pub fn new(bs: BS, token_state: Cid) -> Self {
-        Self { bs, token_state }
+        Self {
+            bs,
+            state_cid: token_state,
+        }
     }
 
     /// Constructs the token state tree and saves it at a CID
@@ -44,7 +47,7 @@ where
 
     /// Helper function that loads the root of the state tree related to token-accounting
     fn load_state(&self) -> Result<TokenState> {
-        TokenState::load(&self.bs, &self.token_state)
+        TokenState::load(&self.bs, &self.state_cid)
     }
 
     /// Mints the specified value of tokens into an account
@@ -95,6 +98,8 @@ where
         Ok(allowance)
     }
 
+    /// Changes the allowance that
+
     /// Increase the allowance that a spender controls of the owner's balance by the requested delta
     ///
     /// Returns an error if requested delta is negative or there are errors in (de)sereliazation of
@@ -119,9 +124,8 @@ where
     /// Decrease the allowance that a spender controls of the owner's balance by the requested delta
     ///
     /// If the resulting allowance would be negative, the allowance between owner and spender is set
-    /// to zero. If resulting allowance is zero, the entry is removed from the state map. Returns an
-    /// error if either the spender or owner address is unresolvable. Returns an error if requested
-    /// delta is negative. Else returns the new allowance
+    /// to zero. Returns an error if either the spender or owner address is unresolvable. Returns an
+    /// error if requested delta is negative. Else returns the new allowance
     pub fn decrease_allowance(
         &self,
         owner: ActorID,
@@ -157,19 +161,19 @@ where
     /// - The target's balance MUST decrease by the requested value
     /// - The total_supply MUST decrease by the requested value
     ///
-    /// ## Operator equals target address
-    /// If the operator is the targeted address, they are implicitly approved to burn an unlimited
+    /// ## Spender equals owner address
+    /// If the spender is the targeted address, they are implicitly approved to burn an unlimited
     /// amount of tokens (up to their balance)
     ///
-    /// ## Operator burning on behalf of target address
-    /// If the operator is burning on behalf of the target token holder the following preconditions
+    /// ## Spender burning on behalf of owner address
+    /// If the spender is burning on behalf of the owner the following preconditions
     /// must be met on top of the general burn conditions:
-    /// - The operator MUST have an allowance not less than the requested value
+    /// - The spender MUST have an allowance not less than the requested value
     /// In addition to the general postconditions:
-    /// - The target-operator allowance MUST decrease by the requested value
+    /// - The target-spender allowance MUST decrease by the requested value
     ///
-    /// If the burn operation would result in a negative balance for the targeted address, the burn
-    /// is discarded and this method returns an error
+    /// If the burn operation would result in a negative balance for the owner, the burn is
+    /// discarded and this method returns an error
     pub fn burn(
         &self,
         spender: ActorID,
@@ -208,21 +212,21 @@ where
     /// - The senders's balance MUST decrease by the requested value
     /// - The receiver's balance MUST increase by the requested value
     ///
-    /// ## Operator equals target address
-    /// If the operator is the 'from' address, they are implicitly approved to transfer an unlimited
+    /// ## Spender equals owner address
+    /// If the spender is the owner address, they are implicitly approved to transfer an unlimited
     /// amount of tokens (up to their balance)
     ///
-    /// ## Operator transferring on behalf of target address
-    /// If the operator is transferring on behalf of the target token holder the following preconditions
+    /// ## Spender transferring on behalf of owner address
+    /// If the spender is transferring on behalf of the target token holder the following preconditions
     /// must be met on top of the general burn conditions:
-    /// - The operator MUST have an allowance not less than the requested value
+    /// - The spender MUST have an allowance not less than the requested value
     /// In addition to the general postconditions:
-    /// - The from-operator allowance MUST decrease by the requested value
+    /// - The owner-spender allowance MUST decrease by the requested value
     pub fn transfer(
         &self,
-        operator: ActorID,
-        from: ActorID,
-        to: ActorID,
+        spender: ActorID,
+        owner: ActorID,
+        receiver: ActorID,
         value: TokenAmount,
     ) -> Result<()> {
         if value.lt(&TokenAmount::zero()) {
@@ -231,9 +235,9 @@ where
 
         let mut state = self.load_state()?;
 
-        if operator != from {
+        if spender != owner {
             // attempt to use allowance and return early if not enough
-            state.attempt_use_allowance(&self.bs, operator, from, &value)?;
+            state.attempt_use_allowance(&self.bs, spender, owner, &value)?;
         }
 
         // call the receiver hook
@@ -241,9 +245,9 @@ where
         // - ensure the hook did not abort
 
         // attempt to debit from the sender
-        state.decrease_balance(&self.bs, from, &value)?;
+        state.decrease_balance(&self.bs, owner, &value)?;
         // attempt to credit the receiver
-        state.increase_balance(&self.bs, to, &value)?;
+        state.increase_balance(&self.bs, receiver, &value)?;
 
         // if all succeeded, atomically commit the transaction
         state.save(&self.bs)?;
