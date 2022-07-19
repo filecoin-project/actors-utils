@@ -15,21 +15,9 @@ pub struct MethodMessenger<T: Hasher> {
 #[derive(Error, PartialEq, Debug)]
 pub enum MethodMessengerError {
     #[error("error when calculating method name: `{0}`")]
-    MethodName(MethodNameErr),
+    MethodName(#[from] MethodNameErr),
     #[error("error sending message: `{0}`")]
-    Syscall(ErrorNumber),
-}
-
-impl From<ErrorNumber> for MethodMessengerError {
-    fn from(e: ErrorNumber) -> Self {
-        Self::Syscall(e)
-    }
-}
-
-impl From<MethodNameErr> for MethodMessengerError {
-    fn from(e: MethodNameErr) -> Self {
-        Self::MethodName(e)
-    }
+    Syscall(#[from] ErrorNumber),
 }
 
 impl<T: Hasher> MethodMessenger<T> {
