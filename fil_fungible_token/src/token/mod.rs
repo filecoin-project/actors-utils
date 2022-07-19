@@ -12,7 +12,6 @@ use anyhow::Ok;
 use anyhow::Result;
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
-use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 use num_traits::Signed;
@@ -116,7 +115,7 @@ where
         spender: ActorID,
         delta: TokenAmount,
     ) -> Result<TokenAmount> {
-        if delta.lt(&TokenAmount::zero()) {
+        if delta.is_negative() {
             bail!("value of delta was negative {}", delta);
         }
 
@@ -138,7 +137,7 @@ where
         spender: ActorID,
         delta: TokenAmount,
     ) -> Result<TokenAmount> {
-        if delta.lt(&TokenAmount::zero()) {
+        if delta.is_negative() {
             bail!("value of delta was negative {}", delta);
         }
 
@@ -187,7 +186,7 @@ where
         value: TokenAmount,
     ) -> Result<TokenAmount> {
         if value.is_negative() {
-            bail!("Cannot burn a negative amount");
+            bail!("cannot burn a negative amount");
         }
 
         let mut state = self.load_state();
@@ -236,7 +235,7 @@ where
         value: TokenAmount,
     ) -> Result<()> {
         if value.is_negative() {
-            bail!("Cannot transfer a negative amount");
+            bail!("cannot transfer a negative amount");
         }
 
         let mut state = self.load_state();
