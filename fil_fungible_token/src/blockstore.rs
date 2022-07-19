@@ -1,17 +1,19 @@
-//! Blockstore implementation is borrowed from https://github.com/filecoin-project/builtin-actors/blob/6df845dcdf9872beb6e871205eb34dcc8f7550b5/runtime/src/runtime/actor_blockstore.rs
-//! This impl will likely be made redundant if low-level SDKs export blockstore implementations
-use std::convert::TryFrom;
-
 use anyhow::{anyhow, Result};
 use cid::multihash::Code;
 use cid::Cid;
 use fvm_ipld_blockstore::Block;
 use fvm_sdk::ipld;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::convert::TryFrom;
+use std::rc::Rc;
 
 /// A blockstore that delegates to IPLD syscalls.
 #[derive(Default, Debug, Copy, Clone)]
 pub struct Blockstore;
 
+/// Blockstore implementation is borrowed from https://github.com/filecoin-project/builtin-actors/blob/6df845dcdf9872beb6e871205eb34dcc8f7550b5/runtime/src/runtime/actor_blockstore.rs
+/// This impl will likely be made redundant if low-level SDKs export blockstore implementations
 impl fvm_ipld_blockstore::Blockstore for Blockstore {
     fn get(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
         // If this fails, the _CID_ is invalid. I.e., we have a bug.
@@ -42,31 +44,51 @@ impl fvm_ipld_blockstore::Blockstore for Blockstore {
     }
 }
 
-// TODO: put this somewhere more appropriate when a tests folder exists
-/// An in-memory blockstore impl taken from filecoin-project/ref-fvm
+/// An in-memory blockstore impl that shares underlying memory when cloned
+///
+/// This is useful in tests to simulate a blockstore which pipes syscalls to the fvm_ipld_blockstore
 #[derive(Debug, Default, Clone)]
-pub struct MemoryBlockstore {
-    blocks: RefCell<HashMap<Cid, Vec<u8>>>,
+pub struct SharedMemoryBlockstore {
+    blocks: Rc<RefCell<HashMap<Cid, Vec<u8>>>>,
 }
 
-use std::{cell::RefCell, collections::HashMap};
-impl MemoryBlockstore {
+impl SharedMemoryBlockstore {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-impl fvm_ipld_blockstore::Blockstore for MemoryBlockstore {
+impl fvm_ipld_blockstore::Blockstore for SharedMemoryBlockstore {
     fn has(&self, k: &Cid) -> Result<bool> {
-        Ok(self.blocks.borrow().contains_key(k))
+        Ok(RefCell::borrow(&self.blocks).contains_key(k))
     }
 
     fn get(&self, k: &Cid) -> Result<Option<Vec<u8>>> {
-        Ok(self.blocks.borrow().get(k).cloned())
+        Ok(RefCell::borrow(&self.blocks).get(k).cloned())
     }
 
     fn put_keyed(&self, k: &Cid, block: &[u8]) -> Result<()> {
-        self.blocks.borrow_mut().insert(*k, block.into());
+        RefCell::borrow_mut(&self.blocks).insert(*k, block.into());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use fvm_ipld_blockstore::Blockstore;
+    use fvm_ipld_encoding::CborStore;
+    use fvm_shared::bigint::{bigint_ser::BigIntDe, BigInt};
+
+    use super::*;
+
+    #[test]
+    fn it_shares_memory_under_clone() {
+        let bs = SharedMemoryBlockstore::new();
+        let a_number = BigIntDe(BigInt::from(123));
+        let cid = bs.put_cbor(&a_number, Code::Blake2b256).unwrap();
+
+        let bs_cloned = bs.clone();
+        assert_eq!(bs.blocks, bs_cloned.blocks);
+        assert_eq!(bs.get(&cid).unwrap(), bs_cloned.get(&cid).unwrap())
     }
 }
