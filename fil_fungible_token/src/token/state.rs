@@ -69,8 +69,6 @@ impl TokenState {
     }
 
     /// Saves the current state to the blockstore, returning the cid
-    /// TODO: should replaced with more targeted saving of different branches of the state tree for efficiency
-    /// i.e. only save the balances HAMT if it has changed, only save the allowance HAMTs if they have changed
     pub fn save<BS: IpldStore>(&self, bs: &BS) -> Result<Cid> {
         let serialized = match fvm_ipld_encoding::to_vec(self) {
             Ok(s) => s,

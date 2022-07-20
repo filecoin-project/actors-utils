@@ -57,8 +57,7 @@ where
 
     /// Mints the specified value of tokens into an account
     ///
-    /// If the total supply or account balance overflows, this method returns an error. The mint
-    /// amount must be non-negative or the method returns an error.
+    /// The mint amount must be non-negative or the method returns an error
     pub fn mint(&self, initial_holder: ActorID, value: TokenAmount) -> Result<()> {
         if value.is_negative() {
             bail!("value of mint was negative {}", value);
@@ -67,6 +66,9 @@ where
         // Increase the balance of the actor and increase total supply
         let mut state = self.load_state();
         state.change_balance_by(&self.bs, initial_holder, &value)?;
+
+        // TODO: invoke the receiver hook on the initial_holder
+
         state.increase_supply(&value)?;
 
         // Commit the state atomically if supply and balance increased
@@ -103,11 +105,9 @@ where
         Ok(allowance)
     }
 
-    /// Changes the allowance that
-
     /// Increase the allowance that a spender controls of the owner's balance by the requested delta
     ///
-    /// Returns an error if requested delta is negative or there are errors in (de)sereliazation of
+    /// Returns an error if requested delta is negative or there are errors in (de)serialization of
     /// state. Else returns the new allowance.
     pub fn increase_allowance(
         &self,
