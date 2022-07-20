@@ -1,7 +1,6 @@
-use std::{error::Error, fmt::Display};
-
 use fvm_ipld_hamt::Error as HamtError;
 use fvm_shared::address::Address;
+use std::{error::Error, fmt::Display};
 
 #[derive(Debug)]
 pub enum RuntimeError {

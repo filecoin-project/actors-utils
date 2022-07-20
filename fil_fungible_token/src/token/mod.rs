@@ -1,8 +1,6 @@
 pub mod errors;
-pub mod receiver;
 mod state;
 mod types;
-use std::ops::Neg;
 
 use self::state::TokenState;
 pub use self::types::*;
@@ -15,6 +13,7 @@ use fvm_ipld_blockstore::Blockstore as IpldStore;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 use num_traits::Signed;
+use std::ops::Neg;
 
 /// Library functions that implement core FRC-??? standards
 ///
