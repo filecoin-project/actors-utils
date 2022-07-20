@@ -1,20 +1,27 @@
-pub mod errors;
 pub mod receiver;
 mod state;
 mod types;
-use std::ops::Neg;
 
-use self::state::TokenState;
+use self::state::{StateError, TokenState};
 pub use self::types::*;
 
-use anyhow::bail;
-use anyhow::Ok;
-use anyhow::Result;
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 use num_traits::Signed;
+use std::ops::Neg;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum TokenError {
+    #[error("error in underlying state {0}")]
+    State(#[from] StateError),
+    #[error("invalid negative: {0}")]
+    InvalidNegative(String),
+}
+
+type Result<T> = std::result::Result<T, TokenError>;
 
 /// Library functions that implement core FRC-??? standards
 ///
@@ -44,7 +51,7 @@ where
     /// Constructs the token state tree and saves it at a CID
     pub fn init_state(&self) -> Result<Cid> {
         let init_state = TokenState::new(&self.bs)?;
-        init_state.save(&self.bs)
+        Ok(init_state.save(&self.bs)?)
     }
 
     /// Helper function that loads the root of the state tree related to token-accounting
@@ -60,7 +67,10 @@ where
     /// The mint amount must be non-negative or the method returns an error
     pub fn mint(&self, initial_holder: ActorID, value: TokenAmount) -> Result<()> {
         if value.is_negative() {
-            bail!("value of mint was negative {}", value);
+            return Err(TokenError::InvalidNegative(format!(
+                "mint amount {} cannot be negative",
+                value
+            )));
         }
 
         // Increase the balance of the actor and increase total supply
@@ -92,7 +102,7 @@ where
     pub fn balance_of(&self, holder: ActorID) -> Result<TokenAmount> {
         // Load the HAMT holding balances
         let state = self.load_state();
-        state.get_balance(&self.bs, holder)
+        Ok(state.get_balance(&self.bs, holder)?)
     }
 
     /// Gets the allowance between owner and spender
@@ -116,7 +126,10 @@ where
         delta: TokenAmount,
     ) -> Result<TokenAmount> {
         if delta.is_negative() {
-            bail!("value of delta was negative {}", delta);
+            return Err(TokenError::InvalidNegative(format!(
+                "increase allowance delta {} cannot be negative",
+                delta
+            )));
         }
 
         let mut state = self.load_state();
@@ -138,7 +151,10 @@ where
         delta: TokenAmount,
     ) -> Result<TokenAmount> {
         if delta.is_negative() {
-            bail!("value of delta was negative {}", delta);
+            return Err(TokenError::InvalidNegative(format!(
+                "decrease allowance delta {} cannot be negative",
+                delta
+            )));
         }
 
         let mut state = self.load_state();
@@ -186,7 +202,10 @@ where
         value: TokenAmount,
     ) -> Result<TokenAmount> {
         if value.is_negative() {
-            bail!("cannot burn a negative amount");
+            return Err(TokenError::InvalidNegative(format!(
+                "burn amount {} cannot be negative",
+                value
+            )));
         }
 
         let mut state = self.load_state();
@@ -235,7 +254,10 @@ where
         value: TokenAmount,
     ) -> Result<()> {
         if value.is_negative() {
-            bail!("cannot transfer a negative amount");
+            return Err(TokenError::InvalidNegative(format!(
+                "transfer amount {} cannot be negative",
+                value
+            )));
         }
 
         let mut state = self.load_state();
