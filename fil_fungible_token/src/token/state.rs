@@ -177,11 +177,11 @@ impl TokenState {
         )?)
     }
 
-    /// Increase the total supply by the specified value
+    /// Increase/decrease the total supply by the specified value
     ///
-    /// The requested amount must be non-negative. Returns the new total supply
-    pub fn increase_supply(&mut self, value: &TokenAmount) -> Result<&TokenAmount> {
-        self.supply += value;
+    /// Returns the new total supply
+    pub fn change_supply_by(&mut self, delta: &TokenAmount) -> Result<&TokenAmount> {
+        self.supply += delta;
         Ok(&self.supply)
     }
 
@@ -468,5 +468,58 @@ mod test {
         assert_eq!(ret, BigInt::zero());
         let allowance_3 = state.get_allowance_between(bs, owner, spender).unwrap();
         assert_eq!(allowance_3, BigInt::zero());
+    }
+
+    #[test]
+    fn it_consumes_allowances_atomically() {
+        let bs = &SharedMemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
+        let owner: ActorID = 1;
+        let spender: ActorID = 2;
+
+        // set a positive allowance
+        let delta = BigInt::from(100);
+        state
+            .change_allowance_by(bs, owner, spender, &delta)
+            .unwrap();
+
+        // can consume an allowance
+        let new_allowance = state
+            .attempt_use_allowance(bs, spender, owner, &BigInt::from(60))
+            .unwrap();
+        assert_eq!(new_allowance, BigInt::from(40));
+        let new_allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(new_allowance, BigInt::from(40));
+
+        // cannot consume more allowance than approved
+        state
+            .attempt_use_allowance(bs, spender, owner, &BigInt::from(50))
+            .unwrap_err();
+        // allowance was unchanged
+        let new_allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(new_allowance, BigInt::from(40));
+    }
+
+    #[test]
+    fn it_revokes_allowances() {
+        let bs = &SharedMemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
+        let owner: ActorID = 1;
+        let spender: ActorID = 2;
+
+        // set a positive allowance
+        let delta = BigInt::from(100);
+        state
+            .change_allowance_by(bs, owner, spender, &delta)
+            .unwrap();
+        state
+            .change_allowance_by(bs, owner, spender, &delta)
+            .unwrap();
+        let allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(allowance, BigInt::from(200));
+
+        state.revoke_allowance(bs, owner, spender).unwrap();
+        let allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(allowance, BigInt::zero());
     }
 }
