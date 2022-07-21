@@ -11,3 +11,7 @@ Cargo.lock
 
 # IDE specific user-config
 .vscode/
+
+# Code coverage instrumentation
+coverage/
+*.profraw
