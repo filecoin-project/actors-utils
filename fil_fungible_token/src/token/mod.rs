@@ -48,8 +48,7 @@ where
     /// Constructs the token state tree and saves it at a CID
     pub fn init_state(&mut self) -> Result<Cid> {
         let init_state = TokenState::new(&self.bs)?;
-        self.state_cid = init_state.save(&self.bs)?;
-        Ok(self.state_cid)
+        self.save_state(&init_state)
     }
 
     /// Helper function that loads the root of the state tree related to token-accounting
