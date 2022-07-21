@@ -1,15 +1,12 @@
-use anyhow::anyhow;
-use anyhow::bail;
-use anyhow::Result;
 use cid::multihash::Code;
 use cid::Cid;
-
 use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
 use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::Cbor;
 use fvm_ipld_encoding::CborStore;
 use fvm_ipld_encoding::DAG_CBOR;
+use fvm_ipld_hamt::Error as HamtError;
 use fvm_ipld_hamt::Hamt;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
@@ -17,8 +14,36 @@ use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 use num_traits::Signed;
+use thiserror::Error;
 
 const HAMT_BIT_WIDTH: u32 = 5;
+
+#[derive(Error, Debug)]
+pub enum StateError {
+    #[error("ipld hamt error: {0}")]
+    IpldHamt(#[from] HamtError),
+    #[error("missing state at cid: {0}")]
+    MissingState(Cid),
+    #[error("underlying serialization error: {0}")]
+    Serialization(String),
+    #[error("negative balance caused by changing {owner:?}'s balance of {balance:?} by {delta:?}")]
+    NegativeBalance {
+        owner: ActorID,
+        balance: TokenAmount,
+        delta: TokenAmount,
+    },
+    #[error(
+        "{spender:?} attempted to utilise {delta:?} of allowance {allowance:?} set by {owner:?}"
+    )]
+    InsufficentAllowance {
+        owner: ActorID,
+        spender: ActorID,
+        allowance: TokenAmount,
+        delta: TokenAmount,
+    },
+}
+
+type Result<T> = std::result::Result<T, StateError>;
 
 /// Token state IPLD structure
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Clone, Debug)]
@@ -37,9 +62,8 @@ pub struct TokenState {
 ///
 /// This is a simple wrapper of state and in general does not account for token protocol level
 /// checks such as ensuring necessary approvals are enforced during transfers. This is left for the
-/// caller to handle. However, some invariants such as enforcing non-negative balances, allowances
-/// and total supply are enforced. Furthermore, this layer returns errors if any of the underlying
-/// arithmetic overflows.
+/// caller to handle. However, some invariants such as non-negative balances, allowances and total
+/// supply are enforced.
 ///
 /// Some methods on TokenState require the caller to pass in a blockstore implementing the Clone
 /// trait. It is assumed that when cloning the blockstore implementation does a "shallow-clone"
@@ -63,8 +87,8 @@ impl TokenState {
         // Load the actor state from the state tree.
         match bs.get_cbor::<Self>(cid) {
             Ok(Some(state)) => Ok(state),
-            Ok(None) => Err(anyhow!("no state at this cid {:?}", cid)),
-            Err(err) => Err(anyhow!("failed to get state: {}", err)),
+            Ok(None) => Err(StateError::MissingState(*cid)),
+            Err(err) => Err(StateError::Serialization(err.to_string())),
         }
     }
 
@@ -72,7 +96,7 @@ impl TokenState {
     pub fn save<BS: IpldStore>(&self, bs: &BS) -> Result<Cid> {
         let serialized = match fvm_ipld_encoding::to_vec(self) {
             Ok(s) => s,
-            Err(err) => return Err(anyhow!("failed to serialize state: {:?}", err)),
+            Err(err) => return Err(StateError::Serialization(err.to_string())),
         };
         let block = Block {
             codec: DAG_CBOR,
@@ -80,7 +104,7 @@ impl TokenState {
         };
         let cid = match bs.put(Code::Blake2b256, &block) {
             Ok(cid) => cid,
-            Err(err) => return Err(anyhow!("failed to store initial state: {:}", err)),
+            Err(err) => return Err(StateError::Serialization(err.to_string())),
         };
         Ok(cid)
     }
@@ -126,11 +150,11 @@ impl TokenState {
 
         // if the new_balance is negative, return an error
         if new_balance.is_negative() {
-            bail!(
-                "resulting balance was negative adding {:?} to {:?}",
-                delta,
-                balance.unwrap_or(&BigIntDe(TokenAmount::zero())).0
-            );
+            return Err(StateError::NegativeBalance {
+                balance: new_balance,
+                delta: delta.clone(),
+                owner,
+            });
         }
 
         balance_map.set(owner, BigIntDe(new_balance.clone()))?;
@@ -144,30 +168,19 @@ impl TokenState {
         &self,
         bs: &BS,
     ) -> Result<Hamt<BS, BigIntDe, ActorID>> {
-        match Hamt::<BS, BigIntDe, ActorID>::load_with_bit_width(
+        Ok(Hamt::<BS, BigIntDe, ActorID>::load_with_bit_width(
             &self.balances,
             (*bs).clone(),
             HAMT_BIT_WIDTH,
-        ) {
-            Ok(map) => Ok(map),
-            Err(err) => return Err(anyhow!("failed to load balances hamt: {:?}", err)),
-        }
+        )?)
     }
 
     /// Increase the total supply by the specified value
     ///
-    /// The requested amount must be non-negative.
-    /// Returns an error if the total supply overflows, else returns the new total supply
-    pub fn increase_supply(&mut self, value: &TokenAmount) -> Result<TokenAmount> {
-        let new_supply = self.supply.checked_add(value).ok_or_else(|| {
-            anyhow!(
-                "Overflow when adding {} to the total_supply of {}",
-                value,
-                self.supply
-            )
-        })?;
-        self.supply = new_supply.clone();
-        Ok(new_supply)
+    /// The requested amount must be non-negative. Returns the new total supply
+    pub fn increase_supply(&mut self, value: &TokenAmount) -> Result<&TokenAmount> {
+        self.supply += value;
+        Ok(&self.supply)
     }
 
     /// Get the allowance that an owner has approved for a spender
@@ -296,24 +309,16 @@ impl TokenState {
             return Ok(current_allowance);
         }
 
-        let new_allowance = current_allowance.checked_sub(value).ok_or_else(|| {
-            anyhow!(
-                "Overflow when subtracting {} from {}'s allowance of {}",
-                value,
-                owner,
-                current_allowance
-            )
-        })?;
-
-        if new_allowance.is_negative() {
-            return Err(anyhow!(
-                "Attempted to use {} of {}'s tokens from {}'s allowance of {}",
-                value,
+        if current_allowance.lt(value) {
+            return Err(StateError::InsufficentAllowance {
                 owner,
                 spender,
-                current_allowance
-            ));
+                allowance: current_allowance,
+                delta: value.clone(),
+            });
         }
+
+        let new_allowance = current_allowance - value;
 
         // TODO: helper function to set a new allowance and flush hamts
         let owner_allowances = self.get_owner_allowance_map(bs, owner)?;
@@ -353,12 +358,11 @@ impl TokenState {
     ///
     /// Gets a HAMT with CIDs linking to other HAMTs
     fn get_allowances_map<BS: IpldStore + Clone>(&self, bs: &BS) -> Result<Hamt<BS, Cid, ActorID>> {
-        Hamt::<BS, Cid, ActorID>::load_with_bit_width(
+        Ok(Hamt::<BS, Cid, ActorID>::load_with_bit_width(
             &self.allowances,
             (*bs).clone(),
             HAMT_BIT_WIDTH,
-        )
-        .map_err(|e| anyhow!("failed to load base allowances map {}", e))
+        )?)
     }
 }
 
@@ -405,13 +409,9 @@ mod test {
         let actor: ActorID = 1;
 
         // can't decrease from zero
-        let err = state
+        state
             .change_balance_by(bs, actor, &BigInt::from(-1))
             .unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "resulting balance was negative adding -1 to 0"
-        );
         let balance = state.get_balance(bs, actor).unwrap();
         assert_eq!(balance, BigInt::zero());
 
@@ -419,13 +419,9 @@ mod test {
         state
             .change_balance_by(bs, actor, &BigInt::from(50))
             .unwrap();
-        let err = state
+        state
             .change_balance_by(bs, actor, &BigInt::from(-100))
             .unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "resulting balance was negative adding -100 to 50"
-        );
     }
 
     #[test]
