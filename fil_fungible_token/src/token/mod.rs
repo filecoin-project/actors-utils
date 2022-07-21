@@ -340,6 +340,36 @@ mod test {
     }
 
     #[test]
+    fn it_provides_atomic_transactions() {
+        // create a new token
+        let bs = SharedMemoryBlockstore::new();
+        let (mut token, _) = Token::new(bs).unwrap();
+
+        // entire transaction succeeds
+        token
+            .transaction(|state, _bs| {
+                state.change_supply_by(&TokenAmount::from(100))?;
+                state.change_supply_by(&TokenAmount::from(100))?;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(token.total_supply(), TokenAmount::from(200));
+
+        // entire transaction fails
+        token
+            .transaction(|state, _bs| {
+                state.change_supply_by(&TokenAmount::from(-100))?;
+                state.change_supply_by(&TokenAmount::from(-100))?;
+                // this makes supply negative and should rever the entire transaction
+                state.change_supply_by(&TokenAmount::from(-100))?;
+                Ok(())
+            })
+            .unwrap_err();
+        // total_supply should be unchanged
+        assert_eq!(token.total_supply(), TokenAmount::from(200));
+    }
+
+    #[test]
     fn it_mints() {
         let mut token = new_token();
 
