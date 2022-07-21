@@ -1,0 +1,8 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fvm_dispatch = { version = "0.1.0", path = "../../../fvm_dispatch" }
+helper = { path = ".." }
