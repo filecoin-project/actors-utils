@@ -32,39 +32,61 @@ where
 {
     /// Injected blockstore. The blockstore must reference the same underlying storage under Clone
     bs: BS,
-    /// Root of the token state tree
-    state_cid: Cid,
+    /// In-memory cache of the state tree
+    state: TokenState,
 }
 
 impl<BS> Token<BS>
 where
     BS: IpldStore + Clone,
 {
-    /// Instantiate an empty token helper with access to a blockstore and runtime
-    pub fn new(bs: BS, state_cid: Cid) -> Self {
-        Self { bs, state_cid }
-    }
-
-    /// Constructs the token state tree and saves it at a CID
-    pub fn init_state(&mut self) -> Result<Cid> {
-        let init_state = TokenState::new(&self.bs)?;
-        self.save_state(&init_state)
-    }
-
-    /// Helper function that loads the root of the state tree related to token-accounting
+    /// Creates a new token instance using the given blockstore and creates a new empty state tree
     ///
-    /// Actors can't usefully recover if state wasn't initialized (failure to call `init_state`) in
-    /// the constructor so this method panics if the state tree if missing
-    fn load_state(&self) -> TokenState {
-        TokenState::load(&self.bs, &self.state_cid).unwrap()
+    /// Returns a Token handle that can be used to interact with the token state tree and the Cid
+    /// of the state tree root
+    pub fn new(bs: BS) -> Result<(Self, Cid)> {
+        let init_state = TokenState::new(&bs)?;
+        let cid = init_state.save(&bs)?;
+        let token = Self {
+            bs,
+            state: init_state,
+        };
+        Ok((token, cid))
     }
 
-    /// Helper function that saves the state tree and returns the CID of the root
-    fn save_state(&mut self, state: &TokenState) -> Result<Cid> {
-        self.state_cid = state.save(&self.bs)?;
-        Ok(self.state_cid)
+    /// For an already initialised state tree, loads the state tree from the blockstore and returns
+    /// a Token handle to interact with it
+    pub fn load(bs: BS, state_cid: Cid) -> Result<Self> {
+        let state = TokenState::load(&bs, &state_cid)?;
+        Ok(Self { bs, state })
     }
 
+    /// Flush state and return Cid for root
+    pub fn flush(&mut self) -> Result<Cid> {
+        Ok(self.state.save(&self.bs)?)
+    }
+
+    /// Opens an atomic transaction on TokenState which allows a closure to make multiple
+    /// modifications to the state tree.
+    ///
+    /// If the closure returns an error, the transaction is dropped atomically and no change is
+    /// observed on token state.
+    pub fn transaction<F, Res>(&mut self, f: F) -> Result<Res>
+    where
+        F: FnOnce(&mut TokenState, BS) -> Result<Res>,
+    {
+        let mut mutable_state = self.state.clone();
+        let res = f(&mut mutable_state, self.bs.clone())?;
+        // if closure didn't error, save state
+        self.state = mutable_state;
+        Ok(res)
+    }
+}
+
+impl<BS> Token<BS>
+where
+    BS: IpldStore + Clone,
+{
     /// Mints the specified value of tokens into an account
     ///
     /// The mint amount must be non-negative or the method returns an error
@@ -77,15 +99,12 @@ where
         }
 
         // Increase the balance of the actor and increase total supply
-        let mut state = self.load_state();
-        state.change_balance_by(&self.bs, initial_holder, &value)?;
+        self.state
+            .change_balance_by(&self.bs, initial_holder, &value)?;
 
         // TODO: invoke the receiver hook on the initial_holder
 
-        state.change_supply_by(&value)?;
-
-        // Commit the state atomically if supply and balance increased
-        self.save_state(&state)?;
+        self.state.change_supply_by(&value)?;
         Ok(())
     }
 
@@ -94,8 +113,7 @@ where
     /// This equals the sum of `balance_of` called on all addresses. This equals sum of all
     /// successful `mint` calls minus the sum of all successful `burn`/`burn_from` calls
     pub fn total_supply(&self) -> TokenAmount {
-        let state = self.load_state();
-        state.supply
+        self.state.supply.clone()
     }
 
     /// Returns the balance associated with a particular address
@@ -103,8 +121,7 @@ where
     /// Accounts that have never received transfers implicitly have a zero-balance
     pub fn balance_of(&self, holder: ActorID) -> Result<TokenAmount> {
         // Load the HAMT holding balances
-        let state = self.load_state();
-        Ok(state.get_balance(&self.bs, holder)?)
+        Ok(self.state.get_balance(&self.bs, holder)?)
     }
 
     /// Gets the allowance between owner and spender
@@ -112,8 +129,7 @@ where
     /// The allowance is the amount that the spender can transfer or burn out of the owner's account
     /// via the `transfer_from` and `burn_from` methods.
     pub fn allowance(&self, owner: ActorID, spender: ActorID) -> Result<TokenAmount> {
-        let state = self.load_state();
-        let allowance = state.get_allowance_between(&self.bs, owner, spender)?;
+        let allowance = self.state.get_allowance_between(&self.bs, owner, spender)?;
         Ok(allowance)
     }
 
@@ -134,10 +150,10 @@ where
             )));
         }
 
-        let mut state = self.load_state();
-        let new_amount = state.change_allowance_by(&self.bs, owner, spender, &delta)?;
+        let new_amount = self
+            .state
+            .change_allowance_by(&self.bs, owner, spender, &delta)?;
 
-        self.save_state(&state)?;
         Ok(new_amount)
     }
 
@@ -159,19 +175,17 @@ where
             )));
         }
 
-        let mut state = self.load_state();
-        let new_allowance = state.change_allowance_by(&self.bs, owner, spender, &delta.neg())?;
+        let new_allowance =
+            self.state
+                .change_allowance_by(&self.bs, owner, spender, &delta.neg())?;
 
-        self.save_state(&state)?;
         Ok(new_allowance)
     }
 
     /// Sets the allowance between owner and spender to 0
     pub fn revoke_allowance(&mut self, owner: ActorID, spender: ActorID) -> Result<()> {
-        let mut state = self.load_state();
-        state.revoke_allowance(&self.bs, owner, spender)?;
+        self.state.revoke_allowance(&self.bs, owner, spender)?;
 
-        self.save_state(&state)?;
         Ok(())
     }
 
@@ -211,20 +225,19 @@ where
             )));
         }
 
-        let mut state = self.load_state();
+        let new_amount = self.transaction(|state, bs| {
+            if spender != owner {
+                // attempt to use allowance and return early if not enough
+                state.attempt_use_allowance(&bs, spender, owner, &value)?;
+            }
+            // attempt to burn the requested amount
+            let new_amount = state.change_balance_by(&bs, owner, &value.clone().neg())?;
 
-        if spender != owner {
-            // attempt to use allowance and return early if not enough
-            state.attempt_use_allowance(&self.bs, spender, owner, &value)?;
-        }
-        // attempt to burn the requested amount
-        let new_amount = state.change_balance_by(&self.bs, owner, &value.clone().neg())?;
+            // decrease total_supply
+            state.change_supply_by(&value.neg())?;
+            Ok(new_amount)
+        })?;
 
-        // decrease total_supply
-        state.change_supply_by(&value.neg())?;
-
-        // if both succeeded, atomically commit the transaction
-        self.save_state(&state)?;
         Ok(new_amount)
     }
 
@@ -266,32 +279,36 @@ where
             )));
         }
 
-        let mut state = self.load_state();
+        let _old_state = self.state.clone();
 
-        if spender != owner {
-            // attempt to use allowance and return early if not enough
-            state.attempt_use_allowance(&self.bs, spender, owner, &value)?;
+        self.transaction(|state, bs| {
+            if spender != owner {
+                // attempt to use allowance and return early if not enough
+                state.attempt_use_allowance(&bs, spender, owner, &value)?;
+            }
+            state.change_balance_by(&bs, receiver, &value)?;
+            state.change_balance_by(&bs, owner, &value.neg())?;
+            Ok(())
+        })?;
+
+        // TODO: call hook
+        {
+            // flush state as re-entrant call needs to see new balances
+            // self.flush()?;
+
+            // call hook here
+
+            // if hook aborted, return to previous state
+            // self.state = _old_state;
+            // self.flush()?;
         }
 
-        // attempt to credit the receiver
-        state.change_balance_by(&self.bs, receiver, &value)?;
-        // attempt to debit from the sender
-        state.change_balance_by(&self.bs, owner, &value.neg())?;
-
-        // call the receiver hook
-        // FIXME: use fvm_dispatch to make a standard runtime call to the receiver
-        // - ensure the hook did not abort
-        // - receiver hook should see the new balances...
-
-        // if all succeeded, atomically commit the transaction
-        self.save_state(&state)?;
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use cid::Cid;
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
 
@@ -299,43 +316,32 @@ mod test {
 
     use super::Token;
 
-    #[test]
-    fn it_instantiates() {
-        let state_cid = Cid::default();
-        let mut token = Token::new(SharedMemoryBlockstore::new(), state_cid);
-        token.init_state().expect("state init failed");
-        token.load_state();
+    fn new_token() -> Token<SharedMemoryBlockstore> {
+        Token::new(SharedMemoryBlockstore::new()).unwrap().0
     }
 
     #[test]
-    fn it_persists_loads() {
-        let state_cid = Cid::default();
+    fn it_instantiates() {
+        // create a new token
         let bs = SharedMemoryBlockstore::new();
-        let mut token = Token::new(bs.clone(), state_cid);
-        token.init_state().unwrap();
+        let (mut token, _) = Token::new(bs.clone()).unwrap();
 
-        // simulate actor calls mint method
-        let treasury = 1;
-        token.mint(treasury, TokenAmount::from(100)).unwrap();
-        let balance = token.balance_of(treasury).unwrap();
-        assert_eq!(balance, TokenAmount::from(100));
+        // state exists but is empty
+        assert_eq!(token.total_supply(), TokenAmount::zero());
+        token.mint(1, TokenAmount::from(100)).unwrap();
+        assert_eq!(token.total_supply(), TokenAmount::from(100));
 
-        // here the actor would save the cid to it's state tree
-        // TODO: state_cid needs to be exported so that actors can keep track of it
-        let new_state_cid = token.state_cid;
+        // flush token to blockstore
+        let cid = token.flush().unwrap();
 
-        // simulate actor is invoked again: load a new instance of the Token from the blockstore
-        let token_clone = Token::new(bs, new_state_cid);
-        let balance_from_cloned = token_clone.balance_of(treasury).unwrap();
-        // it has the balances from before
-        assert_eq!(balance_from_cloned, TokenAmount::from(100));
+        // the returned cid can be used to reference the same token state
+        let token2 = Token::load(bs, cid).unwrap();
+        assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
     #[test]
     fn it_mints() {
-        let state_cid = Cid::default();
-        let mut token = Token::new(SharedMemoryBlockstore::new(), state_cid);
-        token.init_state().unwrap();
+        let mut token = new_token();
 
         let treasury = 1;
         token.mint(treasury, TokenAmount::from(1_000_000)).unwrap();
@@ -349,9 +355,7 @@ mod test {
 
     #[test]
     fn it_burns() {
-        let state_cid = Cid::default();
-        let mut token = Token::new(SharedMemoryBlockstore::new(), state_cid);
-        token.init_state().unwrap();
+        let mut token = new_token();
 
         let treasury = 1;
         let mint_amount = TokenAmount::from(1_000_000);
@@ -370,9 +374,7 @@ mod test {
 
     #[test]
     fn it_allows_delegated_burns() {
-        let state_cid = Cid::default();
-        let mut token = Token::new(SharedMemoryBlockstore::new(), state_cid);
-        token.init_state().unwrap();
+        let mut token = new_token();
 
         let treasury = 1;
         let burner = 2;
@@ -416,9 +418,7 @@ mod test {
 
     #[test]
     fn it_cannot_burn_below_zero() {
-        let state_cid = Cid::default();
-        let mut token = Token::new(SharedMemoryBlockstore::new(), state_cid);
-        token.init_state().unwrap();
+        let mut token = new_token();
 
         let treasury = 1;
         let mint_amount = TokenAmount::from(1_000_000);
@@ -437,9 +437,7 @@ mod test {
 
     #[test]
     fn it_allows_transfer() {
-        let state_cid = Cid::default();
-        let mut token = Token::new(SharedMemoryBlockstore::new(), state_cid);
-        token.init_state().unwrap();
+        let mut token = new_token();
 
         let owner = 1;
         let receiver = 2;
@@ -465,9 +463,7 @@ mod test {
 
     #[test]
     fn it_disallows_transfer_when_insufficient_balance() {
-        let state_cid = Cid::default();
-        let mut token = Token::new(SharedMemoryBlockstore::new(), state_cid);
-        token.init_state().unwrap();
+        let mut token = new_token();
 
         let owner = 1;
         let receiver = 2;
@@ -487,10 +483,42 @@ mod test {
     }
 
     #[test]
+    fn it_doesnt_use_allowance_when_insufficent_balance() {
+        let mut token = new_token();
+
+        let owner = 1;
+        let spender = 2;
+        // mint 50 for the owner
+        token.mint(owner, TokenAmount::from(50)).unwrap();
+
+        // allow 100 to be spent by spender
+        token
+            .increase_allowance(owner, spender, TokenAmount::from(100))
+            .unwrap();
+
+        // spender attempts transfer 51 from owner -> spender
+        // they have enough allowance, but not enough balance
+        token
+            .transfer(spender, owner, spender, TokenAmount::from(51))
+            .unwrap_err();
+
+        // attempt burn 51 by spender
+        token
+            .burn(spender, owner, TokenAmount::from(51))
+            .unwrap_err();
+
+        // balances remained unchanged
+        let balance = token.balance_of(owner).unwrap();
+        assert_eq!(balance, TokenAmount::from(50));
+        let balance = token.balance_of(spender).unwrap();
+        assert_eq!(balance, TokenAmount::zero());
+        let allowance = token.allowance(owner, spender).unwrap();
+        assert_eq!(allowance, TokenAmount::from(100));
+    }
+
+    #[test]
     fn it_allows_delegated_transfer() {
-        let state_cid = Cid::default();
-        let mut token = Token::new(SharedMemoryBlockstore::new(), state_cid);
-        token.init_state().unwrap();
+        let mut token = new_token();
 
         let owner = 1;
         let receiver = 2;
@@ -539,9 +567,7 @@ mod test {
 
     #[test]
     fn it_allows_revoking_allowances() {
-        let state_cid = Cid::default();
-        let mut token = Token::new(SharedMemoryBlockstore::new(), state_cid);
-        token.init_state().unwrap();
+        let mut token = new_token();
 
         let owner = 1;
         let receiver = 2;
@@ -599,9 +625,7 @@ mod test {
 
     #[test]
     fn it_disallows_transfer_when_insufficient_allowance() {
-        let state_cid = Cid::default();
-        let mut token = Token::new(SharedMemoryBlockstore::new(), state_cid);
-        token.init_state().unwrap();
+        let mut token = new_token();
 
         let owner = 1;
         let receiver = 2;
@@ -634,9 +658,7 @@ mod test {
 
     #[test]
     fn it_checks_for_invalid_negatives() {
-        let state_cid = Cid::default();
-        let mut token = Token::new(SharedMemoryBlockstore::new(), state_cid);
-        token.init_state().unwrap();
+        let mut token = new_token();
 
         let owner = 1;
         let receiver = 2;
