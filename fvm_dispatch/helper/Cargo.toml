@@ -1,0 +1,16 @@
+[package]
+name = "helper"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+blake2b_simd = { version = "1.0.0" }
+convert_case = "0.5"
+#fvm_dispatch = { version = "0.1.0", path = "../../fvm_dispatch" }
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "1.0", features = ["full"] }
+thiserror = { version = "1.0.31" }

@@ -2,6 +2,7 @@
 
 members = [
     "fvm_dispatch",
+    "fvm_dispatch/helper",
     "fvm_dispatch_tools",
     "fil_fungible_token",
 ]
