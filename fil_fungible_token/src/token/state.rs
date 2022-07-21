@@ -26,9 +26,7 @@ pub enum StateError {
     MissingState(Cid),
     #[error("underlying serialization error: {0}")]
     Serialization(String),
-    #[error(
-        "negative balance caused by subtracting {delta:?} from {owner:?}'s balance of {balance:?}"
-    )]
+    #[error("negative balance caused by changing {owner:?}'s balance of {balance:?} by {delta:?}")]
     NegativeBalance {
         owner: ActorID,
         balance: TokenAmount,
