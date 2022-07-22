@@ -29,6 +29,6 @@ jobs:
         run: make test
         env:
           CARGO_INCREMENTAL: '0'
-          RUSTFLAGS: '-Cinstrument-coverage -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
-          RUSTDOCFLAGS: '-Cinstrument-coverage -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
+          RUSTFLAGS: '-Cinstrument-coverage'
+          RUSTDOCFLAGS: '-Cinstrument-coverage'
       - uses: actions-rs/grcov@v0.1
