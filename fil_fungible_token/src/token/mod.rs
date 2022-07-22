@@ -1,9 +1,8 @@
-pub mod receiver;
 mod state;
 mod types;
 
 use self::state::{StateError, TokenState};
-pub use self::types::*;
+use crate::method::{MethodCallError, MethodCaller};
 
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
@@ -19,6 +18,10 @@ pub enum TokenError {
     State(#[from] StateError),
     #[error("invalid negative: {0}")]
     InvalidNegative(String),
+    #[error("error calling receiver hook: {0}")]
+    MethodCall(#[from] MethodCallError),
+    #[error("receiver hook aborted when {from:?} sent {value:?} to {to:?} by {by:?}")]
+    ReceiverHook { from: ActorID, to: ActorID, by: ActorID, value: TokenAmount },
 }
 
 type Result<T> = std::result::Result<T, TokenError>;
@@ -26,36 +29,40 @@ type Result<T> = std::result::Result<T, TokenError>;
 /// Library functions that implement core FRC-??? standards
 ///
 /// Holds injectable services to access/interface with IPLD/FVM layer.
-pub struct Token<BS>
+pub struct Token<BS, MC>
 where
     BS: IpldStore + Clone,
+    MC: MethodCaller,
 {
     /// Injected blockstore. The blockstore must reference the same underlying storage under Clone
     bs: BS,
+    /// Minimal interface to call methods on other actors (i.e. receiver hooks)
+    mc: MC,
     /// In-memory cache of the state tree
     state: TokenState,
 }
 
-impl<BS> Token<BS>
+impl<BS, MC> Token<BS, MC>
 where
     BS: IpldStore + Clone,
+    MC: MethodCaller,
 {
     /// Creates a new token instance using the given blockstore and creates a new empty state tree
     ///
     /// Returns a Token handle that can be used to interact with the token state tree and the Cid
     /// of the state tree root
-    pub fn new(bs: BS) -> Result<(Self, Cid)> {
+    pub fn new(bs: BS, mc: MC) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
-        let token = Self { bs, state: init_state };
+        let token = Self { bs, mc, state: init_state };
         Ok((token, cid))
     }
 
     /// For an already initialised state tree, loads the state tree from the blockstore and returns
     /// a Token handle to interact with it
-    pub fn load(bs: BS, state_cid: Cid) -> Result<Self> {
+    pub fn load(bs: BS, mc: MC, state_cid: Cid) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, state })
+        Ok(Self { bs, mc, state })
     }
 
     /// Flush state and return Cid for root
@@ -80,9 +87,10 @@ where
     }
 }
 
-impl<BS> Token<BS>
+impl<BS, MC> Token<BS, MC>
 where
     BS: IpldStore + Clone,
+    MC: MethodCaller,
 {
     /// Mints the specified value of tokens into an account
     ///
@@ -263,7 +271,8 @@ where
         spender: ActorID,
         owner: ActorID,
         receiver: ActorID,
-        value: TokenAmount,
+        value: &TokenAmount,
+        data: &[u8],
     ) -> Result<()> {
         if value.is_negative() {
             return Err(TokenError::InvalidNegative(format!(
@@ -277,26 +286,40 @@ where
         self.transaction(|state, bs| {
             if spender != owner {
                 // attempt to use allowance and return early if not enough
-                state.attempt_use_allowance(&bs, spender, owner, &value)?;
+                state.attempt_use_allowance(&bs, spender, owner, value)?;
             }
-            state.change_balance_by(&bs, receiver, &value)?;
+            state.change_balance_by(&bs, receiver, value)?;
             state.change_balance_by(&bs, owner, &value.neg())?;
             Ok(())
         })?;
 
-        // TODO: call hook
-        {
-            // flush state as re-entrant call needs to see new balances
-            // self.flush()?;
+        // flush state as re-entrant call needs to see new balances
+        self.flush()?;
 
-            // call hook here
-
-            // if hook aborted, return to previous state
-            // self.state = _old_state;
-            // self.flush()?;
+        // call hook here
+        match self.mc.call_receiver_hook(owner, receiver, &value, data) {
+            Ok(true) => {
+                // hook returned true, so we can continue
+                Ok(())
+            }
+            Ok(false) => {
+                // receiver hook aborted, revert state
+                self.state = _old_state;
+                self.flush()?;
+                Err(TokenError::ReceiverHook {
+                    from: owner,
+                    to: receiver,
+                    by: spender,
+                    value: value.clone(),
+                })
+            }
+            Err(e) => {
+                // error calling receiver hook, revert state
+                self.state = _old_state;
+                self.flush()?;
+                Err(e.into())
+            }
         }
-
-        Ok(())
     }
 }
 
@@ -305,19 +328,20 @@ mod test {
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
 
-    use crate::blockstore::SharedMemoryBlockstore;
+    use crate::{blockstore::SharedMemoryBlockstore, method::FakeMethodCaller};
 
     use super::Token;
 
-    fn new_token() -> Token<SharedMemoryBlockstore> {
-        Token::new(SharedMemoryBlockstore::new()).unwrap().0
+    fn new_token() -> Token<SharedMemoryBlockstore, FakeMethodCaller> {
+        Token::new(SharedMemoryBlockstore::new(), FakeMethodCaller::default()).unwrap().0
     }
 
     #[test]
     fn it_instantiates() {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
-        let (mut token, _) = Token::new(bs.clone()).unwrap();
+        let mc = FakeMethodCaller::default();
+        let (mut token, _) = Token::new(bs.clone(), FakeMethodCaller::default()).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -328,7 +352,7 @@ mod test {
         let cid = token.flush().unwrap();
 
         // the returned cid can be used to reference the same token state
-        let token2 = Token::load(bs, cid).unwrap();
+        let token2 = Token::load(bs, mc, cid).unwrap();
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
@@ -336,7 +360,8 @@ mod test {
     fn it_provides_atomic_transactions() {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
-        let (mut token, _) = Token::new(bs).unwrap();
+        let mc = FakeMethodCaller::default();
+        let (mut token, _) = Token::new(bs, mc).unwrap();
 
         // entire transaction succeeds
         token
@@ -462,9 +487,8 @@ mod test {
         let receiver = 2;
         // mint 100 for owner
         token.mint(owner, TokenAmount::from(100)).unwrap();
-        // TODO: token needs some injectable layer to handle and mock the receive hook behaviour
         // transfer 60 from owner -> receiver
-        token.transfer(owner, owner, receiver, TokenAmount::from(60)).unwrap();
+        token.transfer(owner, owner, receiver, &TokenAmount::from(60), &[]).unwrap();
 
         // owner has 100 - 60 = 40
         let balance = token.balance_of(owner).unwrap();
@@ -475,8 +499,25 @@ mod test {
         assert_eq!(balance, TokenAmount::from(60));
     }
 
-    // TODO
-    // fn it_disallows_transfer_when_receiver_hook_aborts() {}
+    #[test]
+    fn it_disallows_transfer_when_receiver_hook_aborts() {
+        let mut token = new_token();
+
+        let owner = 1;
+        let receiver = 2;
+        // mint 100 for owner
+        token.mint(owner, TokenAmount::from(100)).unwrap();
+        // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
+        token
+            .transfer(owner, owner, receiver, &TokenAmount::from(60), "abort".as_bytes())
+            .unwrap_err();
+
+        // balances didn't change
+        let balance = token.balance_of(owner).unwrap();
+        assert_eq!(balance, TokenAmount::from(100));
+        let balance = token.balance_of(receiver).unwrap();
+        assert_eq!(balance, TokenAmount::from(0));
+    }
 
     #[test]
     fn it_disallows_transfer_when_insufficient_balance() {
@@ -489,7 +530,7 @@ mod test {
 
         // attempt transfer 51 from owner -> receiver
         token
-            .transfer(owner, owner, receiver, TokenAmount::from(51))
+            .transfer(owner, owner, receiver, &TokenAmount::from(51), &[])
             .expect_err("transfer should have failed");
 
         // balances remained unchanged
@@ -513,7 +554,7 @@ mod test {
 
         // spender attempts transfer 51 from owner -> spender
         // they have enough allowance, but not enough balance
-        token.transfer(spender, owner, spender, TokenAmount::from(51)).unwrap_err();
+        token.transfer(spender, owner, spender, &TokenAmount::from(51), &[]).unwrap_err();
 
         // attempt burn 51 by spender
         token.burn(spender, owner, TokenAmount::from(51)).unwrap_err();
@@ -540,7 +581,7 @@ mod test {
         // approve 100 spending allowance for spender
         token.increase_allowance(owner, spender, TokenAmount::from(100)).unwrap();
         // spender makes transfer of 60 from owner -> receiver
-        token.transfer(spender, owner, receiver, TokenAmount::from(60)).unwrap();
+        token.transfer(spender, owner, receiver, &TokenAmount::from(60), &[]).unwrap();
 
         // verify all balances are correct
         let owner_balance = token.balance_of(owner).unwrap();
@@ -555,7 +596,7 @@ mod test {
         assert_eq!(spender_allowance, TokenAmount::from(40));
 
         // spender makes another transfer of 40 from owner -> self
-        token.transfer(spender, owner, spender, TokenAmount::from(40)).unwrap();
+        token.transfer(spender, owner, spender, &TokenAmount::from(40), &[]).unwrap();
 
         // verify all balances are correct
         let owner_balance = token.balance_of(owner).unwrap();
@@ -587,14 +628,14 @@ mod test {
         token.decrease_allowance(owner, spender, TokenAmount::from(90)).unwrap();
 
         // spender fails to makes transfer of 60 from owner -> receiver
-        token.transfer(spender, owner, receiver, TokenAmount::from(60)).unwrap_err();
+        token.transfer(spender, owner, receiver, &TokenAmount::from(60), &[]).unwrap_err();
 
         // because the allowance is only 10
         let allowance = token.allowance(owner, spender).unwrap();
         assert_eq!(allowance, TokenAmount::from(10));
 
         // spender can transfer 1
-        token.transfer(spender, owner, receiver, TokenAmount::from(1)).unwrap();
+        token.transfer(spender, owner, receiver, &TokenAmount::from(1), &[]).unwrap();
 
         let allowance = token.allowance(owner, spender).unwrap();
         assert_eq!(allowance, TokenAmount::from(9));
@@ -606,7 +647,7 @@ mod test {
         assert_eq!(allowance, TokenAmount::from(0));
 
         // spender can no longer transfer 1
-        token.transfer(spender, owner, receiver, TokenAmount::from(1)).unwrap_err();
+        token.transfer(spender, owner, receiver, &TokenAmount::from(1), &[]).unwrap_err();
 
         // only the 1 token transfer should have succeeded
         // verify all balances are correct
@@ -632,7 +673,7 @@ mod test {
         token.increase_allowance(owner, spender, TokenAmount::from(40)).unwrap();
         // spender attempts makes transfer of 60 from owner -> receiver
         // this is within the owner's balance but not within the spender's allowance
-        token.transfer(spender, owner, receiver, TokenAmount::from(60)).unwrap_err();
+        token.transfer(spender, owner, receiver, &TokenAmount::from(60), &[]).unwrap_err();
 
         // verify all balances are correct
         let owner_balance = token.balance_of(owner).unwrap();
@@ -657,12 +698,14 @@ mod test {
 
         token.mint(owner, TokenAmount::from(-1)).unwrap_err();
         token.burn(owner, owner, TokenAmount::from(-1)).unwrap_err();
-        token.transfer(owner, owner, receiver, TokenAmount::from(-1)).unwrap_err();
+        token.transfer(owner, owner, receiver, &TokenAmount::from(-1), &[]).unwrap_err();
         token.increase_allowance(owner, spender, TokenAmount::from(-1)).unwrap_err();
         token.decrease_allowance(owner, spender, TokenAmount::from(-1)).unwrap_err();
 
         // spender attempts makes transfer of 60 from owner -> receiver
         // this is within the owner's balance but not within the spender's allowance
-        token.transfer(spender, owner, receiver, TokenAmount::from(60)).unwrap_err();
+        token.transfer(spender, owner, receiver, &TokenAmount::from(60), &[]).unwrap_err();
     }
+
+    // TODO: test for re-entrancy bugs by implementing a MethodCaller that calls back on the token contract
 }
