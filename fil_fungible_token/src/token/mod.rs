@@ -382,7 +382,7 @@ mod test {
     }
 
     #[test]
-    fn it_instantiates() {
+    fn it_instantiates_and_persists() {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
         let mc = FakeMethodCaller::default();
@@ -424,7 +424,7 @@ mod test {
             .transaction(|state, _bs| {
                 state.change_supply_by(&TokenAmount::from(-100))?;
                 state.change_supply_by(&TokenAmount::from(-100))?;
-                // this makes supply negative and should rever the entire transaction
+                // this makes supply negative and should revert the entire transaction
                 state.change_supply_by(&TokenAmount::from(-100))?;
                 Ok(())
             })
@@ -439,9 +439,18 @@ mod test {
 
         token.mint(TOKEN_ACTOR_ADDRESS, TREASURY, &TokenAmount::from(1_000_000), &[]).unwrap();
 
+        // balance and total supply both went up
         let balance = token.balance_of(TREASURY).unwrap();
         assert_eq!(balance, TokenAmount::from(1_000_000));
+        let total_supply = token.total_supply();
+        assert_eq!(total_supply, TokenAmount::from(1_000_000));
 
+        // cannot mint a negative amount
+        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(-1), &[]).unwrap_err();
+
+        // state remained unchanged
+        let balance = token.balance_of(ALICE).unwrap();
+        assert_eq!(balance, TokenAmount::zero());
         let total_supply = token.total_supply();
         assert_eq!(total_supply, TokenAmount::from(1_000_000));
     }
@@ -474,52 +483,22 @@ mod test {
         // total supply decreased
         let total_supply = token.total_supply();
         assert_eq!(total_supply, TokenAmount::from(400_000));
-
-        // TREASURY balance decreased
-        let balance = token.balance_of(TREASURY).unwrap();
-        assert_eq!(balance, TokenAmount::from(400_000));
-    }
-
-    #[test]
-    fn it_allows_delegated_burns() {
-        let mut token = new_token();
-
-        let mint_amount = TokenAmount::from(1_000_000);
-        let approval_amount = TokenAmount::from(600_000);
-        let burn_amount = TokenAmount::from(600_000);
-
-        // mint the total amount
-        token.mint(TOKEN_ACTOR_ADDRESS, TREASURY, &mint_amount, &[]).unwrap();
-        // approve the burner to spend the allowance
-        token.increase_allowance(TREASURY, ALICE, &approval_amount).unwrap();
-        // burn the approved amount
-        token.burn(ALICE, TREASURY, &burn_amount).unwrap();
-
-        // total supply decreased
-        let total_supply = token.total_supply();
-        assert_eq!(total_supply, TokenAmount::from(400_000));
         // treasury balance decreased
         let balance = token.balance_of(TREASURY).unwrap();
         assert_eq!(balance, TokenAmount::from(400_000));
-        // burner approval decreased
-        let new_allowance = token.allowance(TREASURY, ALICE).unwrap();
-        assert_eq!(new_allowance, TokenAmount::zero());
 
-        // disallows another delegated burn as approval is zero
-        // burn the approved amount
-        token.burn(ALICE, TREASURY, &burn_amount).expect_err("unable to burn more than allowance");
+        // cannot burn a negative amount
+        token.burn(TREASURY, TREASURY, &TokenAmount::from(-1)).unwrap_err();
 
-        // balances didn't change
-        let total_supply = token.total_supply();
-        assert_eq!(total_supply, TokenAmount::from(400_000));
+        // balances and supply were unchanged
         let balance = token.balance_of(TREASURY).unwrap();
         assert_eq!(balance, TokenAmount::from(400_000));
-        let new_allowance = token.allowance(TREASURY, ALICE).unwrap();
-        assert_eq!(new_allowance, TokenAmount::zero());
+        let total_supply = token.total_supply();
+        assert_eq!(total_supply, TokenAmount::from(400_000));
     }
 
     #[test]
-    fn it_cannot_burn_below_zero() {
+    fn it_fails_to_burn_below_zero() {
         let mut token = new_token();
 
         let mint_amount = TokenAmount::from(1_000_000);
@@ -537,7 +516,7 @@ mod test {
     }
 
     #[test]
-    fn it_allows_transfer() {
+    fn it_transfers() {
         let mut token = new_token();
 
         // mint 100 for owner
@@ -548,14 +527,24 @@ mod test {
         // owner has 100 - 60 = 40
         let balance = token.balance_of(ALICE).unwrap();
         assert_eq!(balance, TokenAmount::from(40));
-
         // receiver has 0 + 60 = 60
+        let balance = token.balance_of(BOB).unwrap();
+        assert_eq!(balance, TokenAmount::from(60));
+        // total supply is unchanged by a transfer
+        let total_supply = token.total_supply();
+        assert_eq!(total_supply, TokenAmount::from(100));
+
+        // cannot transfer a negative value
+        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(-1), &[]).unwrap_err();
+        // balances are unchanged
+        let balance = token.balance_of(ALICE).unwrap();
+        assert_eq!(balance, TokenAmount::from(40));
         let balance = token.balance_of(BOB).unwrap();
         assert_eq!(balance, TokenAmount::from(60));
     }
 
     #[test]
-    fn it_disallows_transfer_when_receiver_hook_aborts() {
+    fn it_fails_to_transfer_when_receiver_hook_aborts() {
         let mut token = new_token();
 
         // mint 100 for owner
@@ -571,7 +560,7 @@ mod test {
     }
 
     #[test]
-    fn it_disallows_transfer_when_insufficient_balance() {
+    fn it_fails_to_transfer_when_insufficient_balance() {
         let mut token = new_token();
 
         // mint 50 for the owner
@@ -590,29 +579,45 @@ mod test {
     }
 
     #[test]
-    fn it_doesnt_use_allowance_when_insufficent_balance() {
+    fn it_tracks_allowances() {
         let mut token = new_token();
 
-        // mint 50 for the owner
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(50), &[]).unwrap();
-
-        // allow 100 to be spent by spender
-        token.increase_allowance(ALICE, BOB, &TokenAmount::from(100)).unwrap();
-
-        // spender attempts transfer 51 from owner -> spender
-        // they have enough allowance, but not enough balance
-        token.transfer(BOB, ALICE, BOB, &TokenAmount::from(51), &[]).unwrap_err();
-
-        // attempt burn 51 by spender
-        token.burn(BOB, ALICE, &TokenAmount::from(51)).unwrap_err();
-
-        // balances remained unchanged
-        let balance = token.balance_of(ALICE).unwrap();
-        assert_eq!(balance, TokenAmount::from(50));
-        let balance = token.balance_of(BOB).unwrap();
-        assert_eq!(balance, TokenAmount::zero());
-        let allowance = token.allowance(ALICE, BOB).unwrap();
+        // set allowance between Alice and Carol as 100
+        let new_allowance =
+            token.increase_allowance(ALICE, CAROL, &TokenAmount::from(100)).unwrap();
+        let allowance = token.allowance(ALICE, CAROL).unwrap();
+        // return value and allowance should be the same
+        assert_eq!(new_allowance, allowance);
         assert_eq!(allowance, TokenAmount::from(100));
+
+        // one-way only
+        assert_eq!(token.allowance(CAROL, ALICE).unwrap(), TokenAmount::zero());
+        // unrelated allowance unaffected
+        assert_eq!(token.allowance(ALICE, BOB).unwrap(), TokenAmount::zero());
+
+        // cannot set negative deltas
+        token.increase_allowance(ALICE, CAROL, &TokenAmount::from(-1)).unwrap_err();
+        token.decrease_allowance(ALICE, CAROL, &TokenAmount::from(-1)).unwrap_err();
+
+        // allowance was unchanged
+        let allowance = token.allowance(ALICE, CAROL).unwrap();
+        assert_eq!(allowance, TokenAmount::from(100));
+
+        // keeps track of decreasing allowances
+        let new_allowance = token.decrease_allowance(ALICE, CAROL, &TokenAmount::from(60)).unwrap();
+        let allowance = token.allowance(ALICE, CAROL).unwrap();
+        assert_eq!(new_allowance, allowance);
+        assert_eq!(allowance, TokenAmount::from(40));
+
+        // allowance revoking sets to 0
+        token.revoke_allowance(ALICE, CAROL).unwrap();
+        assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::zero());
+
+        // allowances cannot be negative, but decreasing an allowance below 0 revokes the allowance
+        token.increase_allowance(ALICE, CAROL, &TokenAmount::from(10)).unwrap();
+        let new_allowance = token.decrease_allowance(ALICE, CAROL, &TokenAmount::from(20)).unwrap();
+        assert_eq!(new_allowance, TokenAmount::zero());
+        assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::zero());
     }
 
     #[test]
@@ -655,51 +660,45 @@ mod test {
     }
 
     #[test]
-    fn it_allows_revoking_allowances() {
+    fn it_allows_delegated_burns() {
         let mut token = new_token();
 
-        // mint 100 for the owner
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(100), &[]).unwrap();
-        // approve 100 spending allowance for spender
-        token.increase_allowance(ALICE, CAROL, &TokenAmount::from(100)).unwrap();
+        let mint_amount = TokenAmount::from(1_000_000);
+        let approval_amount = TokenAmount::from(600_000);
+        let burn_amount = TokenAmount::from(600_000);
 
-        // before spending, owner decreases allowance
-        token.decrease_allowance(ALICE, CAROL, &TokenAmount::from(90)).unwrap();
+        // mint the total amount
+        token.mint(TOKEN_ACTOR_ADDRESS, TREASURY, &mint_amount, &[]).unwrap();
+        // approve the burner to spend the allowance
+        token.increase_allowance(TREASURY, ALICE, &approval_amount).unwrap();
+        // burn the approved amount
+        token.burn(ALICE, TREASURY, &burn_amount).unwrap();
 
-        // spender fails to makes transfer of 60 from owner -> receiver
-        token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &[]).unwrap_err();
+        // total supply decreased
+        let total_supply = token.total_supply();
+        assert_eq!(total_supply, TokenAmount::from(400_000));
+        // treasury balance decreased
+        let balance = token.balance_of(TREASURY).unwrap();
+        assert_eq!(balance, TokenAmount::from(400_000));
+        // burner approval decreased
+        let new_allowance = token.allowance(TREASURY, ALICE).unwrap();
+        assert_eq!(new_allowance, TokenAmount::zero());
 
-        // because the allowance is only 10
-        let allowance = token.allowance(ALICE, CAROL).unwrap();
-        assert_eq!(allowance, TokenAmount::from(10));
+        // disallows another delegated burn as approval is zero
+        // burn the approved amount
+        token.burn(ALICE, TREASURY, &burn_amount).expect_err("unable to burn more than allowance");
 
-        // spender can transfer 1
-        token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(1), &[]).unwrap();
-
-        let allowance = token.allowance(ALICE, CAROL).unwrap();
-        assert_eq!(allowance, TokenAmount::from(9));
-
-        // owner revokes the rest
-        token.revoke_allowance(ALICE, CAROL).unwrap();
-
-        let allowance = token.allowance(ALICE, CAROL).unwrap();
-        assert_eq!(allowance, TokenAmount::from(0));
-
-        // spender can no longer transfer 1
-        token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(1), &[]).unwrap_err();
-
-        // only the 1 token transfer should have succeeded
-        // verify all balances are correct
-        let owner_balance = token.balance_of(ALICE).unwrap();
-        let receiver_balance = token.balance_of(BOB).unwrap();
-        let spender_balance = token.balance_of(CAROL).unwrap();
-        assert_eq!(owner_balance, TokenAmount::from(99));
-        assert_eq!(receiver_balance, TokenAmount::from(1));
-        assert_eq!(spender_balance, TokenAmount::from(0));
+        // balances didn't change
+        let total_supply = token.total_supply();
+        assert_eq!(total_supply, TokenAmount::from(400_000));
+        let balance = token.balance_of(TREASURY).unwrap();
+        assert_eq!(balance, TokenAmount::from(400_000));
+        let new_allowance = token.allowance(TREASURY, ALICE).unwrap();
+        assert_eq!(new_allowance, TokenAmount::zero());
     }
 
     #[test]
-    fn it_disallows_transfer_when_insufficient_allowance() {
+    fn it_fails_to_transfer_when_insufficient_allowance() {
         let mut token = new_token();
 
         // mint 100 for the owner
@@ -724,18 +723,29 @@ mod test {
     }
 
     #[test]
-    fn it_checks_for_invalid_negatives() {
+    fn it_doesnt_use_allowance_when_insufficent_balance() {
         let mut token = new_token();
 
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(-1), &[]).unwrap_err();
-        token.burn(ALICE, ALICE, &TokenAmount::from(-1)).unwrap_err();
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(-1), &[]).unwrap_err();
-        token.increase_allowance(ALICE, CAROL, &TokenAmount::from(-1)).unwrap_err();
-        token.decrease_allowance(ALICE, CAROL, &TokenAmount::from(-1)).unwrap_err();
+        // mint 50 for the owner
+        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(50), &[]).unwrap();
 
-        // spender attempts makes transfer of 60 from owner -> receiver
-        // this is within the owner's balance but not within the spender's allowance
-        token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &[]).unwrap_err();
+        // allow 100 to be spent by spender
+        token.increase_allowance(ALICE, BOB, &TokenAmount::from(100)).unwrap();
+
+        // spender attempts transfer 51 from owner -> spender
+        // they have enough allowance, but not enough balance
+        token.transfer(BOB, ALICE, BOB, &TokenAmount::from(51), &[]).unwrap_err();
+
+        // attempt burn 51 by spender
+        token.burn(BOB, ALICE, &TokenAmount::from(51)).unwrap_err();
+
+        // balances remained unchanged
+        let balance = token.balance_of(ALICE).unwrap();
+        assert_eq!(balance, TokenAmount::from(50));
+        let balance = token.balance_of(BOB).unwrap();
+        assert_eq!(balance, TokenAmount::zero());
+        let allowance = token.allowance(ALICE, BOB).unwrap();
+        assert_eq!(allowance, TokenAmount::from(100));
     }
 
     // TODO: test for re-entrancy bugs by implementing a MethodCaller that calls back on the token contract
