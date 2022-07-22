@@ -11,6 +11,7 @@ env:
 
 jobs:
   check-code:
+    if: github.event.pull_request.draft == false 
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -19,5 +20,15 @@ jobs:
       - name: Build
         run: make check-build
 
+  test-with-coverage:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
       - name: Test
         run: make test
+        env:
+          CARGO_INCREMENTAL: '0'
+          RUSTFLAGS: '-Cinstrument-coverage -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
+          RUSTDOCFLAGS: '-Cinstrument-coverage -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
+      - uses: actions-rs/grcov@v0.1
