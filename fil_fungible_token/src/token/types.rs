@@ -6,6 +6,8 @@ use fvm_shared::bigint::bigint_ser;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 
+// TODO: finalise this spec and remove anyhow!
+
 /// A standard fungible token interface allowing for on-chain transactions that implements the
 /// FRC-XXX standard. This represents the external interface exposed to other on-chain actors
 ///

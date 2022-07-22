@@ -115,8 +115,8 @@ where
 
         // Increase the balance of the actor and increase total supply
         self.transaction(|state, bs| {
-            state.change_balance_by(&bs, initial_holder, &value)?;
-            state.change_supply_by(&value)?;
+            state.change_balance_by(&bs, initial_holder, value)?;
+            state.change_supply_by(value)?;
             Ok(())
         })?;
 
@@ -124,7 +124,7 @@ where
         self.flush()?;
 
         // Call receiver hook
-        match self.mc.call_receiver_hook(self.actor_id, initial_holder, &value, data) {
+        match self.mc.call_receiver_hook(self.actor_id, initial_holder, value, data) {
             Ok(true) => {
                 // hook returned true, so we can continue
                 Ok(())
@@ -334,7 +334,7 @@ where
         self.flush()?;
 
         // call receiver hook
-        match self.mc.call_receiver_hook(owner, receiver, &value, data) {
+        match self.mc.call_receiver_hook(owner, receiver, value, data) {
             Ok(true) => {
                 // hook returned true, so we can continue
                 Ok(())

@@ -80,7 +80,7 @@ impl MethodCaller for FakeMethodCaller {
         _value: &TokenAmount,
         data: &[u8],
     ) -> Result<bool> {
-        if data.len() == 0 {
+        if data.is_empty() {
             Ok(true)
         } else {
             Ok(false)

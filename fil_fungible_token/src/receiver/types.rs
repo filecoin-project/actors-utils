@@ -3,8 +3,6 @@ use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::{address::Address, econ::TokenAmount};
 
-type Result<T> = std::result::Result<T, ()>;
-
 /// Standard interface for an actor that wishes to receive FRC-XXX tokens
 pub trait FrcXXXTokenReceiver {
     /// Invoked by a token actor during pending transfer to the receiver's address
@@ -13,7 +11,8 @@ pub trait FrcXXXTokenReceiver {
     /// the receiving actor can immediately utilise the received funds. If the receiver wishes to
     /// reject the incoming transfer, this function should abort which will cause the token actor
     /// to rollback the transaction.
-    fn token_received(params: TokenReceivedParams) -> Result<()>;
+    /// TODO: finalise this spec
+    fn token_received(params: TokenReceivedParams);
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple)]
