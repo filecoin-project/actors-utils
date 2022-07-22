@@ -40,6 +40,8 @@ where
     mc: MC,
     /// In-memory cache of the state tree
     state: TokenState,
+    /// Token-contract address
+    actor_id: ActorID,
 }
 
 impl<BS, MC> Token<BS, MC>
@@ -51,18 +53,18 @@ where
     ///
     /// Returns a Token handle that can be used to interact with the token state tree and the Cid
     /// of the state tree root
-    pub fn new(bs: BS, mc: MC) -> Result<(Self, Cid)> {
+    pub fn new(bs: BS, mc: MC, actor_id: ActorID) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
-        let token = Self { bs, mc, state: init_state };
+        let token = Self { bs, mc, actor_id, state: init_state };
         Ok((token, cid))
     }
 
     /// For an already initialised state tree, loads the state tree from the blockstore and returns
     /// a Token handle to interact with it
-    pub fn load(bs: BS, mc: MC, state_cid: Cid) -> Result<Self> {
+    pub fn load(bs: BS, mc: MC, actor_id: ActorID, state_cid: Cid) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, mc, state })
+        Ok(Self { bs, mc, state, actor_id })
     }
 
     /// Flush state and return Cid for root
@@ -95,7 +97,13 @@ where
     /// Mints the specified value of tokens into an account
     ///
     /// The mint amount must be non-negative or the method returns an error
-    pub fn mint(&mut self, initial_holder: ActorID, value: TokenAmount) -> Result<()> {
+    pub fn mint(
+        &mut self,
+        minter: ActorID,
+        initial_holder: ActorID,
+        value: &TokenAmount,
+        data: &[u8],
+    ) -> Result<()> {
         if value.is_negative() {
             return Err(TokenError::InvalidNegative(format!(
                 "mint amount {} cannot be negative",
@@ -103,13 +111,42 @@ where
             )));
         }
 
+        let old_state = self.state.clone();
+
         // Increase the balance of the actor and increase total supply
-        self.state.change_balance_by(&self.bs, initial_holder, &value)?;
+        self.transaction(|state, bs| {
+            state.change_balance_by(&bs, initial_holder, &value)?;
+            state.change_supply_by(&value)?;
+            Ok(())
+        })?;
 
-        // TODO: invoke the receiver hook on the initial_holder
+        // Update state so re-entrant calls see the changes
+        self.flush()?;
 
-        self.state.change_supply_by(&value)?;
-        Ok(())
+        // Call receiver hook
+        match self.mc.call_receiver_hook(self.actor_id, initial_holder, &value, data) {
+            Ok(true) => {
+                // hook returned true, so we can continue
+                Ok(())
+            }
+            Ok(false) => {
+                // receiver hook aborted, revert state
+                self.state = old_state;
+                self.flush()?;
+                Err(TokenError::ReceiverHook {
+                    from: self.actor_id,
+                    to: initial_holder,
+                    by: minter,
+                    value: value.clone(),
+                })
+            }
+            Err(e) => {
+                // error calling receiver hook, revert state
+                self.state = old_state;
+                self.flush()?;
+                Err(e.into())
+            }
+        }
     }
 
     /// Gets the total number of tokens in existence
@@ -281,7 +318,7 @@ where
             )));
         }
 
-        let _old_state = self.state.clone();
+        let old_state = self.state.clone();
 
         self.transaction(|state, bs| {
             if spender != owner {
@@ -296,7 +333,7 @@ where
         // flush state as re-entrant call needs to see new balances
         self.flush()?;
 
-        // call hook here
+        // call receiver hook
         match self.mc.call_receiver_hook(owner, receiver, &value, data) {
             Ok(true) => {
                 // hook returned true, so we can continue
@@ -304,7 +341,7 @@ where
             }
             Ok(false) => {
                 // receiver hook aborted, revert state
-                self.state = _old_state;
+                self.state = old_state;
                 self.flush()?;
                 Err(TokenError::ReceiverHook {
                     from: owner,
@@ -315,7 +352,7 @@ where
             }
             Err(e) => {
                 // error calling receiver hook, revert state
-                self.state = _old_state;
+                self.state = old_state;
                 self.flush()?;
                 Err(e.into())
             }
@@ -325,15 +362,19 @@ where
 
 #[cfg(test)]
 mod test {
-    use fvm_shared::econ::TokenAmount;
+    use fvm_shared::{econ::TokenAmount, ActorID};
     use num_traits::Zero;
 
     use crate::{blockstore::SharedMemoryBlockstore, method::FakeMethodCaller};
 
     use super::Token;
 
+    const TOKEN_ACTOR_ADDRESS: ActorID = ActorID::max_value();
+
     fn new_token() -> Token<SharedMemoryBlockstore, FakeMethodCaller> {
-        Token::new(SharedMemoryBlockstore::new(), FakeMethodCaller::default()).unwrap().0
+        Token::new(SharedMemoryBlockstore::new(), FakeMethodCaller::default(), TOKEN_ACTOR_ADDRESS)
+            .unwrap()
+            .0
     }
 
     #[test]
@@ -341,18 +382,19 @@ mod test {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
         let mc = FakeMethodCaller::default();
-        let (mut token, _) = Token::new(bs.clone(), FakeMethodCaller::default()).unwrap();
+        let (mut token, _) =
+            Token::new(bs.clone(), FakeMethodCaller::default(), TOKEN_ACTOR_ADDRESS).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
-        token.mint(1, TokenAmount::from(100)).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, 1, &TokenAmount::from(100), &[]).unwrap();
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // flush token to blockstore
         let cid = token.flush().unwrap();
 
         // the returned cid can be used to reference the same token state
-        let token2 = Token::load(bs, mc, cid).unwrap();
+        let token2 = Token::load(bs, mc, TOKEN_ACTOR_ADDRESS, cid).unwrap();
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
@@ -361,7 +403,7 @@ mod test {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
         let mc = FakeMethodCaller::default();
-        let (mut token, _) = Token::new(bs, mc).unwrap();
+        let (mut token, _) = Token::new(bs, mc, TOKEN_ACTOR_ADDRESS).unwrap();
 
         // entire transaction succeeds
         token
@@ -392,7 +434,7 @@ mod test {
         let mut token = new_token();
 
         let treasury = 1;
-        token.mint(treasury, TokenAmount::from(1_000_000)).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, treasury, &TokenAmount::from(1_000_000), &[]).unwrap();
 
         let balance = token.balance_of(treasury).unwrap();
         assert_eq!(balance, TokenAmount::from(1_000_000));
@@ -402,13 +444,30 @@ mod test {
     }
 
     #[test]
+    fn it_fails_to_mint_if_receiver_hook_aborts() {
+        let mut token = new_token();
+
+        let treasury = 1;
+        // force hook to abort
+        token
+            .mint(TOKEN_ACTOR_ADDRESS, treasury, &TokenAmount::from(1_000_000), "abort".as_bytes())
+            .unwrap_err();
+
+        let balance = token.balance_of(treasury).unwrap();
+        assert_eq!(balance, TokenAmount::zero());
+
+        let total_supply = token.total_supply();
+        assert_eq!(total_supply, TokenAmount::zero());
+    }
+
+    #[test]
     fn it_burns() {
         let mut token = new_token();
 
         let treasury = 1;
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(600_000);
-        token.mint(treasury, mint_amount).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, treasury, &mint_amount, &[]).unwrap();
         token.burn(treasury, treasury, burn_amount).unwrap();
 
         // total supply decreased
@@ -431,7 +490,7 @@ mod test {
         let burn_amount = TokenAmount::from(600_000);
 
         // mint the total amount
-        token.mint(treasury, mint_amount).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, treasury, &mint_amount, &[]).unwrap();
         // approve the burner to spend the allowance
         token.increase_allowance(treasury, burner, approval_amount).unwrap();
         // burn the approved amount
@@ -467,7 +526,7 @@ mod test {
         let treasury = 1;
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(2_000_000);
-        token.mint(treasury, mint_amount).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, treasury, &mint_amount, &[]).unwrap();
         token.burn(treasury, treasury, burn_amount).unwrap_err();
 
         // total supply remained same
@@ -486,7 +545,7 @@ mod test {
         let owner = 1;
         let receiver = 2;
         // mint 100 for owner
-        token.mint(owner, TokenAmount::from(100)).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, owner, &TokenAmount::from(100), &[]).unwrap();
         // transfer 60 from owner -> receiver
         token.transfer(owner, owner, receiver, &TokenAmount::from(60), &[]).unwrap();
 
@@ -506,7 +565,7 @@ mod test {
         let owner = 1;
         let receiver = 2;
         // mint 100 for owner
-        token.mint(owner, TokenAmount::from(100)).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, owner, &TokenAmount::from(100), &[]).unwrap();
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
         token
             .transfer(owner, owner, receiver, &TokenAmount::from(60), "abort".as_bytes())
@@ -526,7 +585,7 @@ mod test {
         let owner = 1;
         let receiver = 2;
         // mint 50 for the owner
-        token.mint(owner, TokenAmount::from(50)).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, owner, &TokenAmount::from(50), &[]).unwrap();
 
         // attempt transfer 51 from owner -> receiver
         token
@@ -547,7 +606,7 @@ mod test {
         let owner = 1;
         let spender = 2;
         // mint 50 for the owner
-        token.mint(owner, TokenAmount::from(50)).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, owner, &TokenAmount::from(50), &[]).unwrap();
 
         // allow 100 to be spent by spender
         token.increase_allowance(owner, spender, TokenAmount::from(100)).unwrap();
@@ -577,7 +636,7 @@ mod test {
         let spender = 3;
 
         // mint 100 for the owner
-        token.mint(owner, TokenAmount::from(100)).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, owner, &TokenAmount::from(100), &[]).unwrap();
         // approve 100 spending allowance for spender
         token.increase_allowance(owner, spender, TokenAmount::from(100)).unwrap();
         // spender makes transfer of 60 from owner -> receiver
@@ -620,7 +679,7 @@ mod test {
         let spender = 3;
 
         // mint 100 for the owner
-        token.mint(owner, TokenAmount::from(100)).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, owner, &TokenAmount::from(100), &[]).unwrap();
         // approve 100 spending allowance for spender
         token.increase_allowance(owner, spender, TokenAmount::from(100)).unwrap();
 
@@ -668,7 +727,7 @@ mod test {
         let spender = 3;
 
         // mint 100 for the owner
-        token.mint(owner, TokenAmount::from(100)).unwrap();
+        token.mint(TOKEN_ACTOR_ADDRESS, owner, &TokenAmount::from(100), &[]).unwrap();
         // approve only 40 spending allowance for spender
         token.increase_allowance(owner, spender, TokenAmount::from(40)).unwrap();
         // spender attempts makes transfer of 60 from owner -> receiver
@@ -696,7 +755,7 @@ mod test {
         let receiver = 2;
         let spender = 3;
 
-        token.mint(owner, TokenAmount::from(-1)).unwrap_err();
+        token.mint(TOKEN_ACTOR_ADDRESS, owner, &TokenAmount::from(-1), &[]).unwrap_err();
         token.burn(owner, owner, TokenAmount::from(-1)).unwrap_err();
         token.transfer(owner, owner, receiver, &TokenAmount::from(-1), &[]).unwrap_err();
         token.increase_allowance(owner, spender, TokenAmount::from(-1)).unwrap_err();
