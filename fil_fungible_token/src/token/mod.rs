@@ -42,16 +42,15 @@ where
 {
     /// Creates a new token instance using the given blockstore and creates a new empty state tree
     ///
-    /// Returns a Token handle that can be used to interact with the token state tree and the Cid
-    /// of the state tree root
-    pub fn new(bs: BS) -> Result<(Self, Cid)> {
+    /// Returns a Token handle that can be used to interact with the token state tree. The state
+    /// tree is not persisted to the blockstore until `flush` is called.
+    pub fn new(bs: BS) -> Result<Self> {
         let init_state = TokenState::new(&bs)?;
-        let cid = init_state.save(&bs)?;
         let token = Self {
             bs,
             state: init_state,
         };
-        Ok((token, cid))
+        Ok(token)
     }
 
     /// For an already initialised state tree, loads the state tree from the blockstore and returns
@@ -77,7 +76,7 @@ where
     {
         let mut mutable_state = self.state.clone();
         let res = f(&mut mutable_state, self.bs.clone())?;
-        // if closure didn't error, save state
+        // if closure didn't error, save to state cache which will be persisted to blockstore on the next call of flush
         self.state = mutable_state;
         Ok(res)
     }
@@ -99,12 +98,16 @@ where
         }
 
         // Increase the balance of the actor and increase total supply
-        self.state
-            .change_balance_by(&self.bs, initial_holder, &value)?;
+        self.transaction(|state, bs| {
+            state.change_balance_by(&bs, initial_holder, &value)?;
 
-        // TODO: invoke the receiver hook on the initial_holder
+            // TODO: invoke the receiver hook on the initial_holder
 
-        self.state.change_supply_by(&value)?;
+            state.change_supply_by(&value)?;
+
+            Ok(())
+        })?;
+
         Ok(())
     }
 
@@ -317,14 +320,14 @@ mod test {
     use super::Token;
 
     fn new_token() -> Token<SharedMemoryBlockstore> {
-        Token::new(SharedMemoryBlockstore::new()).unwrap().0
+        Token::new(SharedMemoryBlockstore::new()).unwrap()
     }
 
     #[test]
     fn it_instantiates() {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
-        let (mut token, _) = Token::new(bs.clone()).unwrap();
+        let mut token = Token::new(bs.clone()).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -343,7 +346,7 @@ mod test {
     fn it_provides_atomic_transactions() {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
-        let (mut token, _) = Token::new(bs).unwrap();
+        let mut token = Token::new(bs).unwrap();
 
         // entire transaction succeeds
         token
