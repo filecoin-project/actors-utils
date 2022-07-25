@@ -41,6 +41,11 @@ pub enum StateError {
         allowance: TokenAmount,
         delta: TokenAmount,
     },
+    #[error("total_supply cannot be negative, cannot apply delta of {delta:?} to {supply:?}")]
+    NegativeTotalSupply {
+        supply: TokenAmount,
+        delta: TokenAmount,
+    },
 }
 
 type Result<T> = std::result::Result<T, StateError>;
@@ -179,7 +184,15 @@ impl TokenState {
     ///
     /// Returns the new total supply
     pub fn change_supply_by(&mut self, delta: &TokenAmount) -> Result<&TokenAmount> {
-        self.supply += delta;
+        let new_supply = &self.supply + delta;
+        if new_supply.is_negative() {
+            return Err(StateError::NegativeTotalSupply {
+                supply: self.supply.clone(),
+                delta: delta.clone(),
+            });
+        }
+
+        self.supply = new_supply;
         Ok(&self.supply)
     }
 
