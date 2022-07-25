@@ -25,9 +25,7 @@ impl MethodName {
             MethodName::Text(s) => s.value(),
         };
 
-        resolver
-            .method_number(&method_name)
-            .expect("invalid method name")
+        resolver.method_number(&method_name).expect("invalid method name")
     }
 }
 
@@ -67,7 +65,7 @@ mod tests {
         // NOTE: these need to live in a separate directory under `tests`
         // otherwise cargo tries to build them every time and everything breaks
         t.compile_fail("tests/naming/empty-name-string.rs");
-        t.compile_fail("tests/naming/missing-name.rs");   
+        t.compile_fail("tests/naming/missing-name.rs");
     }
 
     #[test]

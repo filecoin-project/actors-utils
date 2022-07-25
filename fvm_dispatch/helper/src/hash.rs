@@ -101,10 +101,7 @@ fn check_method_name(method_name: &str) -> Result<(), MethodNameErr> {
     }
 
     // Check that all characters are legal
-    if !method_name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
-    {
+    if !method_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return Err(IllegalNameErr::IllegalCharacters.into());
     }
 
@@ -116,9 +113,5 @@ fn check_method_name(method_name: &str) -> Result<(), MethodNameErr> {
 /// Using big-endian order interperets the first four bytes to an int.
 /// The slice passed to this must be at least length 4
 fn as_u32(bytes: &[u8]) -> u32 {
-    u32::from_be_bytes(
-        bytes[0..4]
-            .try_into()
-            .expect("bytes was not at least length 4"),
-    )
+    u32::from_be_bytes(bytes[0..4].try_into().expect("bytes was not at least length 4"))
 }
