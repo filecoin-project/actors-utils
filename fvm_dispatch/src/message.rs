@@ -23,9 +23,7 @@ pub enum MethodMessengerError {
 impl<T: Hasher> MethodMessenger<T> {
     /// Creates a new method messenger using a specified hashing function (blake2b by default)
     pub fn new(hasher: T) -> Self {
-        Self {
-            method_resolver: MethodResolver::new(hasher),
-        }
+        Self { method_resolver: MethodResolver::new(hasher) }
     }
 
     /// Calls a method (by name) on a specified actor by constructing and publishing the underlying

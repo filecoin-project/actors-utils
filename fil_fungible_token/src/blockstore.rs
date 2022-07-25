@@ -17,9 +17,7 @@ pub struct Blockstore;
 impl fvm_ipld_blockstore::Blockstore for Blockstore {
     fn get(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
         // If this fails, the _CID_ is invalid. I.e., we have a bug.
-        ipld::get(cid)
-            .map(Some)
-            .map_err(|e| anyhow!("get failed with {:?} on CID '{}'", e, cid))
+        ipld::get(cid).map(Some).map_err(|e| anyhow!("get failed with {:?} on CID '{}'", e, cid))
     }
 
     fn put_keyed(&self, k: &Cid, block: &[u8]) -> Result<()> {

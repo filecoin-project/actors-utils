@@ -46,10 +46,7 @@ where
     /// tree is not persisted to the blockstore until `flush` is called.
     pub fn new(bs: BS) -> Result<Self> {
         let init_state = TokenState::new(&bs)?;
-        let token = Self {
-            bs,
-            state: init_state,
-        };
+        let token = Self { bs, state: init_state };
         Ok(token)
     }
 
@@ -153,9 +150,7 @@ where
             )));
         }
 
-        let new_amount = self
-            .state
-            .change_allowance_by(&self.bs, owner, spender, &delta)?;
+        let new_amount = self.state.change_allowance_by(&self.bs, owner, spender, &delta)?;
 
         Ok(new_amount)
     }
@@ -179,8 +174,7 @@ where
         }
 
         let new_allowance =
-            self.state
-                .change_allowance_by(&self.bs, owner, spender, &delta.neg())?;
+            self.state.change_allowance_by(&self.bs, owner, spender, &delta.neg())?;
 
         Ok(new_allowance)
     }
@@ -418,9 +412,7 @@ mod test {
         // mint the total amount
         token.mint(treasury, mint_amount).unwrap();
         // approve the burner to spend the allowance
-        token
-            .increase_allowance(treasury, burner, approval_amount)
-            .unwrap();
+        token.increase_allowance(treasury, burner, approval_amount).unwrap();
         // burn the approved amount
         token.burn(burner, treasury, burn_amount.clone()).unwrap();
 
@@ -436,9 +428,7 @@ mod test {
 
         // disallows another delegated burn as approval is zero
         // burn the approved amount
-        token
-            .burn(burner, treasury, burn_amount)
-            .expect_err("unable to burn more than allowance");
+        token.burn(burner, treasury, burn_amount).expect_err("unable to burn more than allowance");
 
         // balances didn't change
         let total_supply = token.total_supply();
@@ -478,9 +468,7 @@ mod test {
         token.mint(owner, TokenAmount::from(100)).unwrap();
         // TODO: token needs some injectable layer to handle and mock the receive hook behaviour
         // transfer 60 from owner -> receiver
-        token
-            .transfer(owner, owner, receiver, TokenAmount::from(60))
-            .unwrap();
+        token.transfer(owner, owner, receiver, TokenAmount::from(60)).unwrap();
 
         // owner has 100 - 60 = 40
         let balance = token.balance_of(owner).unwrap();
@@ -525,20 +513,14 @@ mod test {
         token.mint(owner, TokenAmount::from(50)).unwrap();
 
         // allow 100 to be spent by spender
-        token
-            .increase_allowance(owner, spender, TokenAmount::from(100))
-            .unwrap();
+        token.increase_allowance(owner, spender, TokenAmount::from(100)).unwrap();
 
         // spender attempts transfer 51 from owner -> spender
         // they have enough allowance, but not enough balance
-        token
-            .transfer(spender, owner, spender, TokenAmount::from(51))
-            .unwrap_err();
+        token.transfer(spender, owner, spender, TokenAmount::from(51)).unwrap_err();
 
         // attempt burn 51 by spender
-        token
-            .burn(spender, owner, TokenAmount::from(51))
-            .unwrap_err();
+        token.burn(spender, owner, TokenAmount::from(51)).unwrap_err();
 
         // balances remained unchanged
         let balance = token.balance_of(owner).unwrap();
@@ -560,13 +542,9 @@ mod test {
         // mint 100 for the owner
         token.mint(owner, TokenAmount::from(100)).unwrap();
         // approve 100 spending allowance for spender
-        token
-            .increase_allowance(owner, spender, TokenAmount::from(100))
-            .unwrap();
+        token.increase_allowance(owner, spender, TokenAmount::from(100)).unwrap();
         // spender makes transfer of 60 from owner -> receiver
-        token
-            .transfer(spender, owner, receiver, TokenAmount::from(60))
-            .unwrap();
+        token.transfer(spender, owner, receiver, TokenAmount::from(60)).unwrap();
 
         // verify all balances are correct
         let owner_balance = token.balance_of(owner).unwrap();
@@ -581,9 +559,7 @@ mod test {
         assert_eq!(spender_allowance, TokenAmount::from(40));
 
         // spender makes another transfer of 40 from owner -> self
-        token
-            .transfer(spender, owner, spender, TokenAmount::from(40))
-            .unwrap();
+        token.transfer(spender, owner, spender, TokenAmount::from(40)).unwrap();
 
         // verify all balances are correct
         let owner_balance = token.balance_of(owner).unwrap();
@@ -609,28 +585,20 @@ mod test {
         // mint 100 for the owner
         token.mint(owner, TokenAmount::from(100)).unwrap();
         // approve 100 spending allowance for spender
-        token
-            .increase_allowance(owner, spender, TokenAmount::from(100))
-            .unwrap();
+        token.increase_allowance(owner, spender, TokenAmount::from(100)).unwrap();
 
         // before spending, owner decreases allowance
-        token
-            .decrease_allowance(owner, spender, TokenAmount::from(90))
-            .unwrap();
+        token.decrease_allowance(owner, spender, TokenAmount::from(90)).unwrap();
 
         // spender fails to makes transfer of 60 from owner -> receiver
-        token
-            .transfer(spender, owner, receiver, TokenAmount::from(60))
-            .unwrap_err();
+        token.transfer(spender, owner, receiver, TokenAmount::from(60)).unwrap_err();
 
         // because the allowance is only 10
         let allowance = token.allowance(owner, spender).unwrap();
         assert_eq!(allowance, TokenAmount::from(10));
 
         // spender can transfer 1
-        token
-            .transfer(spender, owner, receiver, TokenAmount::from(1))
-            .unwrap();
+        token.transfer(spender, owner, receiver, TokenAmount::from(1)).unwrap();
 
         let allowance = token.allowance(owner, spender).unwrap();
         assert_eq!(allowance, TokenAmount::from(9));
@@ -642,9 +610,7 @@ mod test {
         assert_eq!(allowance, TokenAmount::from(0));
 
         // spender can no longer transfer 1
-        token
-            .transfer(spender, owner, receiver, TokenAmount::from(1))
-            .unwrap_err();
+        token.transfer(spender, owner, receiver, TokenAmount::from(1)).unwrap_err();
 
         // only the 1 token transfer should have succeeded
         // verify all balances are correct
@@ -667,14 +633,10 @@ mod test {
         // mint 100 for the owner
         token.mint(owner, TokenAmount::from(100)).unwrap();
         // approve only 40 spending allowance for spender
-        token
-            .increase_allowance(owner, spender, TokenAmount::from(40))
-            .unwrap();
+        token.increase_allowance(owner, spender, TokenAmount::from(40)).unwrap();
         // spender attempts makes transfer of 60 from owner -> receiver
         // this is within the owner's balance but not within the spender's allowance
-        token
-            .transfer(spender, owner, receiver, TokenAmount::from(60))
-            .unwrap_err();
+        token.transfer(spender, owner, receiver, TokenAmount::from(60)).unwrap_err();
 
         // verify all balances are correct
         let owner_balance = token.balance_of(owner).unwrap();
@@ -699,20 +661,12 @@ mod test {
 
         token.mint(owner, TokenAmount::from(-1)).unwrap_err();
         token.burn(owner, owner, TokenAmount::from(-1)).unwrap_err();
-        token
-            .transfer(owner, owner, receiver, TokenAmount::from(-1))
-            .unwrap_err();
-        token
-            .increase_allowance(owner, spender, TokenAmount::from(-1))
-            .unwrap_err();
-        token
-            .decrease_allowance(owner, spender, TokenAmount::from(-1))
-            .unwrap_err();
+        token.transfer(owner, owner, receiver, TokenAmount::from(-1)).unwrap_err();
+        token.increase_allowance(owner, spender, TokenAmount::from(-1)).unwrap_err();
+        token.decrease_allowance(owner, spender, TokenAmount::from(-1)).unwrap_err();
 
         // spender attempts makes transfer of 60 from owner -> receiver
         // this is within the owner's balance but not within the spender's allowance
-        token
-            .transfer(spender, owner, receiver, TokenAmount::from(60))
-            .unwrap_err();
+        token.transfer(spender, owner, receiver, TokenAmount::from(60)).unwrap_err();
     }
 }
