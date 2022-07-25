@@ -52,3 +52,28 @@ pub fn method_hash(input: TokenStream) -> TokenStream {
     // output a u32 literal as our hashed value
     quote!(#hash).into()
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn string_and_ident_match() {
+        let t = trybuild::TestCases::new();
+        t.pass("tests/build-success.rs");
+    }
+
+    #[test]
+    fn empty_names() {
+        let t = trybuild::TestCases::new();
+        // NOTE: these need to live in a separate directory under `tests`
+        // otherwise cargo tries to build them every time and everything breaks
+        t.compile_fail("tests/naming/empty-name-string.rs");
+        t.compile_fail("tests/naming/missing-name.rs");   
+    }
+
+    #[test]
+    fn bad_names() {
+        let t = trybuild::TestCases::new();
+        t.compile_fail("tests/naming/illegal-chars.rs");
+        t.compile_fail("tests/naming/non-capital-start.rs");
+    }
+}
