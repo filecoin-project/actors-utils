@@ -7,6 +7,7 @@ use crate::method::{MethodCallError, MethodCaller};
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
 use fvm_shared::econ::TokenAmount;
+use fvm_shared::error::ExitCode;
 use fvm_shared::ActorID;
 use num_traits::Signed;
 use std::ops::Neg;
@@ -20,8 +21,14 @@ pub enum TokenError {
     InvalidNegative(String),
     #[error("error calling receiver hook: {0}")]
     MethodCall(#[from] MethodCallError),
-    #[error("receiver hook aborted when {from:?} sent {value:?} to {to:?} by {by:?}")]
-    ReceiverHook { from: ActorID, to: ActorID, by: ActorID, value: TokenAmount },
+    #[error("receiver hook aborted when {from:?} sent {value:?} to {to:?} by {by:?} with exit code {exit_code:?}")]
+    ReceiverHook {
+        from: ActorID,
+        to: ActorID,
+        by: ActorID,
+        value: TokenAmount,
+        exit_code: ExitCode,
+    },
 }
 
 type Result<T> = std::result::Result<T, TokenError>;
@@ -125,20 +132,22 @@ where
 
         // Call receiver hook
         match self.mc.call_receiver_hook(self.actor_id, initial_holder, value, data) {
-            Ok(true) => {
+            Ok(receipt) => {
                 // hook returned true, so we can continue
-                Ok(())
-            }
-            Ok(false) => {
-                // receiver hook aborted, revert state
-                self.state = old_state;
-                self.flush()?;
-                Err(TokenError::ReceiverHook {
-                    from: self.actor_id,
-                    to: initial_holder,
-                    by: minter,
-                    value: value.clone(),
-                })
+                if receipt.exit_code.is_success() {
+                    Ok(())
+                } else {
+                    // TODO: handle missing addresses? tbd
+                    self.state = old_state;
+                    self.flush()?;
+                    Err(TokenError::ReceiverHook {
+                        from: self.actor_id,
+                        to: initial_holder,
+                        by: minter,
+                        value: value.clone(),
+                        exit_code: receipt.exit_code,
+                    })
+                }
             }
             Err(e) => {
                 // error calling receiver hook, revert state
@@ -335,20 +344,23 @@ where
 
         // call receiver hook
         match self.mc.call_receiver_hook(owner, receiver, value, data) {
-            Ok(true) => {
+            Ok(receipt) => {
                 // hook returned true, so we can continue
-                Ok(())
-            }
-            Ok(false) => {
-                // receiver hook aborted, revert state
-                self.state = old_state;
-                self.flush()?;
-                Err(TokenError::ReceiverHook {
-                    from: owner,
-                    to: receiver,
-                    by: spender,
-                    value: value.clone(),
-                })
+                if receipt.exit_code.is_success() {
+                    Ok(())
+                } else {
+                    // TODO: handle missing addresses? tbd
+                    // receiver hook aborted, revert state
+                    self.state = old_state;
+                    self.flush()?;
+                    Err(TokenError::ReceiverHook {
+                        from: owner,
+                        to: receiver,
+                        by: spender,
+                        value: value.clone(),
+                        exit_code: receipt.exit_code,
+                    })
+                }
             }
             Err(e) => {
                 // error calling receiver hook, revert state
