@@ -38,16 +38,14 @@ fn main() {
         let mut line = String::new();
 
         loop {
-            match handle.read_line(&mut line) {
-                Ok(0) => break,
-                Ok(_) => {
-                    let method_name = line.trim().to_string();
-                    let method_number = resolver.method_number(&method_name).unwrap();
-                    println!("{}", method_number);
-                    line.clear();
-                }
-                Err(err) => panic!("error parsing stdin {:?}", err),
+            let num_read = handle.read_line(&mut line).unwrap();
+            if num_read == 0 {
+                break;
             }
+            let method_name = line.trim().to_string();
+            let method_number = resolver.method_number(&method_name).unwrap();
+            println!("{}", method_number);
+            line.clear();
         }
 
         exit(0);

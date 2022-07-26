@@ -44,7 +44,7 @@ pub enum StateError {
 type Result<T> = std::result::Result<T, StateError>;
 
 /// Token state IPLD structure
-#[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Clone, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
 pub struct TokenState {
     /// Total supply of token
     #[serde(with = "bigint_ser")]
