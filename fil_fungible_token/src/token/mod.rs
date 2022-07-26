@@ -13,6 +13,15 @@ use num_traits::Signed;
 use std::ops::Neg;
 use thiserror::Error;
 
+/// Source of a token being sent to an address
+#[derive(Debug)]
+pub enum TokenSource {
+    /// Tokens are coming from a mint action
+    Mint,
+    /// Tokens are coming from the balance of another actor
+    Actor(ActorID),
+}
+
 #[derive(Error, Debug)]
 pub enum TokenError {
     #[error("error in underlying state {0}")]
@@ -23,7 +32,7 @@ pub enum TokenError {
     MethodCall(#[from] MethodCallError),
     #[error("receiver hook aborted when {from:?} sent {value:?} to {to:?} by {by:?} with exit code {exit_code:?}")]
     ReceiverHook {
-        from: ActorID,
+        from: TokenSource,
         to: ActorID,
         by: ActorID,
         value: TokenAmount,
@@ -47,8 +56,6 @@ where
     mc: MC,
     /// In-memory cache of the state tree
     state: TokenState,
-    /// Token-contract address
-    actor_id: ActorID,
 }
 
 impl<BS, MC> Token<BS, MC>
@@ -60,18 +67,18 @@ where
     ///
     /// Returns a Token handle that can be used to interact with the token state tree and the Cid
     /// of the state tree root
-    pub fn new(bs: BS, mc: MC, actor_id: ActorID) -> Result<(Self, Cid)> {
+    pub fn new(bs: BS, mc: MC) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
-        let token = Self { bs, mc, actor_id, state: init_state };
+        let token = Self { bs, mc, state: init_state };
         Ok((token, cid))
     }
 
     /// For an already initialised state tree, loads the state tree from the blockstore and returns
     /// a Token handle to interact with it
-    pub fn load(bs: BS, mc: MC, actor_id: ActorID, state_cid: Cid) -> Result<Self> {
+    pub fn load(bs: BS, mc: MC, state_cid: Cid) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, mc, state, actor_id })
+        Ok(Self { bs, mc, state })
     }
 
     /// Flush state and return Cid for root
@@ -131,7 +138,7 @@ where
         self.flush()?;
 
         // Call receiver hook
-        match self.mc.call_receiver_hook(self.actor_id, initial_holder, value, data) {
+        match self.mc.call_receiver_hook(minter, initial_holder, value, data) {
             Ok(receipt) => {
                 // hook returned true, so we can continue
                 if receipt.exit_code.is_success() {
@@ -141,7 +148,7 @@ where
                     self.state = old_state;
                     self.flush()?;
                     Err(TokenError::ReceiverHook {
-                        from: self.actor_id,
+                        from: TokenSource::Mint,
                         to: initial_holder,
                         by: minter,
                         value: value.clone(),
@@ -354,7 +361,7 @@ where
                     self.state = old_state;
                     self.flush()?;
                     Err(TokenError::ReceiverHook {
-                        from: owner,
+                        from: TokenSource::Actor(owner),
                         to: receiver,
                         by: spender,
                         value: value.clone(),
@@ -384,9 +391,7 @@ mod test {
     const TOKEN_ACTOR_ADDRESS: ActorID = ActorID::max_value();
 
     fn new_token() -> Token<SharedMemoryBlockstore, FakeMethodCaller> {
-        Token::new(SharedMemoryBlockstore::new(), FakeMethodCaller::default(), TOKEN_ACTOR_ADDRESS)
-            .unwrap()
-            .0
+        Token::new(SharedMemoryBlockstore::new(), FakeMethodCaller::default()).unwrap().0
     }
 
     #[test]
@@ -394,8 +399,7 @@ mod test {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
         let mc = FakeMethodCaller::default();
-        let (mut token, _) =
-            Token::new(bs.clone(), FakeMethodCaller::default(), TOKEN_ACTOR_ADDRESS).unwrap();
+        let (mut token, _) = Token::new(bs.clone(), FakeMethodCaller::default()).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -406,7 +410,7 @@ mod test {
         let cid = token.flush().unwrap();
 
         // the returned cid can be used to reference the same token state
-        let token2 = Token::load(bs, mc, TOKEN_ACTOR_ADDRESS, cid).unwrap();
+        let token2 = Token::load(bs, mc, cid).unwrap();
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
@@ -415,7 +419,7 @@ mod test {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
         let mc = FakeMethodCaller::default();
-        let (mut token, _) = Token::new(bs, mc, TOKEN_ACTOR_ADDRESS).unwrap();
+        let (mut token, _) = Token::new(bs, mc).unwrap();
 
         // entire transaction succeeds
         token
