@@ -1,4 +1,5 @@
 mod state;
+pub mod transaction;
 mod types;
 
 use self::state::{StateError, TokenState};
@@ -45,6 +46,7 @@ type Result<T> = std::result::Result<T, TokenError>;
 /// Library functions that implement core FRC-??? standards
 ///
 /// Holds injectable services to access/interface with IPLD/FVM layer.
+#[derive(Debug)]
 pub struct Token<BS, MC>
 where
     BS: IpldStore + Clone,
@@ -91,7 +93,7 @@ where
     ///
     /// If the closure returns an error, the transaction is dropped atomically and no change is
     /// observed on token state.
-    pub fn transaction<F, Res>(&mut self, f: F) -> Result<Res>
+    fn transaction<F, Res>(&mut self, f: F) -> Result<Res>
     where
         F: FnOnce(&mut TokenState, BS) -> Result<Res>,
     {
