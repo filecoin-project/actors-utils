@@ -1,32 +1,20 @@
 use proc_macro::TokenStream;
 
-use convert_case::{Case, Casing};
 use fvm_dispatch::hash::MethodResolver;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
-use syn::{parse_macro_input, Ident, LitStr, Result};
+use syn::{parse_macro_input, LitStr, Result};
 
 mod hash;
 use crate::hash::Blake2bHasher;
 
-enum MethodName {
-    Ident(Ident),
-    Text(LitStr),
-}
+struct MethodName(LitStr);
 
 impl MethodName {
     /// Hash the method name
-    ///
-    /// - Text (string) gets hashed as-is
-    /// - Identifiers (function names) get converted to PascalCase to meet naming rules
     fn hash(&self) -> u64 {
         let resolver = MethodResolver::new(Blake2bHasher {});
-        let method_name = match self {
-            MethodName::Ident(i) => i.to_string().to_case(Case::Pascal),
-            MethodName::Text(s) => s.value(),
-        };
-
-        resolver.method_number(&method_name).expect("invalid method name")
+        resolver.method_number(&self.0.value()).unwrap()
     }
 }
 
@@ -35,9 +23,7 @@ impl Parse for MethodName {
         let lookahead = input.lookahead1();
 
         if lookahead.peek(LitStr) {
-            input.parse().map(MethodName::Text)
-        } else if lookahead.peek(Ident) {
-            input.parse().map(MethodName::Ident)
+            input.parse().map(MethodName)
         } else {
             Err(lookahead.error())
         }

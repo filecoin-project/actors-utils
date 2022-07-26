@@ -4,4 +4,4 @@ error: proc macro panicked
 5 |     let _str_hash = method_hash!("");
   |                     ^^^^^^^^^^^^^^^^
   |
-  = help: message: invalid method name: EmptyString
+  = help: message: called `Result::unwrap()` on an `Err` value: EmptyString
