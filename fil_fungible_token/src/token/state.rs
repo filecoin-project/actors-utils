@@ -27,11 +27,7 @@ pub enum StateError {
     #[error("underlying serialization error: {0}")]
     Serialization(String),
     #[error("negative balance caused by changing {owner:?}'s balance of {balance:?} by {delta:?}")]
-    NegativeBalance {
-        owner: ActorID,
-        balance: TokenAmount,
-        delta: TokenAmount,
-    },
+    NegativeBalance { owner: ActorID, balance: TokenAmount, delta: TokenAmount },
     #[error(
         "{spender:?} attempted to utilise {delta:?} of allowance {allowance:?} set by {owner:?}"
     )]
@@ -41,6 +37,8 @@ pub enum StateError {
         allowance: TokenAmount,
         delta: TokenAmount,
     },
+    #[error("total_supply cannot be negative, cannot apply delta of {delta:?} to {supply:?}")]
+    NegativeTotalSupply { supply: TokenAmount, delta: TokenAmount },
 }
 
 type Result<T> = std::result::Result<T, StateError>;
@@ -98,10 +96,7 @@ impl TokenState {
             Ok(s) => s,
             Err(err) => return Err(StateError::Serialization(err.to_string())),
         };
-        let block = Block {
-            codec: DAG_CBOR,
-            data: serialized,
-        };
+        let block = Block { codec: DAG_CBOR, data: serialized };
         let cid = match bs.put(Code::Blake2b256, &block) {
             Ok(cid) => cid,
             Err(err) => return Err(StateError::Serialization(err.to_string())),
@@ -179,7 +174,15 @@ impl TokenState {
     ///
     /// Returns the new total supply
     pub fn change_supply_by(&mut self, delta: &TokenAmount) -> Result<&TokenAmount> {
-        self.supply += delta;
+        let new_supply = &self.supply + delta;
+        if new_supply.is_negative() {
+            return Err(StateError::NegativeTotalSupply {
+                supply: self.supply.clone(),
+                delta: delta.clone(),
+            });
+        }
+
+        self.supply = new_supply;
         Ok(&self.supply)
     }
 
@@ -409,19 +412,13 @@ mod test {
         let actor: ActorID = 1;
 
         // can't decrease from zero
-        state
-            .change_balance_by(bs, actor, &BigInt::from(-1))
-            .unwrap_err();
+        state.change_balance_by(bs, actor, &BigInt::from(-1)).unwrap_err();
         let balance = state.get_balance(bs, actor).unwrap();
         assert_eq!(balance, BigInt::zero());
 
         // can't become negative from a positive balance
-        state
-            .change_balance_by(bs, actor, &BigInt::from(50))
-            .unwrap();
-        state
-            .change_balance_by(bs, actor, &BigInt::from(-100))
-            .unwrap_err();
+        state.change_balance_by(bs, actor, &BigInt::from(50)).unwrap();
+        state.change_balance_by(bs, actor, &BigInt::from(-100)).unwrap_err();
     }
 
     #[test]
@@ -437,9 +434,7 @@ mod test {
 
         // can set a positive allowance
         let delta = BigInt::from(100);
-        let ret = state
-            .change_allowance_by(bs, owner, spender, &delta)
-            .unwrap();
+        let ret = state.change_allowance_by(bs, owner, spender, &delta).unwrap();
         assert_eq!(ret, delta);
         let allowance_1 = state.get_allowance_between(bs, owner, spender).unwrap();
         assert_eq!(allowance_1, delta);
@@ -450,9 +445,7 @@ mod test {
 
         // can subtract an allowance
         let delta = BigInt::from(-50);
-        let ret = state
-            .change_allowance_by(bs, owner, spender, &delta)
-            .unwrap();
+        let ret = state.change_allowance_by(bs, owner, spender, &delta).unwrap();
         assert_eq!(ret, BigInt::from(50));
         let allowance_2 = state.get_allowance_between(bs, owner, spender).unwrap();
         assert_eq!(allowance_2, allowance_1 + delta);
@@ -460,9 +453,7 @@ mod test {
 
         // allowance won't go negative
         let delta = BigInt::from(-100);
-        let ret = state
-            .change_allowance_by(bs, owner, spender, &delta)
-            .unwrap();
+        let ret = state.change_allowance_by(bs, owner, spender, &delta).unwrap();
         assert_eq!(ret, BigInt::zero());
         let allowance_3 = state.get_allowance_between(bs, owner, spender).unwrap();
         assert_eq!(allowance_3, BigInt::zero());
@@ -477,22 +468,17 @@ mod test {
 
         // set a positive allowance
         let delta = BigInt::from(100);
-        state
-            .change_allowance_by(bs, owner, spender, &delta)
-            .unwrap();
+        state.change_allowance_by(bs, owner, spender, &delta).unwrap();
 
         // can consume an allowance
-        let new_allowance = state
-            .attempt_use_allowance(bs, spender, owner, &BigInt::from(60))
-            .unwrap();
+        let new_allowance =
+            state.attempt_use_allowance(bs, spender, owner, &BigInt::from(60)).unwrap();
         assert_eq!(new_allowance, BigInt::from(40));
         let new_allowance = state.get_allowance_between(bs, owner, spender).unwrap();
         assert_eq!(new_allowance, BigInt::from(40));
 
         // cannot consume more allowance than approved
-        state
-            .attempt_use_allowance(bs, spender, owner, &BigInt::from(50))
-            .unwrap_err();
+        state.attempt_use_allowance(bs, spender, owner, &BigInt::from(50)).unwrap_err();
         // allowance was unchanged
         let new_allowance = state.get_allowance_between(bs, owner, spender).unwrap();
         assert_eq!(new_allowance, BigInt::from(40));
@@ -507,12 +493,8 @@ mod test {
 
         // set a positive allowance
         let delta = BigInt::from(100);
-        state
-            .change_allowance_by(bs, owner, spender, &delta)
-            .unwrap();
-        state
-            .change_allowance_by(bs, owner, spender, &delta)
-            .unwrap();
+        state.change_allowance_by(bs, owner, spender, &delta).unwrap();
+        state.change_allowance_by(bs, owner, spender, &delta).unwrap();
         let allowance = state.get_allowance_between(bs, owner, spender).unwrap();
         assert_eq!(allowance, BigInt::from(200));
 
