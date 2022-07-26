@@ -1,12 +1,13 @@
 use proc_macro::TokenStream;
 
 use convert_case::{Case, Casing};
+use fvm_dispatch::hash::MethodResolver;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::{parse_macro_input, Ident, LitStr, Result};
 
 mod hash;
-use crate::hash::{Blake2bHasher, MethodResolver};
+use crate::hash::Blake2bHasher;
 
 enum MethodName {
     Ident(Ident),
