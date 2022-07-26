@@ -1,4 +1,5 @@
 mod state;
+pub mod transaction;
 mod types;
 
 use self::state::{StateError, TokenState};
@@ -45,6 +46,7 @@ type Result<T> = std::result::Result<T, TokenError>;
 /// Library functions that implement core FRC-??? standards
 ///
 /// Holds injectable services to access/interface with IPLD/FVM layer.
+#[derive(Debug)]
 pub struct Token<BS, MC>
 where
     BS: IpldStore + Clone,
@@ -56,6 +58,8 @@ where
     mc: MC,
     /// In-memory cache of the state tree
     state: TokenState,
+    /// Cid of the state root when first loaded
+    pub state_cid: Cid,
 }
 
 impl<BS, MC> Token<BS, MC>
@@ -70,7 +74,7 @@ where
     pub fn new(bs: BS, mc: MC) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
-        let token = Self { bs, mc, state: init_state };
+        let token = Self { bs, mc, state: init_state, state_cid: cid };
         Ok((token, cid))
     }
 
@@ -78,7 +82,7 @@ where
     /// a Token handle to interact with it
     pub fn load(bs: BS, mc: MC, state_cid: Cid) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, mc, state })
+        Ok(Self { bs, mc, state, state_cid })
     }
 
     /// Flush state and return Cid for root
@@ -86,12 +90,18 @@ where
         Ok(self.state.save(&self.bs)?)
     }
 
+    /// Revert the state to when it was loaded
+    pub fn revert(&mut self) -> Result<Cid> {
+        self.state = TokenState::load(&self.bs, &self.state_cid)?;
+        Ok(self.state_cid)
+    }
+
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
     /// modifications to the state tree.
     ///
     /// If the closure returns an error, the transaction is dropped atomically and no change is
     /// observed on token state.
-    pub fn transaction<F, Res>(&mut self, f: F) -> Result<Res>
+    fn transaction<F, Res>(&mut self, f: F) -> Result<Res>
     where
         F: FnOnce(&mut TokenState, BS) -> Result<Res>,
     {
