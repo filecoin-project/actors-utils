@@ -146,21 +146,20 @@ pub fn invoke(params: u32) -> u32 {
                 }
                 // Custom actor interface
                 12 => {
-                    token_actor
-                        .util
-                        .mint(
-                            sdk::message::caller(),
-                            sdk::message::caller(),
-                            &TokenAmount::from(123),
-                            &[],
-                        )
-                        .unwrap();
-                    token_actor.util.flush().unwrap();
-                    let res = RawBytes::new(
-                        fvm_ipld_encoding::to_vec(&BigIntDe(TokenAmount::from(123))).unwrap(),
+                    let data = sdk::message::params_raw(params).unwrap().1;
+                    token_actor.util.mint(
+                        sdk::message::caller(),
+                        sdk::message::caller(),
+                        &TokenAmount::from(123),
+                        &data,
                     );
-                    let block_id = sdk::ipld::put_block(DAG_CBOR, res.bytes()).unwrap();
-                    block_id
+                    // token_actor.util.flush().unwrap();
+                    // let res = RawBytes::new(
+                    //     fvm_ipld_encoding::to_vec(&BigIntDe(TokenAmount::from(123))).unwrap(),
+                    // );
+                    // let block_id = sdk::ipld::put_block(DAG_CBOR, res.bytes()).unwrap();
+                    //block_id
+                    NO_DATA_BLOCK_ID
                 }
                 _ => {
                     sdk::vm::abort(

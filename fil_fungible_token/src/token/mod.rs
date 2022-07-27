@@ -56,6 +56,8 @@ where
     mc: MC,
     /// In-memory cache of the state tree
     state: TokenState,
+    /// In-memory cache of the state tree root cid // used for rollbacks
+    state_root_cid: Cid,
 }
 
 impl<BS, MC> Token<BS, MC>
@@ -70,7 +72,7 @@ where
     pub fn new(bs: BS, mc: MC) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
-        let token = Self { bs, mc, state: init_state };
+        let token = Self { bs, mc, state: init_state, state_root_cid: cid };
         Ok((token, cid))
     }
 
@@ -78,7 +80,7 @@ where
     /// a Token handle to interact with it
     pub fn load(bs: BS, mc: MC, state_cid: Cid) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, mc, state })
+        Ok(Self { bs, mc, state, state_root_cid: state_cid })
     }
 
     /// Flush state and return Cid for root
@@ -125,8 +127,6 @@ where
             )));
         }
 
-        let old_state = self.state.clone();
-
         // Increase the balance of the actor and increase total supply
         self.transaction(|state, bs| {
             state.change_balance_by(&bs, initial_holder, value)?;
@@ -144,21 +144,14 @@ where
                 if receipt.exit_code.is_success() {
                     Ok(())
                 } else {
-                    // TODO: handle missing addresses? tbd
-                    self.state = old_state;
+                    self.state = TokenState::load(&self.bs, &self.state_root_cid).unwrap();
                     self.flush()?;
-                    Err(TokenError::ReceiverHook {
-                        from: TokenSource::Mint,
-                        to: initial_holder,
-                        by: minter,
-                        value: value.clone(),
-                        exit_code: receipt.exit_code,
-                    })
+                    Ok(())
                 }
             }
             Err(e) => {
                 // error calling receiver hook, revert state
-                self.state = old_state;
+                self.state = TokenState::load(&self.bs, &self.state_root_cid).unwrap();
                 self.flush()?;
                 Err(e.into())
             }

@@ -43,8 +43,9 @@ fn mint_tokens() {
         from: minter[0].1,
         to: actor_address,
         gas_limit: 99999999,
-        method_num: 1, // 1 is constructor
+        method_num: 12, // mint
         sequence: 0,
+        params: RawBytes::default(),
         ..Message::default()
     };
 
@@ -55,7 +56,7 @@ fn mint_tokens() {
         .execute_message(message, ApplyKind::Explicit, 100)
         .unwrap();
 
-    println!("return data {:?}", &ret_val);
+    println!("no rollback {:?}", &ret_val);
 
     let message = Message {
         from: minter[0].1,
@@ -63,6 +64,7 @@ fn mint_tokens() {
         gas_limit: 99999999,
         method_num: 12, // 12 is Mint function
         sequence: 1,
+        params: RawBytes::from(vec![1_u8]), // force hook mock to abort
         ..Message::default()
     };
 
@@ -73,17 +75,15 @@ fn mint_tokens() {
         .execute_message(message, ApplyKind::Explicit, 100)
         .unwrap();
 
-    println!("return data {:?}", &ret_val);
-
-    let params = RawBytes::serialize(minter[0].1).unwrap();
+    println!("with rollback data {:?}", &ret_val);
 
     let message = Message {
         from: minter[0].1,
         to: actor_address,
         gas_limit: 99999999,
-        method_num: 5, // 5 is balance of
+        method_num: 12, // mint
         sequence: 2,
-        params,
+        params: RawBytes::default(),
         ..Message::default()
     };
 
@@ -96,7 +96,7 @@ fn mint_tokens() {
 
     println!("return data {:?}", &ret_val);
 
-    let return_data = ret_val.msg_receipt.return_data;
-    let balance: BigIntDe = return_data.deserialize().unwrap();
-    println!("balance: {:?}", balance);
+    // let return_data = ret_val.msg_receipt.return_data;
+    // let balance: BigIntDe = return_data.deserialize().unwrap();
+    // println!("balance: {:?}", balance);
 }
