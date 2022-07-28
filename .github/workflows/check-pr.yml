@@ -11,6 +11,7 @@ env:
 
 jobs:
   check-code:
+    if: github.event.pull_request.draft == false 
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -21,3 +22,18 @@ jobs:
 
       - name: Test
         run: make test
+        env:
+          CARGO_INCREMENTAL: '0'
+          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
+          RUSTC_BOOTSTRAP: '1'
+
+      - name: Generate Coverage Report
+        id: coverage
+        uses: actions-rs/grcov@v0.1
+
+      - name: Upload to Coveralls
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: ${{ steps.coverage.outputs.report }}

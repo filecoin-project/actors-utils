@@ -1,11 +1,11 @@
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
+use anyhow::Result;
 use cid::multihash::Code;
 use cid::Cid;
 use fvm_ipld_blockstore::Block;
 use fvm_sdk::ipld;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::rc::Rc;
 
 /// A blockstore that delegates to IPLD syscalls.
@@ -73,6 +73,7 @@ impl fvm_ipld_blockstore::Blockstore for SharedMemoryBlockstore {
 
 #[cfg(test)]
 mod test {
+    use cid::multihash::Code;
     use fvm_ipld_blockstore::Blockstore;
     use fvm_ipld_encoding::CborStore;
     use fvm_shared::bigint::{bigint_ser::BigIntDe, BigInt};
