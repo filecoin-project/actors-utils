@@ -1,0 +1,16 @@
+[package]
+name = "basic_token_actor"
+version = "0.1.0"
+repository = "https://github.com/helix-collective/filecoin"
+edition = "2021"
+
+[dependencies]
+anyhow = { version = "1.0.56" }
+fvm_ipld_blockstore = { version = "0.1.1" }
+fvm_ipld_encoding = { version = "0.2.2" }
+fvm_sdk = { version = "1.0.0" }
+fvm_shared = { version = "0.8.0" }
+fil_fungible_token = { version = "0.1.0", path = "../../../../fil_fungible_token" }
+
+[build-dependencies]
+wasm-builder = "3.0.1"
