@@ -1,6 +1,8 @@
 use fvm_ipld_encoding::Error as IpldError;
 use fvm_ipld_encoding::RawBytes;
 use fvm_sdk::{send, sys::ErrorNumber};
+use fvm_shared::error::ExitCode;
+use fvm_shared::receipt::Receipt;
 use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
 use num_traits::Zero;
 use thiserror::Error;
@@ -19,31 +21,30 @@ pub enum MethodCallError {
 
 /// An abstraction used to send messages to other actors
 pub trait MethodCaller {
-    /// Call the receiver hook on a given actor
+    /// Call the receiver hook on a given actor, specifying the amount of tokens pending to be sent
+    /// and the sender and receiver
     ///
     /// Returns true if the receiver hook is called and exits without error, else returns false
     fn call_receiver_hook(
         &self,
         from: ActorID,
         to: ActorID,
-        value: &TokenAmount,
+        token_value: &TokenAmount,
         data: &[u8],
-    ) -> Result<bool>;
+    ) -> Result<Receipt>;
 }
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FvmMethodCaller {}
 
-// TODO: this should be moved to the example actor so the dependency on fvm_sdk is dropped from the
-// library
 impl MethodCaller for FvmMethodCaller {
     fn call_receiver_hook(
         &self,
         from: ActorID,
         to: ActorID,
-        value: &TokenAmount,
+        token_value: &TokenAmount,
         data: &[u8],
-    ) -> Result<bool> {
+    ) -> Result<Receipt> {
         // TODO: use fvm_dispatch here (when it supports compile time method resolution)
         // TODO: ^^ necessitates determining conventional method names for receiver hooks
 
@@ -54,14 +55,12 @@ impl MethodCaller for FvmMethodCaller {
 
         let params = TokenReceivedParams {
             sender: Address::new_id(from),
-            value: value.clone(),
+            value: token_value.clone(),
             data: RawBytes::from(data.to_vec()),
         };
         let params = RawBytes::new(fvm_ipld_encoding::to_vec(&params)?);
 
-        let receipt = send::send(&to, METHOD_NUM, params, TokenAmount::zero())?;
-
-        Ok(receipt.exit_code.is_success())
+        Ok(send::send(&to, METHOD_NUM, params, TokenAmount::zero())?)
     }
 }
 
@@ -79,11 +78,19 @@ impl MethodCaller for FakeMethodCaller {
         _to: ActorID,
         _value: &TokenAmount,
         data: &[u8],
-    ) -> Result<bool> {
+    ) -> Result<Receipt> {
         if data.is_empty() {
-            Ok(true)
+            Ok(Receipt {
+                exit_code: ExitCode::OK,
+                return_data: RawBytes::new(data.to_vec()),
+                gas_used: 0,
+            })
         } else {
-            Ok(false)
+            Ok(Receipt {
+                exit_code: ExitCode::SYS_INVALID_RECEIVER,
+                return_data: RawBytes::new(data.to_vec()),
+                gas_used: 0,
+            })
         }
     }
 }

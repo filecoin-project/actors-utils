@@ -7,10 +7,20 @@ use crate::method::{MethodCallError, MethodCaller};
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
 use fvm_shared::econ::TokenAmount;
+use fvm_shared::error::ExitCode;
 use fvm_shared::ActorID;
 use num_traits::Signed;
 use std::ops::Neg;
 use thiserror::Error;
+
+/// Source of a token being sent to an address
+#[derive(Debug)]
+pub enum TokenSource {
+    /// Tokens are coming from a mint action
+    Mint,
+    /// Tokens are coming from the balance of another actor
+    Actor(ActorID),
+}
 
 #[derive(Error, Debug)]
 pub enum TokenError {
@@ -20,8 +30,14 @@ pub enum TokenError {
     InvalidNegative(String),
     #[error("error calling receiver hook: {0}")]
     MethodCall(#[from] MethodCallError),
-    #[error("receiver hook aborted when {from:?} sent {value:?} to {to:?} by {by:?}")]
-    ReceiverHook { from: ActorID, to: ActorID, by: ActorID, value: TokenAmount },
+    #[error("receiver hook aborted when {from:?} sent {value:?} to {to:?} by {by:?} with exit code {exit_code:?}")]
+    ReceiverHook {
+        from: TokenSource,
+        to: ActorID,
+        by: ActorID,
+        value: TokenAmount,
+        exit_code: ExitCode,
+    },
 }
 
 type Result<T> = std::result::Result<T, TokenError>;
@@ -40,8 +56,6 @@ where
     mc: MC,
     /// In-memory cache of the state tree
     state: TokenState,
-    /// Token-contract address
-    actor_id: ActorID,
 }
 
 impl<BS, MC> Token<BS, MC>
@@ -53,18 +67,18 @@ where
     ///
     /// Returns a Token handle that can be used to interact with the token state tree and the Cid
     /// of the state tree root
-    pub fn new(bs: BS, mc: MC, actor_id: ActorID) -> Result<(Self, Cid)> {
+    pub fn new(bs: BS, mc: MC) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
-        let token = Self { bs, mc, actor_id, state: init_state };
+        let token = Self { bs, mc, state: init_state };
         Ok((token, cid))
     }
 
     /// For an already initialised state tree, loads the state tree from the blockstore and returns
     /// a Token handle to interact with it
-    pub fn load(bs: BS, mc: MC, actor_id: ActorID, state_cid: Cid) -> Result<Self> {
+    pub fn load(bs: BS, mc: MC, state_cid: Cid) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, mc, state, actor_id })
+        Ok(Self { bs, mc, state })
     }
 
     /// Flush state and return Cid for root
@@ -124,21 +138,23 @@ where
         self.flush()?;
 
         // Call receiver hook
-        match self.mc.call_receiver_hook(self.actor_id, initial_holder, value, data) {
-            Ok(true) => {
+        match self.mc.call_receiver_hook(minter, initial_holder, value, data) {
+            Ok(receipt) => {
                 // hook returned true, so we can continue
-                Ok(())
-            }
-            Ok(false) => {
-                // receiver hook aborted, revert state
-                self.state = old_state;
-                self.flush()?;
-                Err(TokenError::ReceiverHook {
-                    from: self.actor_id,
-                    to: initial_holder,
-                    by: minter,
-                    value: value.clone(),
-                })
+                if receipt.exit_code.is_success() {
+                    Ok(())
+                } else {
+                    // TODO: handle missing addresses? tbd
+                    self.state = old_state;
+                    self.flush()?;
+                    Err(TokenError::ReceiverHook {
+                        from: TokenSource::Mint,
+                        to: initial_holder,
+                        by: minter,
+                        value: value.clone(),
+                        exit_code: receipt.exit_code,
+                    })
+                }
             }
             Err(e) => {
                 // error calling receiver hook, revert state
@@ -335,20 +351,23 @@ where
 
         // call receiver hook
         match self.mc.call_receiver_hook(owner, receiver, value, data) {
-            Ok(true) => {
+            Ok(receipt) => {
                 // hook returned true, so we can continue
-                Ok(())
-            }
-            Ok(false) => {
-                // receiver hook aborted, revert state
-                self.state = old_state;
-                self.flush()?;
-                Err(TokenError::ReceiverHook {
-                    from: owner,
-                    to: receiver,
-                    by: spender,
-                    value: value.clone(),
-                })
+                if receipt.exit_code.is_success() {
+                    Ok(())
+                } else {
+                    // TODO: handle missing addresses? tbd
+                    // receiver hook aborted, revert state
+                    self.state = old_state;
+                    self.flush()?;
+                    Err(TokenError::ReceiverHook {
+                        from: TokenSource::Actor(owner),
+                        to: receiver,
+                        by: spender,
+                        value: value.clone(),
+                        exit_code: receipt.exit_code,
+                    })
+                }
             }
             Err(e) => {
                 // error calling receiver hook, revert state
@@ -369,16 +388,14 @@ mod test {
 
     use super::Token;
 
-    const TOKEN_ACTOR_ADDRESS: ActorID = ActorID::max_value();
+    const TOKEN_ACTOR_ADDRESS: ActorID = ActorID::MAX;
     const TREASURY: ActorID = 1;
     const ALICE: ActorID = 2;
     const BOB: ActorID = 3;
     const CAROL: ActorID = 4;
 
     fn new_token() -> Token<SharedMemoryBlockstore, FakeMethodCaller> {
-        Token::new(SharedMemoryBlockstore::new(), FakeMethodCaller::default(), TOKEN_ACTOR_ADDRESS)
-            .unwrap()
-            .0
+        Token::new(SharedMemoryBlockstore::new(), FakeMethodCaller::default()).unwrap().0
     }
 
     #[test]
@@ -386,8 +403,7 @@ mod test {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
         let mc = FakeMethodCaller::default();
-        let (mut token, _) =
-            Token::new(bs.clone(), FakeMethodCaller::default(), TOKEN_ACTOR_ADDRESS).unwrap();
+        let (mut token, _) = Token::new(bs.clone(), FakeMethodCaller::default()).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -400,7 +416,7 @@ mod test {
         let cid = token.flush().unwrap();
 
         // the returned cid can be used to reference the same token state
-        let token2 = Token::load(bs, mc, TOKEN_ACTOR_ADDRESS, cid).unwrap();
+        let token2 = Token::load(bs, mc, cid).unwrap();
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
@@ -409,7 +425,7 @@ mod test {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
         let mc = FakeMethodCaller::default();
-        let (mut token, _) = Token::new(bs, mc, TOKEN_ACTOR_ADDRESS).unwrap();
+        let (mut token, _) = Token::new(bs, mc).unwrap();
 
         // entire transaction succeeds
         token
@@ -461,12 +477,14 @@ mod test {
 
         // mint again to same address
         token.mint(TOKEN_ACTOR_ADDRESS, TREASURY, &TokenAmount::from(1_000_000), &[]).unwrap();
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(2_000_000));
 
         // mint to a different address
         token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(1_000_000), &[]).unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
+        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(3_000_000));
 
         // carols account was unaffected
@@ -603,6 +621,14 @@ mod test {
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
         token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), "abort".as_bytes()).unwrap_err();
 
+        // balances unchanged
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(0));
+
+        // transfer 60 from owner -> self, simulate receiver aborting the hook
+        token
+            .transfer(ALICE, ALICE, ALICE, &TokenAmount::from(60), "abort".as_bytes())
+            .unwrap_err();
         // balances unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(0));

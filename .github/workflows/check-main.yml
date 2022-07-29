@@ -1,17 +1,12 @@
-name: Rust PR check
+name: Check main
 
 on:
-  pull_request:
-    # Default types for PR are opened, synchronize, reopened. Need
-    # ready_for_review to catch a PR that is moving from draft to not-draft
-    types: [opened, synchronize, reopened, ready_for_review]
-
-env:
-  CARGO_TERM_COLOR: always
+  push:
+    branches:
+      - main
 
 jobs:
-  check-code:
-    if: github.event.pull_request.draft == false 
+  code-coverage:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
