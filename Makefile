@@ -13,3 +13,4 @@ test:
 
 clean:
 	cargo clean
+	find . -name '*.profraw' -delete
