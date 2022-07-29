@@ -1,0 +1,13 @@
+[package]
+name = "fil_token_integration_tests"
+version = "0.1.0"
+repository = "https://github.com/helix-collective/filecoin"
+edition = "2021"
+
+[dependencies]
+fvm = "1.1.0"
+fil_fungible_token = { version = "0.1.0", path = "../../fil_fungible_token" }
+fvm_integration_tests = "0.1.0"
+fvm_ipld_blockstore = "0.1.1"
+fvm_ipld_encoding = "0.2.2"
+fvm_shared = { version = "0.8.0" }
