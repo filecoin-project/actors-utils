@@ -45,7 +45,10 @@ type Result<T> = std::result::Result<T, TokenError>;
 
 /// Library functions that implement core FRC-??? standards
 ///
-/// Holds injectable services to access/interface with IPLD/FVM layer.
+/// Holds injectable services to access/interface with IPLD/FVM layer. This is a low-level wrapper
+/// around the FVM state layer and requires consumers to manage batching and persisting changes to
+/// the blockstore. For an API with transaction-like semantics, see `transaction::TokenTransaction`
+/// which has more runtime-checking to guarantee atomicity.
 #[derive(Debug)]
 pub struct Token<BS, MC>
 where
@@ -118,63 +121,6 @@ where
     BS: IpldStore + Clone,
     MC: MethodCaller,
 {
-    /// Mints the specified value of tokens into an account
-    ///
-    /// The mint amount must be non-negative or the method returns an error
-    pub fn mint(
-        &mut self,
-        minter: ActorID,
-        initial_holder: ActorID,
-        value: &TokenAmount,
-        data: &[u8],
-    ) -> Result<()> {
-        if value.is_negative() {
-            return Err(TokenError::InvalidNegative(format!(
-                "mint amount {} cannot be negative",
-                value
-            )));
-        }
-
-        let old_state = self.state.clone();
-
-        // Increase the balance of the actor and increase total supply
-        self.transaction(|state, bs| {
-            state.change_balance_by(&bs, initial_holder, value)?;
-            state.change_supply_by(value)?;
-            Ok(())
-        })?;
-
-        // Update state so re-entrant calls see the changes
-        self.flush()?;
-
-        // Call receiver hook
-        match self.mc.call_receiver_hook(minter, initial_holder, value, data) {
-            Ok(receipt) => {
-                // hook returned true, so we can continue
-                if receipt.exit_code.is_success() {
-                    Ok(())
-                } else {
-                    // TODO: handle missing addresses? tbd
-                    self.state = old_state;
-                    self.flush()?;
-                    Err(TokenError::ReceiverHook {
-                        from: TokenSource::Mint,
-                        to: initial_holder,
-                        by: minter,
-                        value: value.clone(),
-                        exit_code: receipt.exit_code,
-                    })
-                }
-            }
-            Err(e) => {
-                // error calling receiver hook, revert state
-                self.state = old_state;
-                self.flush()?;
-                Err(e.into())
-            }
-        }
-    }
-
     /// Gets the total number of tokens in existence
     ///
     /// This equals the sum of `balance_of` called on all addresses. This equals sum of all
@@ -303,6 +249,63 @@ where
         })?;
 
         Ok(new_amount)
+    }
+
+    /// Mints the specified value of tokens into an account
+    ///
+    /// The mint amount must be non-negative or the method returns an error
+    pub fn mint(
+        &mut self,
+        minter: ActorID,
+        initial_holder: ActorID,
+        value: &TokenAmount,
+        data: &[u8],
+    ) -> Result<()> {
+        if value.is_negative() {
+            return Err(TokenError::InvalidNegative(format!(
+                "mint amount {} cannot be negative",
+                value
+            )));
+        }
+
+        let old_state = self.state.clone();
+
+        // Increase the balance of the actor and increase total supply
+        self.transaction(|state, bs| {
+            state.change_balance_by(&bs, initial_holder, value)?;
+            state.change_supply_by(value)?;
+            Ok(())
+        })?;
+
+        // Update state so re-entrant calls see the changes
+        self.flush()?;
+
+        // Call receiver hook
+        match self.mc.call_receiver_hook(minter, initial_holder, value, data) {
+            Ok(receipt) => {
+                // hook returned true, so we can continue
+                if receipt.exit_code.is_success() {
+                    Ok(())
+                } else {
+                    // TODO: handle missing addresses? tbd
+                    self.state = old_state;
+                    self.flush()?;
+                    Err(TokenError::ReceiverHook {
+                        from: TokenSource::Mint,
+                        to: initial_holder,
+                        by: minter,
+                        value: value.clone(),
+                        exit_code: receipt.exit_code,
+                    })
+                }
+            }
+            Err(e) => {
+                // error calling receiver hook, revert state
+                self.state = old_state;
+                self.flush()?;
+                Err(e.into())
+            }
+        }
     }
 
     /// Transfers an amount from one actor to another

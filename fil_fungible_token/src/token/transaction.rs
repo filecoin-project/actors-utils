@@ -16,6 +16,8 @@ use super::{Token, TokenError};
 pub enum TokenTransactionError {
     #[error("error in token operation {0}")]
     State(#[from] TokenError),
+    #[error("attempted to read from dirty state. call `TokenTransaction::flush` first")]
+    ReadDirty,
 }
 
 type Result<T> = std::result::Result<T, TokenTransactionError>;
@@ -35,30 +37,36 @@ where
     state_dirty: bool,
 }
 
-// impl<BS, MC> Clone for TokenTransaction<BS, MC>
-// where
-//     BS: IpldStore + Clone,
-//     MC: MethodCaller,
-// {
-//     fn clone(&self) -> Self {
-//         TokenTransaction { token: self.token.clone(), needs_rollback: self.needs_rollback }
-//     }
-// }
-
 impl<BS, MC> TokenTransaction<BS, MC>
 where
     BS: IpldStore + Clone,
     MC: MethodCaller,
 {
-    pub fn new(token: Token<BS, MC>) -> Self {
-        Self { needs_rollback: false, state_dirty: false, token: Rc::new(RefCell::new(token)) }
+    pub fn new(bs: BS, mc: MC) -> Result<Self> {
+        let token = Token::new(bs, mc)?;
+        Ok(Self {
+            needs_rollback: false,
+            state_dirty: false,
+            token: Rc::new(RefCell::new(token.0)),
+        })
+    }
+
+    pub fn load(bs: BS, mc: MC, token_cid: Cid) -> Result<Self> {
+        let token = Token::load(bs, mc, token_cid)?;
+        Ok(Self { needs_rollback: false, state_dirty: false, token: Rc::new(RefCell::new(token)) })
     }
 
     pub fn flush(&mut self) -> Result<TransactionOutcome> {
         if self.state_dirty && self.needs_rollback {
-            Ok(TransactionOutcome::Reverted(self.token.borrow_mut().revert()?))
+            let cid = self.token.borrow_mut().revert()?;
+            self.state_dirty = false;
+            self.needs_rollback = false;
+            Ok(TransactionOutcome::Reverted(cid))
         } else {
-            Ok(TransactionOutcome::Succeeded(self.token.borrow_mut().flush()?))
+            let cid = self.token.borrow_mut().flush()?;
+            self.state_dirty = false;
+            self.needs_rollback = false;
+            Ok(TransactionOutcome::Succeeded(cid))
         }
     }
 
@@ -84,6 +92,38 @@ where
     BS: IpldStore + Clone,
     MC: MethodCaller,
 {
+    /// Gets the total number of tokens in existence
+    ///
+    /// This equals the sum of `balance_of` called on all addresses. This equals sum of all
+    /// successful `mint` calls minus the sum of all successful `burn`/`burn_from` calls
+    pub fn total_supply(&self) -> Result<TokenAmount> {
+        if self.state_dirty {
+            return Err(TokenTransactionError::ReadDirty);
+        }
+        Ok(RefCell::borrow(&self.token).total_supply())
+    }
+
+    /// Returns the balance associated with a particular address
+    ///
+    /// Accounts that have never received transfers implicitly have a zero-balance
+    pub fn balance_of(&self, holder: ActorID) -> Result<TokenAmount> {
+        if self.state_dirty {
+            return Err(TokenTransactionError::ReadDirty);
+        }
+        Ok(RefCell::borrow(&self.token).balance_of(holder)?)
+    }
+
+    /// Gets the allowance between owner and spender
+    ///
+    /// The allowance is the amount that the spender can transfer or burn out of the owner's account
+    /// via the `transfer_from` and `burn_from` methods.
+    pub fn allowance(&self, owner: ActorID, spender: ActorID) -> Result<TokenAmount> {
+        if self.state_dirty {
+            return Err(TokenTransactionError::ReadDirty);
+        }
+        Ok(RefCell::borrow(&self.token).allowance(owner, spender)?)
+    }
+
     pub fn increase_allowance(
         &mut self,
         owner: ActorID,
@@ -153,66 +193,59 @@ where
     }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use fvm_shared::{econ::TokenAmount, ActorID};
-//     use num_traits::Zero;
+#[cfg(test)]
+mod test {
+    use fvm_shared::{econ::TokenAmount, ActorID};
+    use num_traits::Zero;
 
-//     const TOKEN_ACTOR_ADDRESS: ActorID = ActorID::max_value();
-//     const TREASURY: ActorID = 1;
-//     // const ALICE: ActorID = 2;
-//     // const BOB: ActorID = 3;
+    const TOKEN_ACTOR_ADDRESS: ActorID = ActorID::max_value();
+    const TREASURY: ActorID = 1;
+    // const ALICE: ActorID = 2;
+    // const BOB: ActorID = 3;
 
-//     use crate::{
-//         blockstore::SharedMemoryBlockstore,
-//         method::FakeMethodCaller,
-//         token::{
-//             transaction::{StateModifier, Transaction},
-//             Token,
-//         },
-//     };
+    use crate::{blockstore::SharedMemoryBlockstore, method::FakeMethodCaller, token::Token};
 
-//     use super::TransactionOutcome;
+    use super::{TokenTransaction, TransactionOutcome};
 
-//     fn new_transaction() -> CleanTransaction<SharedMemoryBlockstore, FakeMethodCaller> {
-//         let bs = SharedMemoryBlockstore::new();
-//         let (_token, cid) = Token::new(bs.clone(), FakeMethodCaller::default()).unwrap();
+    fn new_transaction() -> TokenTransaction<SharedMemoryBlockstore, FakeMethodCaller> {
+        let bs = SharedMemoryBlockstore::new();
+        let (_token, cid) = Token::new(bs.clone(), FakeMethodCaller::default()).unwrap();
 
-//         CleanTransaction::new(bs, FakeMethodCaller::default(), cid).unwrap()
-//     }
+        TokenTransaction::new(token).unwrap()
+    }
 
-//     #[test]
-//     fn it_batches_changes() {
-//         let mut tx = new_transaction();
+    // #[test]
+    // fn it_batches_changes() {
+    //     let mut tx = new_transaction();
 
-//         let res = tx
-//             .mint_and_flush(TOKEN_ACTOR_ADDRESS, TREASURY, &TokenAmount::from(100), &[])
-//             .burn(TREASURY, TREASURY, &TokenAmount::from(60))
-//             .flush()
-//             .unwrap();
+    //     let res = tx
+    //         .mint_and_flush(TOKEN_ACTOR_ADDRESS, TREASURY, &TokenAmount::from(100), &[])
+    //         .burn(TREASURY, TREASURY, &TokenAmount::from(60))
+    //         .flush()
+    //         .unwrap();
 
-//         if let TransactionOutcome::Succeeded(_) = res {
-//             assert_eq!(tx.token.borrow().balance_of(TREASURY).unwrap(), TokenAmount::from(40));
-//         } else {
-//             panic!("expected success");
-//         }
-//     }
+    //     if let TransactionOutcome::Succeeded(_) = res {
+    //         assert_eq!(tx.token.borrow().balance_of(TREASURY).unwrap(), TokenAmount::from(40));
+    //     } else {
+    //         panic!("expected success");
+    //     }
+    // }
 
-//     #[test]
-//     fn it_fails_atomically() {
-//         let mut tx = new_transaction();
+    // #[test]
+    // fn it_fails_atomically() {
+    //     let mut tx = new_transaction();
 
-//         // burn more than was minted
-//         let res = tx
-//             .mint_and_flush(TOKEN_ACTOR_ADDRESS, TREASURY, &TokenAmount::from(100), &[])
-//             .burn(TREASURY, TREASURY, &TokenAmount::from(110))
-//             .flush()
-//             .unwrap();
+    //     // burn more than was minted
+    //     let res = tx
+    //         .mint_and_flush(TOKEN_ACTOR_ADDRESS, TREASURY, &TokenAmount::from(100), &[])
+    //         .burn(TREASURY, TREASURY, &TokenAmount::from(110))
+    //         .flush()
+    //         .unwrap();
 
-//         if let TransactionOutcome::Reverted(_) = res {
-//             assert_eq!(tx.token.borrow().balance_of(TREASURY).unwrap(), TokenAmount::zero());
-//         } else {
-//             panic!("expected revert");
-//         }
-//     }
-// }
+    //     if let TransactionOutcome::Reverted(_) = res {
+    //         assert_eq!(tx.token.borrow().balance_of(TREASURY).unwrap(), TokenAmount::zero());
+    //     } else {
+    //         panic!("expected revert");
+    //     }
+    // }
+}
