@@ -11,6 +11,9 @@ fvm_ipld_encoding = { version = "0.2.2" }
 fvm_sdk = { version = "1.0.0" }
 fvm_shared = { version = "0.8.0" }
 fil_fungible_token = { version = "0.1.0", path = "../../../../fil_fungible_token" }
+num-traits = { version = "0.2.15" }
+serde = { version = "1.0.136", features = ["derive"] }
+thiserror = { version = "1.0.31" }
 
 [build-dependencies]
 wasm-builder = "3.0.1"
