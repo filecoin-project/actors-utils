@@ -1,23 +1,32 @@
-use anyhow::Result;
-use fil_fungible_token::blockstore::Blockstore;
-use fil_fungible_token::method::FakeMethodCaller;
-use fil_fungible_token::token::types::{AllowanceReturn, ChangeAllowanceParams, FrcXXXToken};
+mod util;
+
+use fil_fungible_token::runtime::blockstore::Blockstore;
+use fil_fungible_token::runtime::messaging::FvmMessenger;
+use fil_fungible_token::token::types::{
+    AllowanceReturn, BurnParams, BurnReturn, ChangeAllowanceParams, FrcXXXToken,
+    GetAllowanceParams, Result, RevokeAllowanceParams, TransferParams, TransferReturn,
+};
 use fil_fungible_token::token::Token;
-use fvm_ipld_encoding::{RawBytes, DAG_CBOR};
+use fvm_ipld_encoding::DAG_CBOR;
 use fvm_sdk as sdk;
-use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::econ::TokenAmount;
+use num_traits::Zero;
+use sdk::sys::ErrorNumber;
 use sdk::NO_DATA_BLOCK_ID;
+use serde::ser;
+use thiserror::Error;
+use util::{caller_address, deserialize_params, RuntimeError};
 
 struct BasicToken {
     /// Default token helper impl
-    util: Token<Blockstore, FakeMethodCaller>,
+    util: Token<Blockstore, FvmMessenger>,
 }
 
-/// Implement the token API
-/// here addresses should be translated to actor id's etc.
-impl FrcXXXToken for BasicToken {
+/// Implementation of the token API in a FVM actor
+///
+/// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
+impl FrcXXXToken<RuntimeError> for BasicToken {
     fn name(&self) -> String {
         String::from("FRC XXX Token")
     }
@@ -33,134 +42,179 @@ impl FrcXXXToken for BasicToken {
     fn balance_of(
         &self,
         params: fvm_shared::address::Address,
-    ) -> Result<fvm_shared::econ::TokenAmount> {
-        let holder = sdk::actor::resolve_address(&params).unwrap();
-        Ok(self.util.balance_of(holder)?)
+    ) -> Result<TokenAmount, RuntimeError> {
+        Ok(self.util.balance_of(&params)?)
     }
 
-    fn increase_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn> {
-        Ok(self.util.increase_allowance(params.owner, params.spender, &params.value)?)
+    fn increase_allowance(
+        &mut self,
+        params: ChangeAllowanceParams,
+    ) -> Result<AllowanceReturn, RuntimeError> {
+        let owner = caller_address();
+        let new_allowance = self.util.increase_allowance(&owner, &params.spender, &params.value)?;
+        Ok(AllowanceReturn { owner, spender: params.spender, value: new_allowance })
     }
 
-    fn decrease_allowance(&self, _params: ChangeAllowanceParams) -> Result<AllowanceReturn> {
-        todo!("add return")
+    fn decrease_allowance(
+        &mut self,
+        params: ChangeAllowanceParams,
+    ) -> Result<AllowanceReturn, RuntimeError> {
+        let owner = caller_address();
+        let new_allowance = self.util.decrease_allowance(&owner, &params.spender, &params.value)?;
+        Ok(AllowanceReturn { owner, spender: params.spender, value: new_allowance })
     }
 
-    fn revoke_allowance(&self, _params: RevokeAllowanceParams) -> Result<AllowanceReturn> {
-        todo!("add return")
+    fn revoke_allowance(
+        &mut self,
+        params: RevokeAllowanceParams,
+    ) -> Result<AllowanceReturn, RuntimeError> {
+        let owner = caller_address();
+        self.util.revoke_allowance(&owner, &params.spender)?;
+        Ok(AllowanceReturn { owner, spender: params.spender, value: TokenAmount::zero() })
     }
 
-    fn allowance(&self, _params: GetAllowanceParams) -> Result<AllowanceReturn> {
-        todo!();
+    fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn, RuntimeError> {
+        let allowance = self.util.allowance(&params.owner, &params.spender)?;
+        Ok(AllowanceReturn { owner: params.owner, spender: params.spender, value: allowance })
     }
 
-    // TODO: change burn params
-    fn burn(&self, _params: BurnParams) -> Result<BurnReturn> {
-        todo!();
+    fn burn(&mut self, params: BurnParams) -> Result<BurnReturn, RuntimeError> {
+        let spender = caller_address();
+        let remaining = self.util.burn(&spender, &params.owner, &params.value)?;
+        Ok(BurnReturn {
+            by: spender,
+            remaining_balance: remaining,
+            burnt: params.value.clone(),
+            owner: params.owner,
+        })
     }
 
-    fn transfer(&self, _params: TransferParams) -> Result<TransferReturn> {
-        todo!()
-    }
-
-    fn burn_from(&self, _params: BurnParams) -> Result<BurnReturn> {
-        todo!();
-    }
-
-    fn transfer_from(&self, _params: TransferParams) -> Result<TransferReturn> {
-        todo!()
+    fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
+        let spender = caller_address();
+        self.util.transfer(
+            &caller_address(),
+            &params.from,
+            &params.to,
+            &params.value,
+            params.data.bytes(),
+        )?;
+        Ok(TransferReturn {
+            from: params.from,
+            to: params.to,
+            by: spender,
+            value: params.value.clone(),
+        })
     }
 }
 
-/// Placeholder invoke for testing
+#[derive(Error, Debug)]
+enum IpldError {
+    #[error("ipld encoding error: {0}")]
+    Encoding(#[from] fvm_ipld_encoding::Error),
+    #[error("ipld blockstore error: {0}")]
+    Blockstore(#[from] ErrorNumber),
+}
+
+fn return_ipld<T>(value: &T) -> std::result::Result<u32, IpldError>
+where
+    T: ser::Serialize + ?Sized,
+{
+    let bytes = fvm_ipld_encoding::to_vec(value)?;
+    Ok(sdk::ipld::put_block(DAG_CBOR, bytes.as_slice())?)
+}
+
+/// Conduct method dispatch. Handle input parameters and return data.
 #[no_mangle]
 pub fn invoke(params: u32) -> u32 {
-    // Conduct method dispatch. Handle input parameters and return data.
     let method_num = sdk::message::method_number();
 
-    // FIXME: better token loading implementation, should know if initialised or not
-
-    //TODO: this internal dispatch can be pushed as a library function into the fil_token crate
-    // - it should support a few different calling-conventions
-    // - it should also handle deserialization of raw_params into the expected IPLD types
-    let res = match method_num {
+    match method_num {
         // Actor constructor
         1 => constructor(),
+
         // Standard token interface
         rest => {
             let root_cid = sdk::sself::root().unwrap();
             let mut token_actor = BasicToken {
-                util: Token::load(Blockstore::default(), FakeMethodCaller::default(), root_cid)
+                util: Token::load(Blockstore::default(), FvmMessenger::default(), root_cid)
                     .unwrap(),
             };
 
+            // Method numbers calculated via fvm_dispatch_tools using CamelCase names derived from
+            // the corresponding FRCXXXToken trait methods.
             match rest {
-                2 => {
-                    token_actor.name();
-                    // TODO: store and return CID
-                    NO_DATA_BLOCK_ID
+                4244593718 => {
+                    // Name
+                    let name = token_actor.name();
+                    return_ipld(&name).unwrap()
                 }
-                3 => {
-                    token_actor.symbol();
-                    // TODO: store and return CID
-                    NO_DATA_BLOCK_ID
+                3551111368 => {
+                    // Symbol
+                    let symbol = token_actor.symbol();
+                    return_ipld(&symbol).unwrap()
                 }
-                4 => {
-                    token_actor.total_supply();
-                    // TODO: store and return CID
-                    NO_DATA_BLOCK_ID
+                2511420746 => {
+                    // TotalSupply
+                    let total_supply = token_actor.total_supply();
+                    return_ipld(&BigIntDe(total_supply)).unwrap()
                 }
-                5 => {
-                    // balance of
-                    let params = sdk::message::params_raw(params).unwrap().1;
-                    let params = RawBytes::new(params);
-                    let params: Address = params.deserialize().unwrap();
+                1568445334 => {
+                    //BalanceOf
+                    let params = deserialize_params(params);
                     let res = token_actor.balance_of(params).unwrap();
-                    let res = RawBytes::new(fvm_ipld_encoding::to_vec(&BigIntDe(res)).unwrap());
-                    let block_id = sdk::ipld::put_block(DAG_CBOR, res.bytes()).unwrap();
-                    block_id
+                    return_ipld(&BigIntDe(res)).unwrap()
                 }
-                6 => {
-                    // increase allowance
-                    NO_DATA_BLOCK_ID
+                2804639308 => {
+                    // Allowance
+                    let params = deserialize_params(params);
+                    let res = token_actor.allowance(params).unwrap();
+                    return_ipld(&res).unwrap()
                 }
-                7 => {
-                    // decrease allowance
-                    NO_DATA_BLOCK_ID
-                }
-                8 => {
-                    // revoke_allowance
-                    NO_DATA_BLOCK_ID
-                }
-                9 => {
-                    // allowance
-                    NO_DATA_BLOCK_ID
-                }
-                10 => {
-                    // burn
-                    NO_DATA_BLOCK_ID
-                }
-                11 => {
-                    // transfer_from
-                    NO_DATA_BLOCK_ID
-                }
-                // Custom actor interface
-                12 => {
-                    token_actor
-                        .util
-                        .mint(
-                            sdk::message::caller(),
-                            sdk::message::caller(),
-                            &TokenAmount::from(123),
-                            &[],
-                        )
-                        .unwrap();
+                991449938 => {
+                    // IncreaseAllowance
+                    let params = deserialize_params(params);
+                    let res = token_actor.increase_allowance(params).unwrap();
                     token_actor.util.flush().unwrap();
-                    let res = RawBytes::new(
-                        fvm_ipld_encoding::to_vec(&BigIntDe(TokenAmount::from(123))).unwrap(),
-                    );
-                    let block_id = sdk::ipld::put_block(DAG_CBOR, res.bytes()).unwrap();
-                    block_id
+                    return_ipld(&res).unwrap()
+                }
+                4218751446 => {
+                    // DecreaseAllowance
+                    let params = deserialize_params(params);
+                    let res = token_actor.decrease_allowance(params).unwrap();
+                    token_actor.util.flush().unwrap();
+                    return_ipld(&res).unwrap()
+                }
+                1691518633 => {
+                    // RevokeAllowance
+                    let params = deserialize_params(params);
+                    let res = token_actor.revoke_allowance(params).unwrap();
+                    token_actor.util.flush().unwrap();
+                    return_ipld(&res).unwrap()
+                }
+                1924391931 => {
+                    // Burn
+                    let params = deserialize_params(params);
+                    let res = token_actor.burn(params).unwrap();
+                    token_actor.util.flush().unwrap();
+                    return_ipld(&res).unwrap()
+                }
+                401872942 => {
+                    // TransferFrom
+                    let params = deserialize_params(params);
+                    let res = token_actor.transfer(params).unwrap();
+                    token_actor.util.flush().unwrap();
+                    return_ipld(&res).unwrap()
+                }
+
+                // Custom actor interface, these are author-defined methods that extend beyond the
+                // FRCXXX Token standard
+                3839021839 => {
+                    // Mint
+                    // This is an exmaple mint function which simply gives the caller 100 tokens
+                    let minter = caller_address();
+                    token_actor.util.mint(&minter, &minter, &TokenAmount::from(100), &[]).unwrap();
+                    token_actor.util.flush().unwrap();
+                    NO_DATA_BLOCK_ID
                 }
                 _ => {
                     sdk::vm::abort(
@@ -170,15 +224,11 @@ pub fn invoke(params: u32) -> u32 {
                 }
             }
         }
-    };
-
-    res
+    }
 }
 
 fn constructor() -> u32 {
-    let (_token, cid) = Token::new(Blockstore::default(), FakeMethodCaller::default()).unwrap();
+    let (_token, cid) = Token::new(Blockstore::default(), FvmMessenger::default()).unwrap();
     sdk::sself::set_root(&cid).unwrap();
-    let res = RawBytes::new(fvm_ipld_encoding::to_vec(&BigIntDe(TokenAmount::from(100))).unwrap());
-    let block_id = sdk::ipld::put_block(DAG_CBOR, res.bytes()).unwrap();
-    block_id
+    NO_DATA_BLOCK_ID
 }

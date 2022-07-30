@@ -1,9 +1,9 @@
 use std::env;
 
-use fil_fungible_token::blockstore::SharedMemoryBlockstore;
 use fil_fungible_token::token::state::TokenState;
 use fvm::executor::{ApplyKind, Executor};
 use fvm_integration_tests::tester::{Account, Tester};
+use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
@@ -18,7 +18,7 @@ const BASIC_TOKEN_ACTOR_WASM: &str =
 
 #[test]
 fn mint_tokens() {
-    let blockstore = SharedMemoryBlockstore::default();
+    let blockstore = MemoryBlockstore::default();
     let mut tester =
         Tester::new(NetworkVersion::V15, StateTreeVersion::V4, blockstore.clone()).unwrap();
 
@@ -55,13 +55,13 @@ fn mint_tokens() {
         .execute_message(message, ApplyKind::Explicit, 100)
         .unwrap();
 
-    println!("return data {:?}", &ret_val);
+    println!("constructor return data {:?}", &ret_val);
 
     let message = Message {
         from: minter[0].1,
         to: actor_address,
         gas_limit: 99999999,
-        method_num: 12, // 12 is Mint function
+        method_num: 3839021839, // mint
         sequence: 1,
         ..Message::default()
     };
@@ -73,7 +73,7 @@ fn mint_tokens() {
         .execute_message(message, ApplyKind::Explicit, 100)
         .unwrap();
 
-    println!("return data {:?}", &ret_val);
+    println!("mint return data {:?}", &ret_val);
 
     let params = RawBytes::serialize(minter[0].1).unwrap();
 
@@ -81,7 +81,7 @@ fn mint_tokens() {
         from: minter[0].1,
         to: actor_address,
         gas_limit: 99999999,
-        method_num: 5, // 5 is balance of
+        method_num: 1568445334, // 5 is balance of
         sequence: 2,
         params,
         ..Message::default()
@@ -94,7 +94,7 @@ fn mint_tokens() {
         .execute_message(message, ApplyKind::Explicit, 100)
         .unwrap();
 
-    println!("return data {:?}", &ret_val);
+    println!("balance return data {:?}", &ret_val);
 
     let return_data = ret_val.msg_receipt.return_data;
     let balance: BigIntDe = return_data.deserialize().unwrap();
