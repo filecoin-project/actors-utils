@@ -1,12 +1,21 @@
-use anyhow::Result;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::econ::TokenAmount;
-use fvm_shared::ActorID;
+use thiserror::Error;
 
-// TODO: finalise this spec and remove anyhow!
+use super::TokenError;
+
+#[derive(Error, Debug)]
+pub enum ActorError<Err> {
+    #[error("token error: {0}")]
+    Token(#[from] TokenError),
+    #[error("error during actor execution: {0}")]
+    Runtime(Err),
+}
+
+pub type Result<T, E> = std::result::Result<T, ActorError<E>>;
 
 /// A standard fungible token interface allowing for on-chain transactions that implements the
 /// FRC-XXX standard. This represents the external interface exposed to other on-chain actors
@@ -32,7 +41,7 @@ use fvm_shared::ActorID;
 /// //    }
 /// //}
 /// ```
-pub trait FrcXXXToken {
+pub trait FrcXXXToken<E> {
     /// Returns the name of the token
     fn name(&self) -> String;
 
@@ -45,23 +54,23 @@ pub trait FrcXXXToken {
     /// Gets the balance of a particular address (if it exists)
     ///
     /// This will method attempt to resolve addresses to ID-addresses
-    fn balance_of(&self, params: Address) -> Result<TokenAmount>;
+    fn balance_of(&self, params: Address) -> Result<TokenAmount, E>;
 
     /// Atomically increase the amount that a spender can pull from the owner account
     ///
     /// The increase must be non-negative. Returns the new allowance between those two addresses if
     /// successful
-    fn increase_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn>;
+    fn increase_allowance(&mut self, params: ChangeAllowanceParams) -> Result<AllowanceReturn, E>;
 
     /// Atomically decrease the amount that a spender can pull from an account
     ///
     /// The decrease must be non-negative. The resulting allowance is set to zero if the decrease is
     /// more than the current allowance. Returns the new allowance between the two addresses if
     /// successful
-    fn decrease_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn>;
+    fn decrease_allowance(&mut self, params: ChangeAllowanceParams) -> Result<AllowanceReturn, E>;
 
     /// Set the allowance a spender has on the owner's account to zero
-    fn revoke_allowance(&self, params: RevokeAllowanceParams) -> Result<AllowanceReturn>;
+    fn revoke_allowance(&mut self, params: RevokeAllowanceParams) -> Result<AllowanceReturn, E>;
 
     /// Get the allowance between two addresses
     ///
@@ -69,7 +78,7 @@ pub trait FrcXXXToken {
     /// address of the owner cannot be resolved, this method returns an error. If the owner can be
     /// resolved, but the spender address is not registered with an allowance, an implicit allowance
     /// of 0 is returned
-    fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn>;
+    fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn, E>;
 
     /// Burn tokens from the caller's account, decreasing the total supply
     ///
@@ -77,46 +86,16 @@ pub trait FrcXXXToken {
     /// - Any holder MUST be allowed to burn their own tokens
     /// - The balance of the holder MUST decrease by the amount burned
     /// - This method MUST revert if the burn amount is more than the holder's balance
-    fn burn(&self, params: BurnParams) -> Result<BurnReturn>;
-
-    /// Burn tokens from the owner's account, decreasing the total supply
-    ///
-    /// When burning on behalf of the owner:
-    /// - The same rules on the holder apply as `burn`
-    /// - This method MUST revert if the burn amount is more than the allowance authorised by the
-    /// owner
-    fn burn_from(&self, params: BurnParams) -> Result<BurnReturn>;
+    fn burn(&mut self, params: BurnParams) -> Result<BurnReturn, E>;
 
     /// Transfer tokens from the caller to the receiver
     ///
-    fn transfer(&self, params: TransferParams) -> Result<TransferReturn>;
-
-    fn transfer_from(&self, params: TransferParams) -> Result<TransferReturn>;
+    fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, E>;
 }
-
-#[derive(Serialize_tuple, Deserialize_tuple)]
-pub struct MintParams {
-    pub initial_holder: ActorID,
-    #[serde(with = "bigint_ser")]
-    pub value: TokenAmount,
-}
-
-#[derive(Serialize_tuple, Deserialize_tuple)]
-pub struct MintReturn {
-    pub successful: bool,
-    #[serde(with = "bigint_ser")]
-    pub newly_minted: TokenAmount,
-    #[serde(with = "bigint_ser")]
-    pub total_supply: TokenAmount,
-}
-
-impl Cbor for MintParams {}
-impl Cbor for MintReturn {}
 
 /// An amount to increase or decrease an allowance by
 #[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct ChangeAllowanceParams {
-    pub owner: Address,
     pub spender: Address,
     #[serde(with = "bigint_ser")]
     pub value: TokenAmount,
@@ -156,11 +135,11 @@ pub struct BurnParams {
     pub owner: Address,
     #[serde(with = "bigint_ser")]
     pub value: TokenAmount,
-    pub data: RawBytes,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct BurnReturn {
+    pub by: Address,
     pub owner: Address,
     #[serde(with = "bigint_ser")]
     pub burnt: TokenAmount,
@@ -177,12 +156,14 @@ pub struct TransferParams {
     pub to: Address,
     #[serde(with = "bigint_ser")]
     pub value: TokenAmount,
+    pub data: RawBytes,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct TransferReturn {
     pub from: Address,
     pub to: Address,
+    pub by: Address,
     #[serde(with = "bigint_ser")]
     pub value: TokenAmount,
 }

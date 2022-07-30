@@ -345,7 +345,7 @@ where
     /// - The target-spender allowance MUST decrease by the requested value
     ///
     /// If the burn operation would result in a negative balance for the owner, the burn is
-    /// discarded and this method returns an error
+    /// discarded and this method returns an error. Otherwise, returns the new balance
     pub fn burn(
         &mut self,
         spender: &Address,
