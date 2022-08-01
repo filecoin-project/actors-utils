@@ -125,7 +125,7 @@ impl TokenState {
     ///
     /// Caller must ensure that the sign of of the delta is consistent with token rules (i.e.
     /// negative transfers, burns etc. are not allowed)
-    pub fn change_balance_by<'bs, BS: IpldStore>(
+    fn change_balance_by<'bs, BS: IpldStore>(
         &mut self,
         bs: &'bs BS,
         owner: ActorID,
@@ -170,7 +170,7 @@ impl TokenState {
     /// Increase/decrease the total supply by the specified value
     ///
     /// Returns the new total supply
-    pub fn change_supply_by(&mut self, delta: &TokenAmount) -> Result<&TokenAmount> {
+    fn change_supply_by(&mut self, delta: &TokenAmount) -> Result<&TokenAmount> {
         let new_supply = &self.supply + delta;
         if new_supply.is_negative() {
             return Err(StateError::NegativeTotalSupply {
@@ -209,7 +209,7 @@ impl TokenState {
     }
 
     /// Change the allowance between owner and spender by the specified delta
-    pub fn change_allowance_by<'bs, BS>(
+    fn change_allowance_by<'bs, BS>(
         &mut self,
         bs: &'bs BS,
         owner: ActorID,
@@ -271,7 +271,7 @@ impl TokenState {
     /// Revokes an approved allowance by removing the entry from the owner-spender map
     ///
     /// If that map becomes empty, it is removed from the root map.
-    pub fn revoke_allowance<BS: IpldStore>(
+    fn revoke_allowance<BS: IpldStore>(
         &mut self,
         bs: &BS,
         owner: ActorID,
@@ -298,7 +298,7 @@ impl TokenState {
     /// Atomically checks if value is less than the allowance and deducts it if so
     ///
     /// Returns new allowance if successful, else returns an error and the allowance is unchanged
-    pub fn attempt_use_allowance<BS: IpldStore>(
+    fn attempt_use_allowance<BS: IpldStore>(
         &mut self,
         bs: &BS,
         spender: u64,
