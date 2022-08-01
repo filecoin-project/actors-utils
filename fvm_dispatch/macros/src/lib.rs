@@ -33,8 +33,7 @@ impl Parse for MethodName {
 #[proc_macro]
 pub fn method_hash(input: TokenStream) -> TokenStream {
     let name: MethodName = parse_macro_input!(input);
-    let hash = name.hash() as u32;
-    // output a u32 literal as our hashed value
+    let hash = name.hash();
     quote!(#hash).into()
 }
 

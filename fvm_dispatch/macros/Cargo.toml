@@ -1,5 +1,5 @@
 [package]
-name = "helper"
+name = "fvm_dispatch_macros"
 version = "0.1.0"
 edition = "2021"
 

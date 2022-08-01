@@ -1,4 +1,4 @@
-use helper::method_hash;
+use fvm_dispatch_macros::method_hash;
 
 fn main() {
 	// should panic because no string or identifier provided
