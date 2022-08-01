@@ -53,6 +53,6 @@ impl<T: Hasher> MethodMessenger<T> {
         value: TokenAmount,
     ) -> Result<Receipt, MethodMessengerError> {
         let _method = self.method_resolver.method_number(method)?;
-        Err(ErrorNumber::IllegalOperation.into())
+        unimplemented!()
     }
 }

@@ -27,7 +27,7 @@ impl Hasher for Blake2bSyscall {
     #[cfg(not(target_family = "wasm"))]
     #[allow(unused_variables)]
     fn hash(&self, bytes: &[u8]) -> Vec<u8> {
-        Vec::new()
+        unimplemented!();
     }
 }
 
