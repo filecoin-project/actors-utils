@@ -43,6 +43,8 @@ pub enum StateError {
 
 type Result<T> = std::result::Result<T, StateError>;
 
+type Map<'bs, BS, V, K> = Hamt<&'bs BS, V, K>;
+
 /// Token state IPLD structure
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Clone, Debug)]
 pub struct TokenState {
@@ -63,9 +65,6 @@ pub struct TokenState {
 /// caller to handle. However, some invariants such as non-negative balances, allowances and total
 /// supply are enforced.
 ///
-/// Some methods on TokenState require the caller to pass in a blockstore implementing the Clone
-/// trait. It is assumed that when cloning the blockstore implementation does a "shallow-clone"
-/// of the blockstore and provides access to the same underlying data.
 impl TokenState {
     /// Create a new token state-tree, without committing it to a blockstore
     pub fn new<BS: IpldStore>(store: &BS) -> Result<Self> {
@@ -105,11 +104,7 @@ impl TokenState {
     }
 
     /// Get the balance of an ActorID from the currently stored state
-    pub fn get_balance<BS: IpldStore + Clone>(
-        &self,
-        bs: &BS,
-        owner: ActorID,
-    ) -> Result<TokenAmount> {
+    pub fn get_balance<BS: IpldStore>(&self, bs: &BS, owner: ActorID) -> Result<TokenAmount> {
         let balances = self.get_balance_map(bs)?;
 
         let balance = match balances.get(&owner)? {
@@ -124,9 +119,9 @@ impl TokenState {
     ///
     /// Caller must ensure that the sign of of the delta is consistent with token rules (i.e.
     /// negative transfers, burns etc. are not allowed)
-    pub fn change_balance_by<BS: IpldStore + Clone>(
+    pub fn change_balance_by<'bs, BS: IpldStore>(
         &mut self,
-        bs: &BS,
+        bs: &'bs BS,
         owner: ActorID,
         delta: &TokenAmount,
     ) -> Result<TokenAmount> {
@@ -159,15 +154,11 @@ impl TokenState {
     }
 
     /// Retrieve the balance map as a HAMT
-    fn get_balance_map<BS: IpldStore + Clone>(
-        &self,
-        bs: &BS,
-    ) -> Result<Hamt<BS, BigIntDe, ActorID>> {
-        Ok(Hamt::<BS, BigIntDe, ActorID>::load_with_bit_width(
-            &self.balances,
-            (*bs).clone(),
-            HAMT_BIT_WIDTH,
-        )?)
+    fn get_balance_map<'bs, BS>(&self, bs: &'bs BS) -> Result<Map<'bs, BS, BigIntDe, ActorID>>
+    where
+        BS: IpldStore,
+    {
+        Ok(Hamt::load_with_bit_width(&self.balances, bs, HAMT_BIT_WIDTH)?)
     }
 
     /// Increase/decrease the total supply by the specified value
@@ -189,12 +180,15 @@ impl TokenState {
     /// Get the allowance that an owner has approved for a spender
     ///
     /// If an existing allowance cannot be found, it is implicitly assumed to be zero
-    pub fn get_allowance_between<BS: IpldStore + Clone>(
+    pub fn get_allowance_between<BS>(
         &self,
         bs: &BS,
         owner: ActorID,
         spender: ActorID,
-    ) -> Result<TokenAmount> {
+    ) -> Result<TokenAmount>
+    where
+        BS: IpldStore,
+    {
         let owner_allowances = self.get_owner_allowance_map(bs, owner)?;
         match owner_allowances {
             Some(hamt) => {
@@ -209,13 +203,16 @@ impl TokenState {
     }
 
     /// Change the allowance between owner and spender by the specified delta
-    pub fn change_allowance_by<BS: IpldStore + Clone>(
+    pub fn change_allowance_by<'bs, BS>(
         &mut self,
-        bs: &BS,
+        bs: &'bs BS,
         owner: ActorID,
         spender: ActorID,
         delta: &TokenAmount,
-    ) -> Result<TokenAmount> {
+    ) -> Result<TokenAmount>
+    where
+        BS: IpldStore,
+    {
         if delta.is_zero() {
             // This is a no-op as far as mutating state
             return self.get_allowance_between(bs, owner, spender);
@@ -225,11 +222,7 @@ impl TokenState {
 
         // get or create the owner's allowance map
         let mut allowance_map = match global_allowances_map.get(&owner)? {
-            Some(hamt) => Hamt::<BS, BigIntDe, ActorID>::load_with_bit_width(
-                hamt,
-                (*bs).clone(),
-                HAMT_BIT_WIDTH,
-            )?,
+            Some(hamt) => Hamt::load_with_bit_width(hamt, bs, HAMT_BIT_WIDTH)?,
             None => {
                 // the owner doesn't have any allowances, and the delta is negative, this is a no-op
                 if delta.is_negative() {
@@ -237,7 +230,7 @@ impl TokenState {
                 }
 
                 // else create a new map for the owner
-                Hamt::<BS, BigIntDe, ActorID>::new_with_bit_width((*bs).clone(), HAMT_BIT_WIDTH)
+                Map::<'bs, BS, BigIntDe, u64>::new_with_bit_width(bs, HAMT_BIT_WIDTH)
             }
         };
 
@@ -272,7 +265,7 @@ impl TokenState {
     /// Revokes an approved allowance by removing the entry from the owner-spender map
     ///
     /// If that map becomes empty, it is removed from the root map.
-    pub fn revoke_allowance<BS: IpldStore + Clone>(
+    pub fn revoke_allowance<BS: IpldStore>(
         &mut self,
         bs: &BS,
         owner: ActorID,
@@ -299,7 +292,7 @@ impl TokenState {
     /// Atomically checks if value is less than the allowance and deducts it if so
     ///
     /// Returns new allowance if successful, else returns an error and the allowance is unchanged
-    pub fn attempt_use_allowance<BS: IpldStore + Clone>(
+    pub fn attempt_use_allowance<BS: IpldStore>(
         &mut self,
         bs: &BS,
         spender: u64,
@@ -340,18 +333,17 @@ impl TokenState {
     /// Ok(Some) if the owner has allocated allowances to other actors
     /// Ok(None) if the owner has no current non-zero allowances to other actors
     /// Err if operations on the underlying Hamt failed
-    fn get_owner_allowance_map<BS: IpldStore + Clone>(
+    fn get_owner_allowance_map<'bs, BS>(
         &self,
-        bs: &BS,
+        bs: &'bs BS,
         owner: ActorID,
-    ) -> Result<Option<Hamt<BS, BigIntDe, ActorID>>> {
+    ) -> Result<Option<Map<'bs, BS, BigIntDe, ActorID>>>
+    where
+        BS: IpldStore,
+    {
         let allowances_map = self.get_allowances_map(bs)?;
         let owner_allowances = match allowances_map.get(&owner)? {
-            Some(cid) => Some(Hamt::<BS, BigIntDe, ActorID>::load_with_bit_width(
-                cid,
-                (*bs).clone(),
-                HAMT_BIT_WIDTH,
-            )?),
+            Some(cid) => Some(Hamt::load_with_bit_width(cid, bs, HAMT_BIT_WIDTH)?),
             None => None,
         };
         Ok(owner_allowances)
@@ -360,12 +352,11 @@ impl TokenState {
     /// Get the global allowances map
     ///
     /// Gets a HAMT with CIDs linking to other HAMTs
-    fn get_allowances_map<BS: IpldStore + Clone>(&self, bs: &BS) -> Result<Hamt<BS, Cid, ActorID>> {
-        Ok(Hamt::<BS, Cid, ActorID>::load_with_bit_width(
-            &self.allowances,
-            (*bs).clone(),
-            HAMT_BIT_WIDTH,
-        )?)
+    fn get_allowances_map<'bs, BS>(&self, bs: &'bs BS) -> Result<Map<'bs, BS, Cid, ActorID>>
+    where
+        BS: IpldStore,
+    {
+        Ok(Hamt::load_with_bit_width(&self.allowances, bs, HAMT_BIT_WIDTH)?)
     }
 }
 
