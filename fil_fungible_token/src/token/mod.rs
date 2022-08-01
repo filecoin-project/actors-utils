@@ -1,5 +1,5 @@
-mod state;
-mod types;
+pub mod state;
+pub mod types;
 
 use self::state::{StateError, TokenState};
 use crate::receiver::types::TokenReceivedParams;
@@ -90,9 +90,30 @@ where
         Ok(Self { bs, msg, state })
     }
 
+    pub fn wrap(bs: BS, msg: MSG, state: TokenState) -> Self {
+        Self { bs, msg, state }
+    }
+
+    // NOTE: this is pretty awkward for read-only callers
+    // Does a Token and TokenMut trait separation make sense?
+    pub fn with<F, R, E>(bs: BS, msg: MSG, state: &mut TokenState, f: F) -> std::result::Result<R, E>
+        where F: FnOnce(&mut Self) -> std::result::Result<R, E>
+    {
+        // This is obviously a bad implementation that clones the state twice.
+        // But if the held a reference rather than ownership, would be clean.
+        let mut token = Self { bs, msg, state: state.clone() };
+        let ret = f(&mut token)?;
+        *state = token.state.clone();
+        Ok(ret)
+    }
+
     /// Flush state and return Cid for root
     pub fn flush(&mut self) -> Result<Cid> {
         Ok(self.state.save(&self.bs)?)
+    }
+
+    pub fn state(&mut self) -> TokenState {
+        return self.state.clone();
     }
 
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
