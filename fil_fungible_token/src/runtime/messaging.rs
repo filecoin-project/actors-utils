@@ -1,26 +1,29 @@
 use fvm_ipld_encoding::Error as IpldError;
 use fvm_ipld_encoding::RawBytes;
-use fvm_sdk::{send, sys::ErrorNumber};
+use fvm_sdk::{actor, send, sys::ErrorNumber};
 use fvm_shared::error::ExitCode;
 use fvm_shared::receipt::Receipt;
+use fvm_shared::METHOD_SEND;
 use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
 use num_traits::Zero;
 use thiserror::Error;
 
 use crate::receiver::types::TokenReceivedParams;
 
-type Result<T> = std::result::Result<T, MethodCallError>;
+type Result<T> = std::result::Result<T, MessagingError>;
 
 #[derive(Error, Debug)]
-pub enum MethodCallError {
+pub enum MessagingError {
     #[error("fvm syscall error: `{0}`")]
     Syscall(#[from] ErrorNumber),
+    #[error("address not initialised: `{0}`")]
+    AddressNotInitialised(Address),
     #[error("ipld serialization error: `{0}`")]
     Ipld(#[from] IpldError),
 }
 
 /// An abstraction used to send messages to other actors
-pub trait MethodCaller {
+pub trait Messaging {
     /// Call the receiver hook on a given actor, specifying the amount of tokens pending to be sent
     /// and the sender and receiver
     ///
@@ -32,12 +35,18 @@ pub trait MethodCaller {
         token_value: &TokenAmount,
         data: &[u8],
     ) -> Result<Receipt>;
+
+    /// Resolves the given address to it's ID address form
+    ///
+    /// If an ID address for the given address doesn't exist yet, it tries to create one by sending a
+    /// zero balance to the given address.
+    fn resolve_to_id_addr(&self, address: &Address) -> Result<ActorID>;
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct FvmMethodCaller {}
+pub struct FvmMessenger {}
 
-impl MethodCaller for FvmMethodCaller {
+impl Messaging for FvmMessenger {
     fn call_receiver_hook(
         &self,
         from: ActorID,
@@ -62,6 +71,20 @@ impl MethodCaller for FvmMethodCaller {
 
         Ok(send::send(&to, METHOD_NUM, params, TokenAmount::zero())?)
     }
+
+    fn resolve_to_id_addr(&self, address: &Address) -> Result<ActorID> {
+        // return the existing address
+        if let Some(addr) = actor::resolve_address(address) {
+            return Ok(addr);
+        }
+
+        // wasn't found, send 0 balance to the account so an ID address is created for it
+        if let Err(e) = send::send(address, METHOD_SEND, Default::default(), TokenAmount::zero()) {
+            return Err(MessagingError::Syscall(e));
+        }
+
+        actor::resolve_address(address).ok_or(MessagingError::AddressNotInitialised(*address))
+    }
 }
 
 /// A fake method caller that can simulate the receiving actor return true or false
@@ -69,9 +92,9 @@ impl MethodCaller for FvmMethodCaller {
 /// If call_receiver_hook is called with an empty data array, it will return true.
 /// If call_receiver_hook is called with a non-empty data array, it will return false.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct FakeMethodCaller {}
+pub struct FakeMessenger {}
 
-impl MethodCaller for FakeMethodCaller {
+impl Messaging for FakeMessenger {
     fn call_receiver_hook(
         &self,
         _from: ActorID,
@@ -92,5 +115,10 @@ impl MethodCaller for FakeMethodCaller {
                 gas_used: 0,
             })
         }
+    }
+
+    fn resolve_to_id_addr(&self, address: &Address) -> Result<ActorID> {
+        // assume all mock addresses are already in ID form
+        address.id().map_err(|_e| MessagingError::AddressNotInitialised(*address))
     }
 }
