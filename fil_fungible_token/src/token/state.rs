@@ -378,8 +378,9 @@ mod test {
         ActorID,
     };
 
+    use crate::runtime::blockstore::SharedMemoryBlockstore;
+
     use super::TokenState;
-    use crate::blockstore::SharedMemoryBlockstore;
 
     #[test]
     fn it_instantiates() {

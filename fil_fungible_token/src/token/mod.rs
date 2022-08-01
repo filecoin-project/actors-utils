@@ -2,7 +2,7 @@ mod state;
 mod types;
 
 use self::state::{StateError, TokenState};
-use crate::method::{MethodCallError, MethodCaller};
+use crate::runtime::messaging::{Messaging, MessagingError};
 
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
@@ -29,7 +29,7 @@ pub enum TokenError {
     #[error("invalid negative: {0}")]
     InvalidNegative(String),
     #[error("error calling receiver hook: {0}")]
-    MethodCall(#[from] MethodCallError),
+    MethodCall(#[from] MessagingError),
     #[error("receiver hook aborted when {from:?} sent {value:?} to {to:?} by {by:?} with exit code {exit_code:?}")]
     ReceiverHook {
         from: TokenSource,
@@ -45,40 +45,40 @@ type Result<T> = std::result::Result<T, TokenError>;
 /// Library functions that implement core FRC-??? standards
 ///
 /// Holds injectable services to access/interface with IPLD/FVM layer.
-pub struct Token<BS, MC>
+pub struct Token<BS, MSG>
 where
     BS: IpldStore + Clone,
-    MC: MethodCaller,
+    MSG: Messaging,
 {
     /// Injected blockstore. The blockstore must reference the same underlying storage under Clone
     bs: BS,
     /// Minimal interface to call methods on other actors (i.e. receiver hooks)
-    mc: MC,
+    msg: MSG,
     /// In-memory cache of the state tree
     state: TokenState,
 }
 
-impl<BS, MC> Token<BS, MC>
+impl<BS, MSG> Token<BS, MSG>
 where
     BS: IpldStore + Clone,
-    MC: MethodCaller,
+    MSG: Messaging,
 {
     /// Creates a new token instance using the given blockstore and creates a new empty state tree
     ///
     /// Returns a Token handle that can be used to interact with the token state tree and the Cid
     /// of the state tree root
-    pub fn new(bs: BS, mc: MC) -> Result<(Self, Cid)> {
+    pub fn new(bs: BS, msg: MSG) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
-        let token = Self { bs, mc, state: init_state };
+        let token = Self { bs, msg, state: init_state };
         Ok((token, cid))
     }
 
     /// For an already initialised state tree, loads the state tree from the blockstore and returns
     /// a Token handle to interact with it
-    pub fn load(bs: BS, mc: MC, state_cid: Cid) -> Result<Self> {
+    pub fn load(bs: BS, msg: MSG, state_cid: Cid) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, mc, state })
+        Ok(Self { bs, msg, state })
     }
 
     /// Flush state and return Cid for root
@@ -103,10 +103,10 @@ where
     }
 }
 
-impl<BS, MC> Token<BS, MC>
+impl<BS, MSG> Token<BS, MSG>
 where
     BS: IpldStore + Clone,
-    MC: MethodCaller,
+    MSG: Messaging,
 {
     /// Mints the specified value of tokens into an account
     ///
@@ -138,7 +138,7 @@ where
         self.flush()?;
 
         // Call receiver hook
-        match self.mc.call_receiver_hook(minter, initial_holder, value, data) {
+        match self.msg.call_receiver_hook(minter, initial_holder, value, data) {
             Ok(receipt) => {
                 // hook returned true, so we can continue
                 if receipt.exit_code.is_success() {
@@ -350,7 +350,7 @@ where
         self.flush()?;
 
         // call receiver hook
-        match self.mc.call_receiver_hook(owner, receiver, value, data) {
+        match self.msg.call_receiver_hook(owner, receiver, value, data) {
             Ok(receipt) => {
                 // hook returned true, so we can continue
                 if receipt.exit_code.is_success() {
@@ -384,9 +384,9 @@ mod test {
     use fvm_shared::{econ::TokenAmount, ActorID};
     use num_traits::Zero;
 
-    use crate::{blockstore::SharedMemoryBlockstore, method::FakeMethodCaller};
-
     use super::Token;
+    use crate::runtime::blockstore::SharedMemoryBlockstore;
+    use crate::runtime::messaging::FakeMessenger;
 
     const TOKEN_ACTOR_ADDRESS: ActorID = ActorID::MAX;
     const TREASURY: ActorID = 1;
@@ -394,16 +394,16 @@ mod test {
     const BOB: ActorID = 3;
     const CAROL: ActorID = 4;
 
-    fn new_token() -> Token<SharedMemoryBlockstore, FakeMethodCaller> {
-        Token::new(SharedMemoryBlockstore::new(), FakeMethodCaller::default()).unwrap().0
+    fn new_token() -> Token<SharedMemoryBlockstore, FakeMessenger> {
+        Token::new(SharedMemoryBlockstore::new(), FakeMessenger::default()).unwrap().0
     }
 
     #[test]
     fn it_instantiates_and_persists() {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
-        let mc = FakeMethodCaller::default();
-        let (mut token, _) = Token::new(bs.clone(), FakeMethodCaller::default()).unwrap();
+        let msg = FakeMessenger::default();
+        let (mut token, _) = Token::new(bs.clone(), FakeMessenger::default()).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -416,7 +416,7 @@ mod test {
         let cid = token.flush().unwrap();
 
         // the returned cid can be used to reference the same token state
-        let token2 = Token::load(bs, mc, cid).unwrap();
+        let token2 = Token::load(bs, msg, cid).unwrap();
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
@@ -424,8 +424,8 @@ mod test {
     fn it_provides_atomic_transactions() {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
-        let mc = FakeMethodCaller::default();
-        let (mut token, _) = Token::new(bs, mc).unwrap();
+        let msg = FakeMessenger::default();
+        let (mut token, _) = Token::new(bs, msg).unwrap();
 
         // entire transaction succeeds
         token
