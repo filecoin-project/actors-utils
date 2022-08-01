@@ -370,18 +370,17 @@ impl Cbor for TokenState {}
 
 #[cfg(test)]
 mod test {
+    use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_shared::{
         bigint::{BigInt, Zero},
         ActorID,
     };
 
-    use crate::runtime::blockstore::SharedMemoryBlockstore;
-
     use super::TokenState;
 
     #[test]
     fn it_instantiates() {
-        let bs = &SharedMemoryBlockstore::new();
+        let bs = &MemoryBlockstore::new();
         let state = TokenState::new(bs).unwrap();
         let cid = state.save(bs).unwrap();
         let saved_state = TokenState::load(bs, &cid).unwrap();
@@ -390,7 +389,7 @@ mod test {
 
     #[test]
     fn it_increases_balance_from_zero() {
-        let bs = &SharedMemoryBlockstore::new();
+        let bs = &MemoryBlockstore::new();
         let mut state = TokenState::new(bs).unwrap();
         let actor: ActorID = 1;
 
@@ -405,7 +404,7 @@ mod test {
 
     #[test]
     fn it_fails_to_decrease_balance_below_zero() {
-        let bs = &SharedMemoryBlockstore::new();
+        let bs = &MemoryBlockstore::new();
         let mut state = TokenState::new(bs).unwrap();
         let actor: ActorID = 1;
 
@@ -421,7 +420,7 @@ mod test {
 
     #[test]
     fn it_sets_allowances_between_actors() {
-        let bs = &SharedMemoryBlockstore::new();
+        let bs = &MemoryBlockstore::new();
         let mut state = TokenState::new(&bs).unwrap();
         let owner: ActorID = 1;
         let spender: ActorID = 2;
@@ -459,7 +458,7 @@ mod test {
 
     #[test]
     fn it_consumes_allowances_atomically() {
-        let bs = &SharedMemoryBlockstore::new();
+        let bs = &MemoryBlockstore::new();
         let mut state = TokenState::new(bs).unwrap();
         let owner: ActorID = 1;
         let spender: ActorID = 2;
@@ -484,7 +483,7 @@ mod test {
 
     #[test]
     fn it_revokes_allowances() {
-        let bs = &SharedMemoryBlockstore::new();
+        let bs = &MemoryBlockstore::new();
         let mut state = TokenState::new(bs).unwrap();
         let owner: ActorID = 1;
         let spender: ActorID = 2;
