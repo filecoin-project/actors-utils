@@ -1,833 +1,503 @@
-mod state;
+mod handle;
 mod types;
 
-use self::state::{StateError, TokenState as State};
-use crate::runtime::messaging::{Messaging, MessagingError};
-
+use cid::multihash::Code;
 use cid::Cid;
+use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
+use fvm_ipld_encoding::tuple::*;
+use fvm_ipld_encoding::Cbor;
+use fvm_ipld_encoding::CborStore;
+use fvm_ipld_encoding::DAG_CBOR;
+use fvm_ipld_hamt::Error as HamtError;
+use fvm_ipld_hamt::Hamt;
+use fvm_shared::bigint::bigint_ser;
+use fvm_shared::bigint::bigint_ser::BigIntDe;
+use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
-use fvm_shared::error::ExitCode;
 use fvm_shared::ActorID;
 use num_traits::Signed;
-use std::ops::Neg;
 use thiserror::Error;
 
-/// Source of a token being sent to an address
-#[derive(Debug)]
-pub enum TokenSource {
-    /// Tokens are coming from a mint action
-    Mint,
-    /// Tokens are coming from the balance of another actor
-    Actor(ActorID),
-}
+pub use handle::Token;
+pub use handle::TokenError;
+
+const HAMT_BIT_WIDTH: u32 = 5;
 
 #[derive(Error, Debug)]
-pub enum TokenError {
-    #[error("error in underlying state {0}")]
-    State(#[from] StateError),
-    #[error("invalid negative: {0}")]
-    InvalidNegative(String),
-    #[error("error calling receiver hook: {0}")]
-    MethodCall(#[from] MessagingError),
-    #[error("receiver hook aborted when {from:?} sent {value:?} to {to:?} by {by:?} with exit code {exit_code:?}")]
-    ReceiverHook {
-        from: TokenSource,
-        to: ActorID,
-        by: ActorID,
-        value: TokenAmount,
-        exit_code: ExitCode,
+pub enum StateError {
+    #[error("ipld hamt error: {0}")]
+    IpldHamt(#[from] HamtError),
+    #[error("missing state at cid: {0}")]
+    MissingState(Cid),
+    #[error("underlying serialization error: {0}")]
+    Serialization(String),
+    #[error("negative balance caused by changing {owner:?}'s balance of {balance:?} by {delta:?}")]
+    NegativeBalance { owner: ActorID, balance: TokenAmount, delta: TokenAmount },
+    #[error(
+        "{spender:?} attempted to utilise {delta:?} of allowance {allowance:?} set by {owner:?}"
+    )]
+    InsufficentAllowance {
+        owner: ActorID,
+        spender: ActorID,
+        allowance: TokenAmount,
+        delta: TokenAmount,
     },
+    #[error("total_supply cannot be negative, cannot apply delta of {delta:?} to {supply:?}")]
+    NegativeTotalSupply { supply: TokenAmount, delta: TokenAmount },
 }
 
-type Result<T> = std::result::Result<T, TokenError>;
+type Result<T> = std::result::Result<T, StateError>;
 
-/// Library functions that implement core FRC-??? standards
+type Map<'bs, BS, V, K> = Hamt<&'bs BS, V, K>;
+
+/// Token state IPLD structure
+#[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Clone, Debug)]
+pub struct TokenState {
+    /// Total supply of token
+    #[serde(with = "bigint_ser")]
+    pub supply: TokenAmount,
+
+    /// Map<ActorId, TokenAmount> of balances as a Hamt
+    pub balances: Cid,
+    /// Map<ActorId, Map<ActorId, TokenAmount>> as a Hamt. Allowances are stored balances[owner][spender]
+    pub allowances: Cid,
+}
+
+/// An abstraction over the IPLD layer to get and modify token state without dealing with HAMTs etc.
 ///
-/// Holds injectable services to access/interface with IPLD/FVM layer.
-pub struct Token<'st, BS, MSG>
-where
-    BS: IpldStore,
-    MSG: Messaging,
-{
-    /// Injected blockstore. The blockstore must reference the same underlying storage under Clone
-    bs: BS,
-    /// Minimal interface to call methods on other actors (i.e. receiver hooks)
-    msg: MSG,
-    /// In-memory cache of the state tree
-    state: &'st mut State,
-}
+/// This is a simple wrapper of state and in general does not account for token protocol level
+/// checks such as ensuring necessary approvals are enforced during transfers. This is left for the
+/// caller to handle. However, some invariants such as non-negative balances, allowances and total
+/// supply are enforced.
+///
+impl TokenState {
+    /// Create a new token state-tree, without committing it to a blockstore
+    pub fn new<BS: IpldStore>(store: &BS) -> Result<Self> {
+        let empty_balance_map = Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH).flush()?;
+        let empty_allowances_map =
+            Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH).flush()?;
 
-impl<'st, BS, MSG> Token<'st, BS, MSG>
-where
-    BS: IpldStore,
-    MSG: Messaging,
-{
-    /// Creates a new token instance using the given blockstore and creates a new empty state tree
+        Ok(Self {
+            supply: Default::default(),
+            balances: empty_balance_map,
+            allowances: empty_allowances_map,
+        })
+    }
+
+    /// Loads a fresh copy of the state from a blockstore from a given cid
+    pub fn load<BS: IpldStore>(bs: &BS, cid: &Cid) -> Result<Self> {
+        // Load the actor state from the state tree.
+        match bs.get_cbor::<Self>(cid) {
+            Ok(Some(state)) => Ok(state),
+            Ok(None) => Err(StateError::MissingState(*cid)),
+            Err(err) => Err(StateError::Serialization(err.to_string())),
+        }
+    }
+
+    /// Saves the current state to the blockstore, returning the cid
+    pub fn save<BS: IpldStore>(&self, bs: &BS) -> Result<Cid> {
+        let serialized = match fvm_ipld_encoding::to_vec(self) {
+            Ok(s) => s,
+            Err(err) => return Err(StateError::Serialization(err.to_string())),
+        };
+        let block = Block { codec: DAG_CBOR, data: serialized };
+        let cid = match bs.put(Code::Blake2b256, &block) {
+            Ok(cid) => cid,
+            Err(err) => return Err(StateError::Serialization(err.to_string())),
+        };
+        Ok(cid)
+    }
+
+    /// Get the balance of an ActorID from the currently stored state
+    pub fn get_balance<BS: IpldStore>(&self, bs: &BS, owner: ActorID) -> Result<TokenAmount> {
+        let balances = self.get_balance_map(bs)?;
+
+        let balance = match balances.get(&owner)? {
+            Some(amount) => amount.0.clone(),
+            None => TokenAmount::zero(),
+        };
+
+        Ok(balance)
+    }
+
+    /// Changes the balance of the specified account by the delta
     ///
-    /// Returns a Token handle that can be used to interact with the token state tree and the Cid
-    /// of the state tree root
-    pub fn new(bs: BS, msg: MSG, state: &'st mut State) -> Result<Self> {
-        let token = Self { bs, msg, state };
-        Ok(token)
+    /// Caller must ensure that the sign of of the delta is consistent with token rules (i.e.
+    /// negative transfers, burns etc. are not allowed)
+    pub fn change_balance_by<'bs, BS: IpldStore>(
+        &mut self,
+        bs: &'bs BS,
+        owner: ActorID,
+        delta: &TokenAmount,
+    ) -> Result<TokenAmount> {
+        if delta.is_zero() {
+            // This is a no-op as far as mutating state
+            return self.get_balance(bs, owner);
+        }
+
+        let mut balance_map = self.get_balance_map(bs)?;
+        let balance = balance_map.get(&owner)?;
+
+        let new_balance = match balance {
+            Some(existing_amount) => existing_amount.0.clone() + delta,
+            None => (*delta).clone(),
+        };
+
+        // if the new_balance is negative, return an error
+        if new_balance.is_negative() {
+            return Err(StateError::NegativeBalance {
+                balance: new_balance,
+                delta: delta.clone(),
+                owner,
+            });
+        }
+
+        balance_map.set(owner, BigIntDe(new_balance.clone()))?;
+        self.balances = balance_map.flush()?;
+
+        Ok(new_balance)
     }
 
-    /// Returns a mutable reference to underlying token-state
-    pub fn state(&mut self) -> &mut State {
-        &mut self.state
-    }
-
-    /// Flush state and return Cid for root
-    pub fn flush(&mut self) -> Result<Cid> {
-        Ok(self.state.save(&self.bs)?)
-    }
-
-    /// Opens an atomic transaction on TokenState which allows a closure to make multiple
-    /// modifications to the state tree.
-    ///
-    /// If the closure returns an error, the transaction is dropped atomically and no change is
-    /// observed on token state.
-    pub fn transaction<F, Res>(&mut self, f: F) -> Result<Res>
+    /// Retrieve the balance map as a HAMT
+    fn get_balance_map<'bs, BS>(&self, bs: &'bs BS) -> Result<Map<'bs, BS, BigIntDe, ActorID>>
     where
-        F: FnOnce(&mut State, &BS) -> Result<Res>,
+        BS: IpldStore,
     {
-        let mut mutable_state = self.state.clone();
-        let res = f(&mut mutable_state, &self.bs)?;
-        // if closure didn't error, save state
-        *self.state = mutable_state;
-        Ok(res)
+        Ok(Hamt::load_with_bit_width(&self.balances, bs, HAMT_BIT_WIDTH)?)
     }
-}
 
-impl<'tok, BS, MSG> Token<'tok, BS, MSG>
-where
-    BS: IpldStore,
-    MSG: Messaging,
-{
-    /// Mints the specified value of tokens into an account
+    /// Increase/decrease the total supply by the specified value
     ///
-    /// The mint amount must be non-negative or the method returns an error
-    pub fn mint(
-        &mut self,
-        minter: ActorID,
-        initial_holder: ActorID,
-        value: &TokenAmount,
-        data: &[u8],
-    ) -> Result<()> {
-        if value.is_negative() {
-            return Err(TokenError::InvalidNegative(format!(
-                "mint amount {} cannot be negative",
-                value
-            )));
+    /// Returns the new total supply
+    pub fn change_supply_by(&mut self, delta: &TokenAmount) -> Result<&TokenAmount> {
+        let new_supply = &self.supply + delta;
+        if new_supply.is_negative() {
+            return Err(StateError::NegativeTotalSupply {
+                supply: self.supply.clone(),
+                delta: delta.clone(),
+            });
         }
 
-        let old_state = self.state.clone();
+        self.supply = new_supply;
+        Ok(&self.supply)
+    }
 
-        // Increase the balance of the actor and increase total supply
-        self.transaction(|state, bs| {
-            state.change_balance_by(&bs, initial_holder, value)?;
-            state.change_supply_by(value)?;
-            Ok(())
-        })?;
-
-        // Update state so re-entrant calls see the changes
-        self.flush()?;
-
-        // Call receiver hook
-        match self.msg.call_receiver_hook(minter, initial_holder, value, data) {
-            Ok(receipt) => {
-                // hook returned true, so we can continue
-                if receipt.exit_code.is_success() {
-                    Ok(())
-                } else {
-                    // TODO: handle missing addresses? tbd
-                    *self.state = old_state;
-                    self.flush()?;
-                    Err(TokenError::ReceiverHook {
-                        from: TokenSource::Mint,
-                        to: initial_holder,
-                        by: minter,
-                        value: value.clone(),
-                        exit_code: receipt.exit_code,
-                    })
+    /// Get the allowance that an owner has approved for a spender
+    ///
+    /// If an existing allowance cannot be found, it is implicitly assumed to be zero
+    pub fn get_allowance_between<BS>(
+        &self,
+        bs: &BS,
+        owner: ActorID,
+        spender: ActorID,
+    ) -> Result<TokenAmount>
+    where
+        BS: IpldStore,
+    {
+        let owner_allowances = self.get_owner_allowance_map(bs, owner)?;
+        match owner_allowances {
+            Some(hamt) => {
+                let maybe_allowance = hamt.get(&spender)?;
+                if let Some(allowance) = maybe_allowance {
+                    return Ok(allowance.clone().0);
                 }
+                Ok(TokenAmount::zero())
             }
-            Err(e) => {
-                // error calling receiver hook, revert state
-                *self.state = old_state;
-                self.flush()?;
-                Err(e.into())
-            }
+            None => Ok(TokenAmount::zero()),
         }
     }
 
-    /// Gets the total number of tokens in existence
-    ///
-    /// This equals the sum of `balance_of` called on all addresses. This equals sum of all
-    /// successful `mint` calls minus the sum of all successful `burn`/`burn_from` calls
-    pub fn total_supply(&self) -> TokenAmount {
-        self.state.supply.clone()
-    }
-
-    /// Returns the balance associated with a particular address
-    ///
-    /// Accounts that have never received transfers implicitly have a zero-balance
-    pub fn balance_of(&self, holder: ActorID) -> Result<TokenAmount> {
-        // Load the HAMT holding balances
-        Ok(self.state.get_balance(&self.bs, holder)?)
-    }
-
-    /// Gets the allowance between owner and spender
-    ///
-    /// The allowance is the amount that the spender can transfer or burn out of the owner's account
-    /// via the `transfer_from` and `burn_from` methods.
-    pub fn allowance(&self, owner: ActorID, spender: ActorID) -> Result<TokenAmount> {
-        let allowance = self.state.get_allowance_between(&self.bs, owner, spender)?;
-        Ok(allowance)
-    }
-
-    /// Increase the allowance that a spender controls of the owner's balance by the requested delta
-    ///
-    /// Returns an error if requested delta is negative or there are errors in (de)serialization of
-    /// state. Else returns the new allowance.
-    pub fn increase_allowance(
+    /// Change the allowance between owner and spender by the specified delta
+    pub fn change_allowance_by<'bs, BS>(
         &mut self,
+        bs: &'bs BS,
         owner: ActorID,
         spender: ActorID,
         delta: &TokenAmount,
-    ) -> Result<TokenAmount> {
-        if delta.is_negative() {
-            return Err(TokenError::InvalidNegative(format!(
-                "increase allowance delta {} cannot be negative",
-                delta
-            )));
+    ) -> Result<TokenAmount>
+    where
+        BS: IpldStore,
+    {
+        if delta.is_zero() {
+            // This is a no-op as far as mutating state
+            return self.get_allowance_between(bs, owner, spender);
         }
 
-        let new_amount = self.state.change_allowance_by(&self.bs, owner, spender, delta)?;
+        let mut global_allowances_map = self.get_allowances_map(bs)?;
 
-        Ok(new_amount)
-    }
+        // get or create the owner's allowance map
+        let mut allowance_map = match global_allowances_map.get(&owner)? {
+            Some(hamt) => Hamt::load_with_bit_width(hamt, bs, HAMT_BIT_WIDTH)?,
+            None => {
+                // the owner doesn't have any allowances, and the delta is negative, this is a no-op
+                if delta.is_negative() {
+                    return Ok(TokenAmount::zero());
+                }
 
-    /// Decrease the allowance that a spender controls of the owner's balance by the requested delta
-    ///
-    /// If the resulting allowance would be negative, the allowance between owner and spender is set
-    /// to zero. Returns an error if either the spender or owner address is unresolvable. Returns an
-    /// error if requested delta is negative. Else returns the new allowance
-    pub fn decrease_allowance(
-        &mut self,
-        owner: ActorID,
-        spender: ActorID,
-        delta: &TokenAmount,
-    ) -> Result<TokenAmount> {
-        if delta.is_negative() {
-            return Err(TokenError::InvalidNegative(format!(
-                "decrease allowance delta {} cannot be negative",
-                delta
-            )));
+                // else create a new map for the owner
+                Map::<'bs, BS, BigIntDe, u64>::new_with_bit_width(bs, HAMT_BIT_WIDTH)
+            }
+        };
+
+        // calculate new allowance (max with zero)
+        let new_allowance = match allowance_map.get(&spender)? {
+            Some(existing_allowance) => existing_allowance.0.clone() + delta,
+            None => (*delta).clone(),
+        }
+        .max(TokenAmount::zero());
+
+        // if the new allowance is zero, we can remove the entry from the state tree
+        if new_allowance.is_zero() {
+            allowance_map.delete(&spender)?;
+        } else {
+            allowance_map.set(spender, BigIntDe(new_allowance.clone()))?;
         }
 
-        let new_allowance =
-            self.state.change_allowance_by(&self.bs, owner, spender, &delta.neg())?;
+        // if the owner-allowance map is empty, remove it from the global allowances map
+        if allowance_map.is_empty() {
+            global_allowances_map.delete(&owner)?;
+        } else {
+            // else update the global-allowance map
+            global_allowances_map.set(owner, allowance_map.flush()?)?;
+        }
+
+        // update the state with the updated global map
+        self.allowances = global_allowances_map.flush()?;
 
         Ok(new_allowance)
     }
 
-    /// Sets the allowance between owner and spender to 0
-    pub fn revoke_allowance(&mut self, owner: ActorID, spender: ActorID) -> Result<()> {
-        self.state.revoke_allowance(&self.bs, owner, spender)?;
+    /// Revokes an approved allowance by removing the entry from the owner-spender map
+    ///
+    /// If that map becomes empty, it is removed from the root map.
+    pub fn revoke_allowance<BS: IpldStore>(
+        &mut self,
+        bs: &BS,
+        owner: ActorID,
+        spender: ActorID,
+    ) -> Result<()> {
+        let allowance_map = self.get_owner_allowance_map(bs, owner)?;
+        if let Some(mut map) = allowance_map {
+            map.delete(&spender)?;
+            if map.is_empty() {
+                let mut root_allowance_map = self.get_allowances_map(bs)?;
+                root_allowance_map.delete(&owner)?;
+                self.allowances = root_allowance_map.flush()?;
+            } else {
+                let new_cid = map.flush()?;
+                let mut root_allowance_map = self.get_allowances_map(bs)?;
+                root_allowance_map.set(owner, new_cid)?;
+                self.allowances = root_allowance_map.flush()?;
+            }
+        }
 
         Ok(())
     }
 
-    /// Burns an amount of token from the specified address, decreasing total token supply
+    /// Atomically checks if value is less than the allowance and deducts it if so
     ///
-    /// ## For all burn operations
-    /// - The requested value MUST be non-negative
-    /// - The requested value MUST NOT exceed the target's balance
-    ///
-    /// Upon successful burn
-    /// - The target's balance MUST decrease by the requested value
-    /// - The total_supply MUST decrease by the requested value
-    ///
-    /// ## Spender equals owner address
-    /// If the spender is the targeted address, they are implicitly approved to burn an unlimited
-    /// amount of tokens (up to their balance)
-    ///
-    /// ## Spender burning on behalf of owner address
-    /// If the spender is burning on behalf of the owner the following preconditions
-    /// must be met on top of the general burn conditions:
-    /// - The spender MUST have an allowance not less than the requested value
-    /// In addition to the general postconditions:
-    /// - The target-spender allowance MUST decrease by the requested value
-    ///
-    /// If the burn operation would result in a negative balance for the owner, the burn is
-    /// discarded and this method returns an error
-    pub fn burn(
+    /// Returns new allowance if successful, else returns an error and the allowance is unchanged
+    pub fn attempt_use_allowance<BS: IpldStore>(
         &mut self,
-        spender: ActorID,
-        owner: ActorID,
+        bs: &BS,
+        spender: u64,
+        owner: u64,
         value: &TokenAmount,
     ) -> Result<TokenAmount> {
-        if value.is_negative() {
-            return Err(TokenError::InvalidNegative(format!(
-                "burn amount {} cannot be negative",
-                value
-            )));
+        let current_allowance = self.get_allowance_between(bs, owner, spender)?;
+
+        if value.is_zero() {
+            return Ok(current_allowance);
         }
 
-        let new_amount = self.transaction(|state, bs| {
-            if spender != owner {
-                // attempt to use allowance and return early if not enough
-                state.attempt_use_allowance(&bs, spender, owner, value)?;
-            }
-            // attempt to burn the requested amount
-            let new_amount = state.change_balance_by(&bs, owner, &value.clone().neg())?;
+        if current_allowance.lt(value) {
+            return Err(StateError::InsufficentAllowance {
+                owner,
+                spender,
+                allowance: current_allowance,
+                delta: value.clone(),
+            });
+        }
 
-            // decrease total_supply
-            state.change_supply_by(&value.neg())?;
-            Ok(new_amount)
-        })?;
+        let new_allowance = current_allowance - value;
 
-        Ok(new_amount)
+        // TODO: helper function to set a new allowance and flush hamts
+        let owner_allowances = self.get_owner_allowance_map(bs, owner)?;
+        // to reach here, allowance must have been previously non zero; so safe to assume the map exists
+        let mut owner_allowances = owner_allowances.unwrap();
+        owner_allowances.set(spender, BigIntDe(new_allowance.clone()))?;
+        let mut allowance_map = self.get_allowances_map(bs)?;
+        allowance_map.set(owner, owner_allowances.flush()?)?;
+        self.allowances = allowance_map.flush()?;
+
+        Ok(new_allowance)
     }
 
-    /// Transfers an amount from one actor to another
+    /// Get the allowances map of a specific actor, resolving the CID link to a Hamt
     ///
-    /// ## For all transfer operations
-    ///
-    /// - The requested value MUST be non-negative
-    /// - The requested value MUST NOT exceed the sender's balance
-    /// - The receiver actor MUST implement a method called `tokens_received`, corresponding to the
-    /// interface specified for FRC-XXX token receivers
-    /// - The receiver's `tokens_received` hook MUST NOT abort
-    ///
-    /// Upon successful transfer:
-    /// - The senders's balance MUST decrease by the requested value
-    /// - The receiver's balance MUST increase by the requested value
-    ///
-    /// ## Spender equals owner address
-    /// If the spender is the owner address, they are implicitly approved to transfer an unlimited
-    /// amount of tokens (up to their balance)
-    ///
-    /// ## Spender transferring on behalf of owner address
-    /// If the spender is transferring on behalf of the target token holder the following preconditions
-    /// must be met on top of the general burn conditions:
-    /// - The spender MUST have an allowance not less than the requested value
-    /// In addition to the general postconditions:
-    /// - The owner-spender allowance MUST decrease by the requested value
-    pub fn transfer(
-        &mut self,
-        spender: ActorID,
+    /// Ok(Some) if the owner has allocated allowances to other actors
+    /// Ok(None) if the owner has no current non-zero allowances to other actors
+    /// Err if operations on the underlying Hamt failed
+    fn get_owner_allowance_map<'bs, BS>(
+        &self,
+        bs: &'bs BS,
         owner: ActorID,
-        receiver: ActorID,
-        value: &TokenAmount,
-        data: &[u8],
-    ) -> Result<()> {
-        if value.is_negative() {
-            return Err(TokenError::InvalidNegative(format!(
-                "transfer amount {} cannot be negative",
-                value
-            )));
-        }
+    ) -> Result<Option<Map<'bs, BS, BigIntDe, ActorID>>>
+    where
+        BS: IpldStore,
+    {
+        let allowances_map = self.get_allowances_map(bs)?;
+        let owner_allowances = match allowances_map.get(&owner)? {
+            Some(cid) => Some(Hamt::load_with_bit_width(cid, bs, HAMT_BIT_WIDTH)?),
+            None => None,
+        };
+        Ok(owner_allowances)
+    }
 
-        let old_state = self.state.clone();
-
-        self.transaction(|state, bs| {
-            if spender != owner {
-                // attempt to use allowance and return early if not enough
-                state.attempt_use_allowance(&bs, spender, owner, value)?;
-            }
-            state.change_balance_by(&bs, receiver, value)?;
-            state.change_balance_by(&bs, owner, &value.neg())?;
-            Ok(())
-        })?;
-
-        // flush state as re-entrant call needs to see new balances
-        self.flush()?;
-
-        // call receiver hook
-        match self.msg.call_receiver_hook(owner, receiver, value, data) {
-            Ok(receipt) => {
-                // hook returned true, so we can continue
-                if receipt.exit_code.is_success() {
-                    Ok(())
-                } else {
-                    // TODO: handle missing addresses? tbd
-                    // receiver hook aborted, revert state
-                    *self.state = old_state;
-                    self.flush()?;
-                    Err(TokenError::ReceiverHook {
-                        from: TokenSource::Actor(owner),
-                        to: receiver,
-                        by: spender,
-                        value: value.clone(),
-                        exit_code: receipt.exit_code,
-                    })
-                }
-            }
-            Err(e) => {
-                // error calling receiver hook, revert state
-                *self.state = old_state;
-                self.flush()?;
-                Err(e.into())
-            }
-        }
+    /// Get the global allowances map
+    ///
+    /// Gets a HAMT with CIDs linking to other HAMTs
+    fn get_allowances_map<'bs, BS>(&self, bs: &'bs BS) -> Result<Map<'bs, BS, Cid, ActorID>>
+    where
+        BS: IpldStore,
+    {
+        Ok(Hamt::load_with_bit_width(&self.allowances, bs, HAMT_BIT_WIDTH)?)
     }
 }
 
+impl Cbor for TokenState {}
+
 #[cfg(test)]
 mod test {
-    use fvm_ipld_blockstore::MemoryBlockstore;
-    use fvm_shared::{econ::TokenAmount, ActorID};
-    use num_traits::Zero;
+    use fvm_shared::{
+        bigint::{BigInt, Zero},
+        ActorID,
+    };
 
-    use super::state::TokenState;
-    use super::Token;
-    use crate::runtime::messaging::FakeMessenger;
+    use crate::runtime::blockstore::SharedMemoryBlockstore;
 
-    const TOKEN_ACTOR_ADDRESS: ActorID = ActorID::MAX;
-    const TREASURY: ActorID = 1;
-    const ALICE: ActorID = 2;
-    const BOB: ActorID = 3;
-    const CAROL: ActorID = 4;
+    use super::TokenState;
 
-    fn new_token<'a>(
-        state: &'a mut TokenState,
-        bs: &'a MemoryBlockstore,
-    ) -> Token<'a, &'a MemoryBlockstore, FakeMessenger> {
-        let token = Token::new(bs, FakeMessenger::default(), state).unwrap();
-        token
+    #[test]
+    fn it_instantiates() {
+        let bs = &SharedMemoryBlockstore::new();
+        let state = TokenState::new(bs).unwrap();
+        let cid = state.save(bs).unwrap();
+        let saved_state = TokenState::load(bs, &cid).unwrap();
+        assert_eq!(state, saved_state);
     }
 
     #[test]
-    fn it_instantiates_and_persists() {
-        // create a new token
-        let bs = MemoryBlockstore::new();
-        let msg = FakeMessenger::default();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = Token::new(&bs, FakeMessenger::default(), &mut state).unwrap();
+    fn it_increases_balance_from_zero() {
+        let bs = &SharedMemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
+        let actor: ActorID = 1;
 
-        // state exists but is empty
-        assert_eq!(token.total_supply(), TokenAmount::zero());
+        // Initially any actor has an implicit balance of 0
+        assert_eq!(state.get_balance(bs, actor).unwrap(), BigInt::zero());
 
-        // mint some value
-        token.mint(TOKEN_ACTOR_ADDRESS, TREASURY, &TokenAmount::from(100), &[]).unwrap();
-        assert_eq!(token.total_supply(), TokenAmount::from(100));
+        let amount = BigInt::from(100);
+        state.change_balance_by(bs, actor, &amount).unwrap();
 
-        // flush token to blockstore
-        let cid = token.flush().unwrap();
-
-        // the returned cid can be used to reference the same token state
-        let mut state2 = TokenState::load(&bs, &cid).unwrap();
-        let token2 = Token::new(bs, msg, &mut state2).unwrap();
-        assert_eq!(token2.total_supply(), TokenAmount::from(100));
+        assert_eq!(state.get_balance(bs, actor).unwrap(), amount);
     }
 
     #[test]
-    fn it_provides_atomic_transactions() {
-        // create a new token
-        let bs = MemoryBlockstore::new();
-        let msg = FakeMessenger::default();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = Token::new(&bs, msg, &mut state).unwrap();
+    fn it_fails_to_decrease_balance_below_zero() {
+        let bs = &SharedMemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
+        let actor: ActorID = 1;
 
-        // entire transaction succeeds
-        token
-            .transaction(|state, _bs| {
-                state.change_supply_by(&TokenAmount::from(100))?;
-                state.change_supply_by(&TokenAmount::from(100))?;
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(token.total_supply(), TokenAmount::from(200));
+        // can't decrease from zero
+        state.change_balance_by(bs, actor, &BigInt::from(-1)).unwrap_err();
+        let balance = state.get_balance(bs, actor).unwrap();
+        assert_eq!(balance, BigInt::zero());
 
-        // entire transaction fails
-        token
-            .transaction(|state, _bs| {
-                state.change_supply_by(&TokenAmount::from(-100))?;
-                state.change_supply_by(&TokenAmount::from(-100))?;
-                // this makes supply negative and should revert the entire transaction
-                state.change_supply_by(&TokenAmount::from(-100))?;
-                Ok(())
-            })
-            .unwrap_err();
-        // total_supply should be unchanged
-        assert_eq!(token.total_supply(), TokenAmount::from(200));
+        // can't become negative from a positive balance
+        state.change_balance_by(bs, actor, &BigInt::from(50)).unwrap();
+        state.change_balance_by(bs, actor, &BigInt::from(-100)).unwrap_err();
     }
 
     #[test]
-    fn it_mints() {
-        let bs = MemoryBlockstore::new();
+    fn it_sets_allowances_between_actors() {
+        let bs = &SharedMemoryBlockstore::new();
         let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
+        let owner: ActorID = 1;
+        let spender: ActorID = 2;
 
-        token.mint(TOKEN_ACTOR_ADDRESS, TREASURY, &TokenAmount::from(1_000_000), &[]).unwrap();
+        // initial allowance is zero
+        let initial_allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(initial_allowance, BigInt::zero());
 
-        // balance and total supply both went up
-        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(1_000_000));
-        assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
+        // can set a positive allowance
+        let delta = BigInt::from(100);
+        let ret = state.change_allowance_by(bs, owner, spender, &delta).unwrap();
+        assert_eq!(ret, delta);
+        let allowance_1 = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(allowance_1, delta);
 
-        // cannot mint a negative amount
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(-1), &[]).unwrap_err();
+        // vice-versa allowance was unaffected
+        let reverse_allowance = state.get_allowance_between(bs, spender, owner).unwrap();
+        assert_eq!(reverse_allowance, BigInt::zero());
 
-        // state remained unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
-        assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
+        // can subtract an allowance
+        let delta = BigInt::from(-50);
+        let ret = state.change_allowance_by(bs, owner, spender, &delta).unwrap();
+        assert_eq!(ret, BigInt::from(50));
+        let allowance_2 = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(allowance_2, allowance_1 + delta);
+        assert_eq!(allowance_2, BigInt::from(50));
 
-        // mint zero
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::zero(), &[]).unwrap();
-
-        // state remained unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
-        assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
-
-        // mint again to same address
-        token.mint(TOKEN_ACTOR_ADDRESS, TREASURY, &TokenAmount::from(1_000_000), &[]).unwrap();
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
-        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
-        assert_eq!(token.total_supply(), TokenAmount::from(2_000_000));
-
-        // mint to a different address
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(1_000_000), &[]).unwrap();
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
-        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
-        assert_eq!(token.total_supply(), TokenAmount::from(3_000_000));
-
-        // carols account was unaffected
-        assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::zero());
+        // allowance won't go negative
+        let delta = BigInt::from(-100);
+        let ret = state.change_allowance_by(bs, owner, spender, &delta).unwrap();
+        assert_eq!(ret, BigInt::zero());
+        let allowance_3 = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(allowance_3, BigInt::zero());
     }
 
     #[test]
-    fn it_fails_to_mint_if_receiver_hook_aborts() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
+    fn it_consumes_allowances_atomically() {
+        let bs = &SharedMemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
+        let owner: ActorID = 1;
+        let spender: ActorID = 2;
 
-        // force hook to abort
-        token
-            .mint(TOKEN_ACTOR_ADDRESS, TREASURY, &TokenAmount::from(1_000_000), "abort".as_bytes())
-            .unwrap_err();
+        // set a positive allowance
+        let delta = BigInt::from(100);
+        state.change_allowance_by(bs, owner, spender, &delta).unwrap();
 
-        // state remained unchanged
-        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
-        assert_eq!(token.total_supply(), TokenAmount::zero());
-    }
-
-    #[test]
-    fn it_burns() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
-
-        let mint_amount = TokenAmount::from(1_000_000);
-        let burn_amount = TokenAmount::from(600_000);
-        token.mint(TOKEN_ACTOR_ADDRESS, TREASURY, &mint_amount, &[]).unwrap();
-        token.burn(TREASURY, TREASURY, &burn_amount).unwrap();
-
-        // total supply decreased
-        let total_supply = token.total_supply();
-        assert_eq!(total_supply, TokenAmount::from(400_000));
-        // treasury balance decreased
-        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
-        // alice's account unaffected
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
-
-        // cannot burn a negative amount
-        token.burn(TREASURY, TREASURY, &TokenAmount::from(-1)).unwrap_err();
-
-        // balances and supply were unchanged
-        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
-        assert_eq!(token.total_supply(), TokenAmount::from(400_000));
-        // alice's account unaffected
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
-
-        // burn zero
-        token.burn(TREASURY, TREASURY, &TokenAmount::zero()).unwrap();
-
-        // balances and supply were unchanged
-        let remaining_balance = token.balance_of(TREASURY).unwrap();
-        assert_eq!(remaining_balance, TokenAmount::from(400_000));
-        assert_eq!(token.total_supply(), TokenAmount::from(400_000));
-        // alice's account unaffected
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
-
-        // burn exact amount left
-        token.burn(TREASURY, TREASURY, &remaining_balance).unwrap();
-        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
-        assert_eq!(token.total_supply(), TokenAmount::zero());
-        // alice's account unaffected
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
-    }
-
-    #[test]
-    fn it_fails_to_burn_below_zero() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
-
-        let mint_amount = TokenAmount::from(1_000_000);
-        let burn_amount = TokenAmount::from(2_000_000);
-        token.mint(TOKEN_ACTOR_ADDRESS, TREASURY, &mint_amount, &[]).unwrap();
-        token.burn(TREASURY, TREASURY, &burn_amount).unwrap_err();
-
-        // balances and supply were unchanged
-        assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
-        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(1_000_000));
-    }
-
-    #[test]
-    fn it_transfers() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
-
-        // mint 100 for owner
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(100), &[]).unwrap();
-        // transfer 60 from owner -> receiver
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), &[]).unwrap();
-
-        // owner has 100 - 60 = 40
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
-        // receiver has 0 + 60 = 60
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
-        // total supply is unchanged
-        assert_eq!(token.total_supply(), TokenAmount::from(100));
-
-        // cannot transfer a negative value
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(-1), &[]).unwrap_err();
-        // balances are unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
-        // total supply is unchanged
-        assert_eq!(token.total_supply(), TokenAmount::from(100));
-
-        // transfer zero value
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::zero(), &[]).unwrap();
-        // balances are unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
-        // total supply is unchanged
-        assert_eq!(token.total_supply(), TokenAmount::from(100));
-
-        // transfer zero to self
-        token.transfer(ALICE, ALICE, ALICE, &TokenAmount::zero(), &[]).unwrap();
-        // balances are unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
-        // total supply is unchanged
-        assert_eq!(token.total_supply(), TokenAmount::from(100));
-
-        // transfer value to self
-        token.transfer(ALICE, ALICE, ALICE, &TokenAmount::from(10), &[]).unwrap();
-        // balances are unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
-        // total supply is unchanged
-        assert_eq!(token.total_supply(), TokenAmount::from(100));
-    }
-
-    #[test]
-    fn it_fails_to_transfer_when_receiver_hook_aborts() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
-
-        // mint 100 for owner
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(100), &[]).unwrap();
-        // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), "abort".as_bytes()).unwrap_err();
-
-        // balances unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(0));
-
-        // transfer 60 from owner -> self, simulate receiver aborting the hook
-        token
-            .transfer(ALICE, ALICE, ALICE, &TokenAmount::from(60), "abort".as_bytes())
-            .unwrap_err();
-        // balances unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(0));
-    }
-
-    #[test]
-    fn it_fails_to_transfer_when_insufficient_balance() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
-
-        // mint 50 for the owner
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(50), &[]).unwrap();
-
-        // attempt transfer 51 from owner -> receiver
-        token
-            .transfer(ALICE, ALICE, BOB, &TokenAmount::from(51), &[])
-            .expect_err("transfer should have failed");
-
-        // balances remained unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(50));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::zero());
-    }
-
-    #[test]
-    fn it_tracks_allowances() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
-
-        // set allowance between Alice and Carol as 100
+        // can consume an allowance
         let new_allowance =
-            token.increase_allowance(ALICE, CAROL, &TokenAmount::from(100)).unwrap();
-        let allowance = token.allowance(ALICE, CAROL).unwrap();
-        // return value and allowance should be the same
-        assert_eq!(new_allowance, allowance);
-        assert_eq!(allowance, TokenAmount::from(100));
+            state.attempt_use_allowance(bs, spender, owner, &BigInt::from(60)).unwrap();
+        assert_eq!(new_allowance, BigInt::from(40));
+        let new_allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(new_allowance, BigInt::from(40));
 
-        // one-way only
-        assert_eq!(token.allowance(CAROL, ALICE).unwrap(), TokenAmount::zero());
-        // unrelated allowance unaffected
-        assert_eq!(token.allowance(ALICE, BOB).unwrap(), TokenAmount::zero());
-
-        // cannot set negative deltas
-        token.increase_allowance(ALICE, CAROL, &TokenAmount::from(-1)).unwrap_err();
-        token.decrease_allowance(ALICE, CAROL, &TokenAmount::from(-1)).unwrap_err();
-
+        // cannot consume more allowance than approved
+        state.attempt_use_allowance(bs, spender, owner, &BigInt::from(50)).unwrap_err();
         // allowance was unchanged
-        let allowance = token.allowance(ALICE, CAROL).unwrap();
-        assert_eq!(allowance, TokenAmount::from(100));
-
-        // keeps track of decreasing allowances
-        let new_allowance = token.decrease_allowance(ALICE, CAROL, &TokenAmount::from(60)).unwrap();
-        let allowance = token.allowance(ALICE, CAROL).unwrap();
-        assert_eq!(new_allowance, allowance);
-        assert_eq!(allowance, TokenAmount::from(40));
-
-        // allowance revoking sets to 0
-        token.revoke_allowance(ALICE, CAROL).unwrap();
-        assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::zero());
-
-        // allowances cannot be negative, but decreasing an allowance below 0 revokes the allowance
-        token.increase_allowance(ALICE, CAROL, &TokenAmount::from(10)).unwrap();
-        let new_allowance = token.decrease_allowance(ALICE, CAROL, &TokenAmount::from(20)).unwrap();
-        assert_eq!(new_allowance, TokenAmount::zero());
-        assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::zero());
+        let new_allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(new_allowance, BigInt::from(40));
     }
 
     #[test]
-    fn it_allows_delegated_transfer() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
+    fn it_revokes_allowances() {
+        let bs = &SharedMemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
+        let owner: ActorID = 1;
+        let spender: ActorID = 2;
 
-        // mint 100 for the owner
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(100), &[]).unwrap();
-        // approve 100 spending allowance for spender
-        token.increase_allowance(ALICE, CAROL, &TokenAmount::from(100)).unwrap();
-        // spender makes transfer of 60 from owner -> receiver
-        token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &[]).unwrap();
+        // set a positive allowance
+        let delta = BigInt::from(100);
+        state.change_allowance_by(bs, owner, spender, &delta).unwrap();
+        state.change_allowance_by(bs, owner, spender, &delta).unwrap();
+        let allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(allowance, BigInt::from(200));
 
-        // verify all balances are correct
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
-        assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::zero());
-
-        // verify allowance is correct
-        let spender_allowance = token.allowance(ALICE, CAROL).unwrap();
-        assert_eq!(spender_allowance, TokenAmount::from(40));
-
-        // spender makes another transfer of 40 from owner -> self
-        token.transfer(CAROL, ALICE, CAROL, &TokenAmount::from(40), &[]).unwrap();
-
-        // verify all balances are correct
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
-        assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::from(40));
-
-        // verify allowance is correct
-        assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::zero());
+        state.revoke_allowance(bs, owner, spender).unwrap();
+        let allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        assert_eq!(allowance, BigInt::zero());
     }
-
-    #[test]
-    fn it_allows_delegated_burns() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
-
-        let mint_amount = TokenAmount::from(1_000_000);
-        let approval_amount = TokenAmount::from(600_000);
-        let burn_amount = TokenAmount::from(600_000);
-
-        // mint the total amount
-        token.mint(TOKEN_ACTOR_ADDRESS, TREASURY, &mint_amount, &[]).unwrap();
-        // approve the burner to spend the allowance
-        token.increase_allowance(TREASURY, ALICE, &approval_amount).unwrap();
-        // burn the approved amount
-        token.burn(ALICE, TREASURY, &burn_amount).unwrap();
-
-        // total supply decreased
-        assert_eq!(token.total_supply(), TokenAmount::from(400_000));
-        // treasury balance decreased
-        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
-        // burner approval decreased
-        assert_eq!(token.allowance(TREASURY, ALICE).unwrap(), TokenAmount::zero());
-
-        // disallows another delegated burn as approval is zero
-        // burn the approved amount
-        token.burn(ALICE, TREASURY, &burn_amount).expect_err("unable to burn more than allowance");
-
-        // balances didn't change
-        assert_eq!(token.total_supply(), TokenAmount::from(400_000));
-        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
-        assert_eq!(token.allowance(TREASURY, ALICE).unwrap(), TokenAmount::zero());
-    }
-
-    #[test]
-    fn it_fails_to_transfer_when_insufficient_allowance() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
-
-        // mint 100 for the owner
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(100), &[]).unwrap();
-        // approve only 40 spending allowance for spender
-        token.increase_allowance(ALICE, CAROL, &TokenAmount::from(40)).unwrap();
-        // spender attempts makes transfer of 60 from owner -> receiver
-        // this is within the owner's balance but not within the spender's allowance
-        token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &[]).unwrap_err();
-
-        // verify all balances are correct
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::zero());
-        assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::zero());
-
-        // verify allowance was not spent
-        assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::from(40));
-    }
-
-    #[test]
-    fn it_doesnt_use_allowance_when_insufficent_balance() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let mut token = new_token(&mut state, &bs);
-
-        // mint 50 for the owner
-        token.mint(TOKEN_ACTOR_ADDRESS, ALICE, &TokenAmount::from(50), &[]).unwrap();
-
-        // allow 100 to be spent by spender
-        token.increase_allowance(ALICE, BOB, &TokenAmount::from(100)).unwrap();
-
-        // spender attempts transfer 51 from owner -> spender
-        // they have enough allowance, but not enough balance
-        token.transfer(BOB, ALICE, BOB, &TokenAmount::from(51), &[]).unwrap_err();
-
-        // attempt burn 51 by spender
-        token.burn(BOB, ALICE, &TokenAmount::from(51)).unwrap_err();
-
-        // balances remained unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(50));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::zero());
-        assert_eq!(token.allowance(ALICE, BOB).unwrap(), TokenAmount::from(100));
-    }
-
-    // TODO: test for re-entrancy bugs by implementing a MethodCaller that calls back on the token contract
 }
