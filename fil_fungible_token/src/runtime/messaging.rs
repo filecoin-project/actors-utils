@@ -37,7 +37,7 @@ pub trait Messaging {
     ) -> Result<Receipt>;
 
     /// Resolves the given address to it's ID address form
-    fn resolve_to_id_addr(&self, address: &Address) -> Result<ActorID>;
+    fn resolve_id(&self, address: &Address) -> Result<ActorID>;
 
     ///  Creates an account at a pubkey address and returns the ID address
     fn initialise_account(&self, address: &Address) -> Result<ActorID>;
@@ -72,7 +72,7 @@ impl Messaging for FvmMessenger {
         Ok(send::send(&to, METHOD_NUM, params, TokenAmount::zero())?)
     }
 
-    fn resolve_to_id_addr(&self, address: &Address) -> Result<ActorID> {
+    fn resolve_id(&self, address: &Address) -> Result<ActorID> {
         actor::resolve_address(address).ok_or(MessagingError::AddressNotInitialised(*address))
     }
 
@@ -115,7 +115,7 @@ impl Messaging for FakeMessenger {
         }
     }
 
-    fn resolve_to_id_addr(&self, address: &Address) -> Result<ActorID> {
+    fn resolve_id(&self, address: &Address) -> Result<ActorID> {
         // assume all mock addresses are already in ID form
         address.id().map_err(|_e| MessagingError::AddressNotInitialised(*address))
     }
