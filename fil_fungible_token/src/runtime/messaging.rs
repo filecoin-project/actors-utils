@@ -85,12 +85,26 @@ impl Messaging for FvmMessenger {
     }
 }
 
-/// A fake method caller that can simulate the receiving actor return true or false
+/// A fake method caller
 ///
+/// # call_receiver_hook
 /// If call_receiver_hook is called with an empty data array, it will return true.
 /// If call_receiver_hook is called with a non-empty data array, it will return false.
+///
+/// # resolve_id
+/// If Address is id-address or secp-address, it resolves by returing FAKE_RESOLVED_ID
+/// If Address is actor-address or bls-address, it returns an error simulating an uninitialised address
+///
+/// # initialise_account
+/// Simulates the initialisation of an account
+/// - ID, SECP addresses panic as they should not be called given that resolve_id gave back an ActorID
+/// - BLS addresses give back FAKE_INITIALIZED_ID
+/// - Actor addresses are uninitialised and give back an error
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FakeMessenger {}
+
+pub const FAKE_RESOLVED_ID: ActorID = 100;
+pub const FAKE_INITIALIZED_ID: ActorID = 101;
 
 impl Messaging for FakeMessenger {
     fn call_receiver_hook(
@@ -117,17 +131,30 @@ impl Messaging for FakeMessenger {
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
         // assume all mock addresses are already in ID form
-        address.id().map_err(|_e| MessagingError::AddressNotInitialised(*address))
+        match address.payload() {
+            fvm_shared::address::Payload::ID(id) => Ok(*id),
+            fvm_shared::address::Payload::Secp256k1(_secp) => Ok(FAKE_RESOLVED_ID),
+            fvm_shared::address::Payload::Actor(_) => {
+                Err(MessagingError::AddressNotInitialised(*address))
+            }
+            fvm_shared::address::Payload::BLS(_) => {
+                Err(MessagingError::AddressNotInitialised(*address))
+            }
+        }
     }
 
     fn initialise_account(&self, address: &Address) -> Result<ActorID> {
         match address.payload() {
-            fvm_shared::address::Payload::ID(id) => Ok(*id),
-            fvm_shared::address::Payload::Secp256k1(secp) => Ok((*secp.get(0).unwrap()).into()),
+            fvm_shared::address::Payload::ID(id) => {
+                panic!("attempting to initialise an already resolved id {}", id)
+            }
+            fvm_shared::address::Payload::Secp256k1(_) => {
+                panic!("secp256k1 addresses should be already-initialised")
+            }
+            fvm_shared::address::Payload::BLS(_) => Ok(FAKE_INITIALIZED_ID),
             fvm_shared::address::Payload::Actor(_) => {
                 Err(MessagingError::AddressNotInitialised(*address))
             }
-            fvm_shared::address::Payload::BLS(bls) => Ok((*bls.get(0).unwrap()).into()),
         }
     }
 }
