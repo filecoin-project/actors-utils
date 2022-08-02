@@ -1,0 +1,18 @@
+[package]
+name = "fvm_dispatch_macros"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+blake2b_simd = { version = "1.0.0" }
+fvm_dispatch = { version = "0.1.0", path = "../" }
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "1.0", features = ["full"] }
+thiserror = { version = "1.0.31" }
+
+[dev-dependencies]
+trybuild = "1.0"
