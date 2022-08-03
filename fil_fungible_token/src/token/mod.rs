@@ -7,7 +7,7 @@ use crate::runtime::messaging::{Messaging, MessagingError};
 use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
 
 use cid::Cid;
-use fvm_ipld_blockstore::Blockstore as IpldStore;
+use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::Error as SerializationError;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
@@ -53,7 +53,7 @@ type Result<T> = std::result::Result<T, TokenError>;
 /// Holds injectable services to access/interface with IPLD/FVM layer.
 pub struct Token<BS, MSG>
 where
-    BS: IpldStore + Clone,
+    BS: Blockstore,
     MSG: Messaging,
 {
     /// Injected blockstore. The blockstore must reference the same underlying storage under Clone
@@ -66,7 +66,7 @@ where
 
 impl<BS, MSG> Token<BS, MSG>
 where
-    BS: IpldStore + Clone,
+    BS: Blockstore,
     MSG: Messaging,
 {
     /// Creates a new token instance using the given blockstore and creates a new empty state tree
@@ -99,10 +99,10 @@ where
     /// observed on token state.
     pub fn transaction<F, Res>(&mut self, f: F) -> Result<Res>
     where
-        F: FnOnce(&mut TokenState, BS) -> Result<Res>,
+        F: FnOnce(&mut TokenState, &BS) -> Result<Res>,
     {
         let mut mutable_state = self.state.clone();
-        let res = f(&mut mutable_state, self.bs.clone())?;
+        let res = f(&mut mutable_state, &self.bs)?;
         // if closure didn't error, save state
         self.state = mutable_state;
         Ok(res)
@@ -132,7 +132,7 @@ where
 
 impl<BS, MSG> Token<BS, MSG>
 where
-    BS: IpldStore + Clone,
+    BS: Blockstore,
     MSG: Messaging,
 {
     /// Mints the specified value of tokens into an account
@@ -488,6 +488,7 @@ fn expect_id(address: &Address) -> Result<ActorID> {
 
 #[cfg(test)]
 mod test {
+    use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::address::{Address, BLS_PUB_LEN};
     use fvm_shared::econ::TokenAmount;
@@ -495,7 +496,6 @@ mod test {
 
     use super::Token;
     use crate::receiver::types::TokenReceivedParams;
-    use crate::runtime::blockstore::SharedMemoryBlockstore;
     use crate::runtime::messaging::FakeMessenger;
 
     /// Returns a static secp256k1 address
@@ -521,8 +521,8 @@ mod test {
     const BOB: &Address = &Address::new_id(4);
     const CAROL: &Address = &Address::new_id(5);
 
-    fn new_token() -> Token<SharedMemoryBlockstore, FakeMessenger> {
-        Token::new(SharedMemoryBlockstore::new(), FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6))
+    fn new_token() -> Token<MemoryBlockstore, FakeMessenger> {
+        Token::new(MemoryBlockstore::default(), FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6))
             .unwrap()
             .0
     }
@@ -535,9 +535,9 @@ mod test {
     #[test]
     fn it_instantiates_and_persists() {
         // create a new token
-        let bs = SharedMemoryBlockstore::new();
+        let bs = MemoryBlockstore::new();
         let (mut token, _) =
-            Token::new(bs.clone(), FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6)).unwrap();
+            Token::new(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6)).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -551,7 +551,7 @@ mod test {
 
         // the returned cid can be used to reference the same token state
         let token2 =
-            Token::load(bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), cid).unwrap();
+            Token::load(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), cid).unwrap();
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
@@ -587,6 +587,7 @@ mod test {
     fn it_mints() {
         let mut token = new_token();
 
+        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
         token.mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), &[]).unwrap();
 
         // balance and total supply both went up
