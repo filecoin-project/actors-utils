@@ -1,7 +1,8 @@
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::bigint::bigint_ser;
-use fvm_shared::{address::Address, econ::TokenAmount};
+use fvm_shared::econ::TokenAmount;
+use fvm_shared::ActorID;
 
 /// Standard interface for an actor that wishes to receive FRC-XXX tokens
 pub trait FrcXXXTokenReceiver {
@@ -15,9 +16,14 @@ pub trait FrcXXXTokenReceiver {
     fn token_received(params: TokenReceivedParams);
 }
 
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
 pub struct TokenReceivedParams {
-    pub sender: Address,
+    /// Address of the sender or operator that initiated the transfer
+    pub sender: ActorID,
+    /// The account that the tokens are being pulled from (the token actor address itself for mint)
+    pub from: ActorID,
+    /// The account that the tokens are being sent to (the receiver address)
+    pub to: ActorID,
     #[serde(with = "bigint_ser")]
     pub value: TokenAmount,
     pub data: RawBytes,

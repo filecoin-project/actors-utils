@@ -31,13 +31,7 @@ pub trait Messaging {
     /// and the sender and receiver
     ///
     /// Returns true if the receiver hook is called and exits without error, else returns false
-    fn call_receiver_hook(
-        &self,
-        from: ActorID,
-        to: ActorID,
-        token_value: &TokenAmount,
-        data: &[u8],
-    ) -> Result<Receipt>;
+    fn call_receiver_hook(&self, to: &Address, params: &TokenReceivedParams) -> Result<Receipt>;
 
     /// Resolves the given address to its ID address form
     ///
@@ -54,29 +48,17 @@ pub trait Messaging {
 pub struct FvmMessenger {}
 
 impl Messaging for FvmMessenger {
-    fn call_receiver_hook(
-        &self,
-        from: ActorID,
-        to: ActorID,
-        token_value: &TokenAmount,
-        data: &[u8],
-    ) -> Result<Receipt> {
+    fn call_receiver_hook(&self, to: &Address, params: &TokenReceivedParams) -> Result<Receipt> {
         // TODO: use fvm_dispatch here (when it supports compile time method resolution)
         // TODO: ^^ necessitates determining conventional method names for receiver hooks
 
         // currently, the method number comes from taking the name as "TokensReceived" and applying
         // the transformation described in https://github.com/filecoin-project/FIPs/pull/399
         const METHOD_NUM: u64 = 1361519036;
-        let to = Address::new_id(to);
 
-        let params = TokenReceivedParams {
-            sender: Address::new_id(from),
-            value: token_value.clone(),
-            data: RawBytes::from(data.to_vec()),
-        };
         let params = RawBytes::new(fvm_ipld_encoding::to_vec(&params)?);
 
-        Ok(send::send(&to, METHOD_NUM, params, TokenAmount::zero())?)
+        Ok(send::send(to, METHOD_NUM, params, TokenAmount::zero())?)
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
@@ -109,6 +91,7 @@ impl Messaging for FvmMessenger {
 /// - Actor addresses are uninitialised and give back an error
 #[derive(Debug)]
 pub struct FakeMessenger {
+    pub last_hook: RefCell<Option<TokenReceivedParams>>,
     address_resolver: RefCell<FakeAddressResolver>,
 }
 
@@ -119,28 +102,26 @@ impl FakeMessenger {
     /// i.e. in test fixtures where it may be useful to have statically allocated ID addresses, they
     /// should all have an ActorID strictly below first_usable_actor_id
     pub fn new(first_usable_actor_id: ActorID) -> Self {
-        Self { address_resolver: RefCell::new(FakeAddressResolver::new(first_usable_actor_id)) }
+        Self {
+            address_resolver: RefCell::new(FakeAddressResolver::new(first_usable_actor_id)),
+            last_hook: Default::default(),
+        }
     }
 }
 
 impl Messaging for FakeMessenger {
-    fn call_receiver_hook(
-        &self,
-        _from: ActorID,
-        _to: ActorID,
-        _value: &TokenAmount,
-        data: &[u8],
-    ) -> Result<Receipt> {
-        if data.is_empty() {
+    fn call_receiver_hook(&self, _to: &Address, params: &TokenReceivedParams) -> Result<Receipt> {
+        self.last_hook.borrow_mut().replace(params.clone());
+        if params.data.is_empty() {
             Ok(Receipt {
                 exit_code: ExitCode::OK,
-                return_data: RawBytes::new(data.to_vec()),
+                return_data: RawBytes::new(params.data.to_vec()),
                 gas_used: 0,
             })
         } else {
             Ok(Receipt {
                 exit_code: ExitCode::SYS_INVALID_RECEIVER,
-                return_data: RawBytes::new(data.to_vec()),
+                return_data: RawBytes::new(params.data.to_vec()),
                 gas_used: 0,
             })
         }

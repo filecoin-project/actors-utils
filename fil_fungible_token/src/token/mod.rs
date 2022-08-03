@@ -2,11 +2,13 @@ mod state;
 mod types;
 
 use self::state::{StateError, TokenState};
+use crate::receiver::types::TokenReceivedParams;
 use crate::runtime::messaging::Result as MessagingResult;
 use crate::runtime::messaging::{Messaging, MessagingError};
 
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
+use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::address::Error as AddressError;
 use fvm_shared::econ::TokenAmount;
@@ -34,11 +36,11 @@ pub enum TokenError {
     InvalidNegative(String),
     #[error("error calling receiver hook: {0}")]
     Messaging(#[from] MessagingError),
-    #[error("receiver hook aborted when {from:?} sent {value:?} to {to:?} by {by:?} with exit code {exit_code:?}")]
+    #[error("receiver hook aborted when {from:?} sent {value:?} to {to:?} by {sender:?} with exit code {exit_code:?}")]
     ReceiverHook {
-        from: TokenSource,
+        from: ActorID,
         to: ActorID,
-        by: ActorID,
+        sender: ActorID,
         value: TokenAmount,
         exit_code: ExitCode,
     },
@@ -66,6 +68,8 @@ where
     msg: MSG,
     /// In-memory cache of the state tree
     state: TokenState,
+    /// ActorID
+    actor_id: ActorID,
 }
 
 impl<BS, MSG> Token<BS, MSG>
@@ -77,18 +81,18 @@ where
     ///
     /// Returns a Token handle that can be used to interact with the token state tree and the Cid
     /// of the state tree root
-    pub fn new(bs: BS, msg: MSG) -> Result<(Self, Cid)> {
+    pub fn new(bs: BS, msg: MSG, actor_id: ActorID) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
-        let token = Self { bs, msg, state: init_state };
+        let token = Self { bs, msg, state: init_state, actor_id };
         Ok((token, cid))
     }
 
     /// For an already initialised state tree, loads the state tree from the blockstore and returns
     /// a Token handle to interact with it
-    pub fn load(bs: BS, msg: MSG, state_cid: Cid) -> Result<Self> {
+    pub fn load(bs: BS, msg: MSG, state_cid: Cid, actor_id: ActorID) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, msg, state })
+        Ok(Self { bs, msg, state, actor_id })
     }
 
     /// Flush state and return Cid for root
@@ -158,7 +162,7 @@ where
         }
 
         // Resolve to id addresses
-        let minter = expect_id(minter)?;
+        let minter_id = expect_id(minter)?;
         let holder_id = self.resolve_to_id(initial_holder)?;
 
         let old_state = self.state.clone();
@@ -174,7 +178,16 @@ where
         self.flush()?;
 
         // Call receiver hook
-        match self.msg.call_receiver_hook(minter, holder_id, value, data) {
+        match self.msg.call_receiver_hook(
+            initial_holder,
+            &TokenReceivedParams {
+                data: RawBytes::from(data.to_vec()),
+                from: self.actor_id,
+                to: holder_id,
+                sender: minter_id,
+                value: value.clone(),
+            },
+        ) {
             Ok(receipt) => {
                 // hook returned true, so we can continue
                 if receipt.exit_code.is_success() {
@@ -183,9 +196,9 @@ where
                     self.state = old_state;
                     self.flush()?;
                     Err(TokenError::ReceiverHook {
-                        from: TokenSource::Mint,
+                        from: self.actor_id,
                         to: holder_id,
-                        by: minter,
+                        sender: minter_id,
                         value: value.clone(),
                         exit_code: receipt.exit_code,
                     })
@@ -415,16 +428,16 @@ where
         // spender must be an id address
         let spender = expect_id(spender)?;
         // resolve owner and receiver
-        let owner = self.resolve_to_id(owner)?;
-        let receiver = self.resolve_to_id(receiver)?;
+        let owner_id = self.resolve_to_id(owner)?;
+        let receiver_id = self.resolve_to_id(receiver)?;
 
         self.transaction(|state, bs| {
-            if spender != owner {
+            if spender != owner_id {
                 // attempt to use allowance and return early if not enough
-                state.attempt_use_allowance(&bs, spender, owner, value)?;
+                state.attempt_use_allowance(&bs, spender, owner_id, value)?;
             }
-            state.change_balance_by(&bs, receiver, value)?;
-            state.change_balance_by(&bs, owner, &value.neg())?;
+            state.change_balance_by(&bs, receiver_id, value)?;
+            state.change_balance_by(&bs, owner_id, &value.neg())?;
             Ok(())
         })?;
 
@@ -432,7 +445,16 @@ where
         self.flush()?;
 
         // call receiver hook
-        match self.msg.call_receiver_hook(owner, receiver, value, data) {
+        match self.msg.call_receiver_hook(
+            receiver,
+            &TokenReceivedParams {
+                sender: spender,
+                from: owner_id,
+                to: receiver_id,
+                value: value.clone(),
+                data: RawBytes::new(data.to_vec()),
+            },
+        ) {
             Ok(receipt) => {
                 // hook returned true, so we can continue
                 if receipt.exit_code.is_success() {
@@ -441,9 +463,9 @@ where
                     self.state = old_state;
                     self.flush()?;
                     Err(TokenError::ReceiverHook {
-                        from: TokenSource::Actor(owner),
-                        to: receiver,
-                        by: spender,
+                        from: owner_id,
+                        to: receiver_id,
+                        sender: spender,
                         value: value.clone(),
                         exit_code: receipt.exit_code,
                     })
@@ -468,11 +490,13 @@ fn expect_id(address: &Address) -> Result<ActorID> {
 
 #[cfg(test)]
 mod test {
+    use fvm_ipld_encoding::RawBytes;
     use fvm_shared::address::{Address, BLS_PUB_LEN};
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
 
     use super::Token;
+    use crate::receiver::types::TokenReceivedParams;
     use crate::runtime::blockstore::SharedMemoryBlockstore;
     use crate::runtime::messaging::FakeMessenger;
 
@@ -500,14 +524,22 @@ mod test {
     const CAROL: &Address = &Address::new_id(5);
 
     fn new_token() -> Token<SharedMemoryBlockstore, FakeMessenger> {
-        Token::new(SharedMemoryBlockstore::new(), FakeMessenger::new(6)).unwrap().0
+        Token::new(SharedMemoryBlockstore::new(), FakeMessenger::new(6), TOKEN_ACTOR.id().unwrap())
+            .unwrap()
+            .0
+    }
+
+    fn assert_last_msg_eq(messenger: &FakeMessenger, expected: TokenReceivedParams) {
+        let last_called = messenger.last_hook.borrow().clone().unwrap();
+        assert_eq!(last_called, expected);
     }
 
     #[test]
     fn it_instantiates_and_persists() {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
-        let (mut token, _) = Token::new(bs.clone(), FakeMessenger::new(6)).unwrap();
+        let (mut token, _) =
+            Token::new(bs.clone(), FakeMessenger::new(6), TOKEN_ACTOR.id().unwrap()).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -520,7 +552,8 @@ mod test {
         let cid = token.flush().unwrap();
 
         // the returned cid can be used to reference the same token state
-        let token2 = Token::load(bs, FakeMessenger::new(6), cid).unwrap();
+        let token2 =
+            Token::load(bs, FakeMessenger::new(6), cid, TOKEN_ACTOR.id().unwrap()).unwrap();
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
@@ -582,27 +615,61 @@ mod test {
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(2_000_000));
 
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: TOKEN_ACTOR.id().unwrap(),
+                data: RawBytes::default(),
+                from: TOKEN_ACTOR.id().unwrap(),
+                to: TREASURY.id().unwrap(),
+                value: TokenAmount::from(1_000_000),
+            },
+        );
+
         // mint to a different address
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(1_000_000), &[]).unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(3_000_000));
 
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: TOKEN_ACTOR.id().unwrap(),
+                data: RawBytes::default(),
+                from: TOKEN_ACTOR.id().unwrap(),
+                to: ALICE.id().unwrap(),
+                value: TokenAmount::from(1_000_000),
+            },
+        );
+
         // carols account was unaffected
         assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::zero());
 
-        // can mint to resolvable pubkeys
+        // can mint to secp address
         let secp_address = secp_address();
+        // initially zero
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::zero());
+        // self-mint to secp address
         token.mint(TOKEN_ACTOR, &secp_address, &TokenAmount::from(1_000_000), &[]).unwrap();
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
-        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
-        assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::from(1_000_000));
-        assert_eq!(token.total_supply(), TokenAmount::from(4_000_000));
 
-        // can mint to unresolvable but initializable pubkeys
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: TOKEN_ACTOR.id().unwrap(),
+                data: RawBytes::default(),
+                from: TOKEN_ACTOR.id().unwrap(),
+                to: token.get_id(&secp_address).unwrap(),
+                value: TokenAmount::from(1_000_000),
+            },
+        );
+
+        // can mint to bls address
         let bls_address = bls_address();
-        // balance of uninitialized address is zero
+        // initially zero
         assert_eq!(token.balance_of(&bls_address).unwrap(), TokenAmount::zero());
         // minting creates the account
         token.mint(TOKEN_ACTOR, &bls_address, &TokenAmount::from(1_000_000), &[]).unwrap();
@@ -611,6 +678,18 @@ mod test {
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(&bls_address).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(5_000_000));
+
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: TOKEN_ACTOR.id().unwrap(),
+                data: RawBytes::default(),
+                from: TOKEN_ACTOR.id().unwrap(),
+                to: token.get_id(&bls_address).unwrap(),
+                value: TokenAmount::from(1_000_000),
+            },
+        );
 
         // mint fails if actor address cannot be initialised
         let actor_address: Address = actor_address();
@@ -710,6 +789,18 @@ mod test {
         // total supply is unchanged
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
+        // check receiver hook was called with correct shape
+        assert_eq!(
+            token.msg.last_hook.borrow().clone().unwrap(),
+            TokenReceivedParams {
+                sender: ALICE.id().unwrap(),
+                from: ALICE.id().unwrap(),
+                value: TokenAmount::from(60),
+                to: BOB.id().unwrap(),
+                data: RawBytes::default(),
+            }
+        );
+
         // cannot transfer a negative value
         token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(-1), &[]).unwrap_err();
         // balances are unchanged
@@ -726,6 +817,18 @@ mod test {
         // total supply is unchanged
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: ALICE.id().unwrap(),
+                from: ALICE.id().unwrap(),
+                to: BOB.id().unwrap(),
+                value: TokenAmount::zero(),
+                data: RawBytes::default(),
+            },
+        );
+
         // transfer zero to self
         token.transfer(ALICE, ALICE, ALICE, &TokenAmount::zero(), &[]).unwrap();
         // balances are unchanged
@@ -733,6 +836,18 @@ mod test {
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
         // total supply is unchanged
         assert_eq!(token.total_supply(), TokenAmount::from(100));
+
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: ALICE.id().unwrap(),
+                from: ALICE.id().unwrap(),
+                to: ALICE.id().unwrap(),
+                value: TokenAmount::zero(),
+                data: RawBytes::default(),
+            },
+        );
 
         // transfer value to self
         token.transfer(ALICE, ALICE, ALICE, &TokenAmount::from(10), &[]).unwrap();
@@ -742,29 +857,65 @@ mod test {
         // total supply is unchanged
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: ALICE.id().unwrap(),
+                from: ALICE.id().unwrap(),
+                to: ALICE.id().unwrap(),
+                value: TokenAmount::from(10),
+                data: RawBytes::default(),
+            },
+        );
+
         // transfer to pubkey
-        let resolvable_address = &secp_address();
-        assert_eq!(token.balance_of(resolvable_address).unwrap(), TokenAmount::zero());
-        token.transfer(ALICE, ALICE, resolvable_address, &TokenAmount::from(10), &[]).unwrap();
+        let secp_address = &secp_address();
+        assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
+        token.transfer(ALICE, ALICE, secp_address, &TokenAmount::from(10), &[]).unwrap();
         // alice supply dropped
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(30));
-        assert_eq!(token.balance_of(resolvable_address).unwrap(), TokenAmount::from(10));
+        assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::from(10));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
         // total supply is unchanged
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: ALICE.id().unwrap(),
+                from: ALICE.id().unwrap(),
+                to: token.get_id(secp_address).unwrap(),
+                value: TokenAmount::from(10),
+                data: RawBytes::default(),
+            },
+        );
+
         // transfer to uninitialized pubkey
-        let uninitialized_address = &bls_address();
-        assert_eq!(token.balance_of(uninitialized_address).unwrap(), TokenAmount::zero());
-        token.transfer(ALICE, ALICE, uninitialized_address, &TokenAmount::from(10), &[]).unwrap();
+        let bls_address = &bls_address();
+        assert_eq!(token.balance_of(bls_address).unwrap(), TokenAmount::zero());
+        token.transfer(ALICE, ALICE, bls_address, &TokenAmount::from(10), &[]).unwrap();
         // alice supply dropped
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(20));
         // new address has balance
-        assert_eq!(token.balance_of(uninitialized_address).unwrap(), TokenAmount::from(10));
-        assert_eq!(token.balance_of(resolvable_address).unwrap(), TokenAmount::from(10));
+        assert_eq!(token.balance_of(bls_address).unwrap(), TokenAmount::from(10));
+        assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::from(10));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
         // total supply is unchanged
         assert_eq!(token.total_supply(), TokenAmount::from(100));
+
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: ALICE.id().unwrap(),
+                to: token.get_id(bls_address).unwrap(),
+                from: ALICE.id().unwrap(),
+                value: TokenAmount::from(10),
+                data: RawBytes::default(),
+            },
+        );
     }
 
     #[test]
@@ -881,6 +1032,18 @@ mod test {
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
         assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::zero());
 
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: CAROL.id().unwrap(),
+                from: ALICE.id().unwrap(),
+                to: BOB.id().unwrap(),
+                value: TokenAmount::from(60),
+                data: RawBytes::default(),
+            },
+        );
+
         // verify allowance is correct
         let spender_allowance = token.allowance(ALICE, CAROL).unwrap();
         assert_eq!(spender_allowance, TokenAmount::from(40));
@@ -892,6 +1055,18 @@ mod test {
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
         assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::from(40));
+
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: CAROL.id().unwrap(),
+                from: ALICE.id().unwrap(),
+                to: CAROL.id().unwrap(),
+                value: TokenAmount::from(40),
+                data: RawBytes::default(),
+            },
+        );
 
         // verify allowance is correct
         assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::zero());
