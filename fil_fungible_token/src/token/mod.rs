@@ -468,52 +468,45 @@ fn expect_id(address: &Address) -> Result<ActorID> {
 #[cfg(test)]
 mod test {
     use fvm_shared::address::{Address, BLS_PUB_LEN};
-    use fvm_shared::{econ::TokenAmount, ActorID};
+    use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
 
     use super::Token;
     use crate::runtime::blockstore::SharedMemoryBlockstore;
     use crate::runtime::messaging::FakeMessenger;
 
-    const TOKEN_ACTOR: &Address = &Address::new_id(ActorID::MAX);
-    const TREASURY: &Address = &Address::new_id(1);
-    const ALICE: &Address = &Address::new_id(2);
-    const BOB: &Address = &Address::new_id(3);
-    const CAROL: &Address = &Address::new_id(4);
-
-    fn new_token() -> Token<SharedMemoryBlockstore, FakeMessenger> {
-        Token::new(SharedMemoryBlockstore::new(), FakeMessenger::default()).unwrap().0
-    }
-
-    /// Returns a new secp256k1 address that will resolve to the specified ActorID when FakeMessenger
-    /// calls resolve_id
-    ///
-    /// Resolves to FAKE_RESOLVED_ID
-    fn resolvable_address() -> Address {
+    /// Returns a static secp256k1 address
+    fn secp_address() -> Address {
         let key = vec![0; 65];
         Address::new_secp256k1(key.as_slice()).unwrap()
     }
 
-    /// Returns a new BLS address, that is not initialized, but that will resolve to the specified
-    /// ActorID when FakeMessenger calls `initialize_account`
-    ///
-    /// Resolves to FAKE_INITIALIZED_ID
-    fn initializable_address() -> Address {
+    /// Returns a static BLS address
+    fn bls_address() -> Address {
         let key = vec![0; BLS_PUB_LEN];
         Address::new_bls(key.as_slice()).unwrap()
     }
 
     // Returns a new Actor address, that is uninitializable by the FakeMessenger
-    fn uninitializable_address() -> Address {
+    fn actor_address() -> Address {
         Address::new_actor(&[])
+    }
+
+    const TOKEN_ACTOR: &Address = &Address::new_id(1);
+    const TREASURY: &Address = &Address::new_id(2);
+    const ALICE: &Address = &Address::new_id(3);
+    const BOB: &Address = &Address::new_id(4);
+    const CAROL: &Address = &Address::new_id(5);
+
+    fn new_token() -> Token<SharedMemoryBlockstore, FakeMessenger> {
+        Token::new(SharedMemoryBlockstore::new(), FakeMessenger::new(6)).unwrap().0
     }
 
     #[test]
     fn it_instantiates_and_persists() {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
-        let msg = FakeMessenger::default();
-        let (mut token, _) = Token::new(bs.clone(), FakeMessenger::default()).unwrap();
+        let (mut token, _) = Token::new(bs.clone(), FakeMessenger::new(6)).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -526,16 +519,13 @@ mod test {
         let cid = token.flush().unwrap();
 
         // the returned cid can be used to reference the same token state
-        let token2 = Token::load(bs, msg, cid).unwrap();
+        let token2 = Token::load(bs, FakeMessenger::new(6), cid).unwrap();
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
     #[test]
     fn it_provides_atomic_transactions() {
-        // create a new token
-        let bs = SharedMemoryBlockstore::new();
-        let msg = FakeMessenger::default();
-        let (mut token, _) = Token::new(bs, msg).unwrap();
+        let mut token = new_token();
 
         // entire transaction succeeds
         token
@@ -601,7 +591,7 @@ mod test {
         assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::zero());
 
         // can mint to resolvable pubkeys
-        let secp_address = resolvable_address();
+        let secp_address = secp_address();
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::zero());
         token.mint(TOKEN_ACTOR, &secp_address, &TokenAmount::from(1_000_000), &[]).unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
@@ -610,7 +600,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(4_000_000));
 
         // can mint to unresolvable but initializable pubkeys
-        let bls_address = initializable_address();
+        let bls_address = bls_address();
         // balance of uninitialized address is zero
         assert_eq!(token.balance_of(&bls_address).unwrap(), TokenAmount::zero());
         // minting creates the account
@@ -622,7 +612,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(5_000_000));
 
         // mint fails if actor address cannot be initialised
-        let actor_address: Address = uninitializable_address();
+        let actor_address: Address = actor_address();
         token.mint(TOKEN_ACTOR, &actor_address, &TokenAmount::from(1_000_000), &[]).unwrap_err();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
@@ -752,7 +742,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // transfer to pubkey
-        let resolvable_address = &resolvable_address();
+        let resolvable_address = &secp_address();
         assert_eq!(token.balance_of(resolvable_address).unwrap(), TokenAmount::zero());
         token.transfer(ALICE, ALICE, resolvable_address, &TokenAmount::from(10), &[]).unwrap();
         // alice supply dropped
@@ -763,7 +753,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // transfer to uninitialized pubkey
-        let uninitialized_address = &initializable_address();
+        let uninitialized_address = &bls_address();
         assert_eq!(token.balance_of(uninitialized_address).unwrap(), TokenAmount::zero());
         token.transfer(ALICE, ALICE, uninitialized_address, &TokenAmount::from(10), &[]).unwrap();
         // alice supply dropped
@@ -857,17 +847,17 @@ mod test {
         assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::zero());
 
         // allowances can be set for a pubkey address
-        let resolvable_address = &resolvable_address();
+        let resolvable_address = &secp_address();
         assert_eq!(token.allowance(ALICE, resolvable_address).unwrap(), TokenAmount::zero());
         token.increase_allowance(ALICE, resolvable_address, &TokenAmount::from(10)).unwrap();
         assert_eq!(token.allowance(ALICE, resolvable_address).unwrap(), TokenAmount::from(10));
 
-        let initializable_address = &initializable_address();
+        let initializable_address = &bls_address();
         assert_eq!(token.allowance(ALICE, initializable_address).unwrap(), TokenAmount::zero());
         token.increase_allowance(ALICE, initializable_address, &TokenAmount::from(10)).unwrap();
         assert_eq!(token.allowance(ALICE, initializable_address).unwrap(), TokenAmount::from(10));
 
-        let uninitializable_address = &uninitializable_address();
+        let uninitializable_address = &actor_address();
         assert_eq!(token.allowance(ALICE, uninitializable_address).unwrap(), TokenAmount::zero());
         token
             .increase_allowance(ALICE, uninitializable_address, &TokenAmount::from(10))
@@ -938,7 +928,7 @@ mod test {
         assert_eq!(token.allowance(TREASURY, ALICE).unwrap(), TokenAmount::zero());
 
         // cannot burn on uninitialized account
-        let initializable = initializable_address();
+        let initializable = bls_address();
         token.burn(&initializable, &initializable, &TokenAmount::from(1)).unwrap_err();
 
         // balances didn't change
