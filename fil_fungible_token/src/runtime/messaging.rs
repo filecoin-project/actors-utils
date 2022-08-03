@@ -10,14 +10,14 @@ use thiserror::Error;
 
 use crate::receiver::types::TokenReceivedParams;
 
-type Result<T> = std::result::Result<T, MessagingError>;
+pub type Result<T> = std::result::Result<T, MessagingError>;
 
 #[derive(Error, Debug)]
 pub enum MessagingError {
     #[error("fvm syscall error: `{0}`")]
     Syscall(#[from] ErrorNumber),
-    #[error("address not initialised: `{0}`")]
-    AddressNotInitialised(Address),
+    #[error("address not initialized: `{0}`")]
+    AddressNotInitialized(Address),
     #[error("ipld serialization error: `{0}`")]
     Ipld(#[from] IpldError),
 }
@@ -36,11 +36,13 @@ pub trait Messaging {
         data: &[u8],
     ) -> Result<Receipt>;
 
-    /// Resolves the given address to it's ID address form
+    /// Resolves the given address to its ID address form
+    ///
+    /// Returns MessagingError::AddressNotInitialised if the address could not be initialized
     fn resolve_id(&self, address: &Address) -> Result<ActorID>;
 
     ///  Creates an account at a pubkey address and returns the ID address
-    fn initialise_account(&self, address: &Address) -> Result<ActorID>;
+    fn initialize_account(&self, address: &Address) -> Result<ActorID>;
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -73,15 +75,15 @@ impl Messaging for FvmMessenger {
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
-        actor::resolve_address(address).ok_or(MessagingError::AddressNotInitialised(*address))
+        actor::resolve_address(address).ok_or(MessagingError::AddressNotInitialized(*address))
     }
 
-    fn initialise_account(&self, address: &Address) -> Result<ActorID> {
+    fn initialize_account(&self, address: &Address) -> Result<ActorID> {
         if let Err(e) = send::send(address, METHOD_SEND, Default::default(), TokenAmount::zero()) {
             return Err(e.into());
         }
 
-        actor::resolve_address(address).ok_or(MessagingError::AddressNotInitialised(*address))
+        actor::resolve_address(address).ok_or(MessagingError::AddressNotInitialized(*address))
     }
 }
 
@@ -100,11 +102,13 @@ impl Messaging for FvmMessenger {
 /// - ID, SECP addresses panic as they should not be called given that resolve_id gave back an ActorID
 /// - BLS addresses give back FAKE_INITIALIZED_ID
 /// - Actor addresses are uninitialised and give back an error
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 pub struct FakeMessenger {}
 
+// FIXME: have a more robust generation of fake ids
 pub const FAKE_RESOLVED_ID: ActorID = 100;
 pub const FAKE_INITIALIZED_ID: ActorID = 101;
+pub const FAKE_RESOLVED_ID_2: ActorID = 102;
 
 impl Messaging for FakeMessenger {
     fn call_receiver_hook(
@@ -135,15 +139,13 @@ impl Messaging for FakeMessenger {
             fvm_shared::address::Payload::ID(id) => Ok(*id),
             fvm_shared::address::Payload::Secp256k1(_secp) => Ok(FAKE_RESOLVED_ID),
             fvm_shared::address::Payload::Actor(_) => {
-                Err(MessagingError::AddressNotInitialised(*address))
+                Err(MessagingError::AddressNotInitialized(*address))
             }
-            fvm_shared::address::Payload::BLS(_) => {
-                Err(MessagingError::AddressNotInitialised(*address))
-            }
+            fvm_shared::address::Payload::BLS(_) => Ok(FAKE_RESOLVED_ID_2),
         }
     }
 
-    fn initialise_account(&self, address: &Address) -> Result<ActorID> {
+    fn initialize_account(&self, address: &Address) -> Result<ActorID> {
         match address.payload() {
             fvm_shared::address::Payload::ID(id) => {
                 panic!("attempting to initialise an already resolved id {}", id)
@@ -153,7 +155,7 @@ impl Messaging for FakeMessenger {
             }
             fvm_shared::address::Payload::BLS(_) => Ok(FAKE_INITIALIZED_ID),
             fvm_shared::address::Payload::Actor(_) => {
-                Err(MessagingError::AddressNotInitialised(*address))
+                Err(MessagingError::AddressNotInitialized(*address))
             }
         }
     }
