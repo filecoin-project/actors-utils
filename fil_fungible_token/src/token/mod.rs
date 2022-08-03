@@ -603,6 +603,18 @@ mod test {
         // mint zero
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::zero(), &[]).unwrap();
 
+        // check receiver hook was called with correct shape
+        assert_last_msg_eq(
+            &token.msg,
+            TokenReceivedParams {
+                sender: TOKEN_ACTOR.id().unwrap(),
+                data: RawBytes::default(),
+                from: TOKEN_ACTOR.id().unwrap(),
+                to: ALICE.id().unwrap(),
+                value: TokenAmount::zero(),
+            },
+        );
+
         // state remained unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));

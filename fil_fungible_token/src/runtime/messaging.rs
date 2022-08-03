@@ -99,6 +99,9 @@ pub struct FakeMessenger {
     abort_next_send: RefCell<bool>,
 }
 
+/// A mocked messenger that can be used to interact with other Actors
+///
+/// Can be used to test behaviour when other Actors abort when handling messages
 impl FakeMessenger {
     /// Creates a new FakeMessenger with a given set of initialized accounts
     ///
@@ -157,6 +160,8 @@ impl Messaging for FakeMessenger {
     }
 }
 
+/// A fake address resolver that keeps track of addresses that keeps track of which addresses have
+/// been initialised and their corresponding IDs
 #[derive(Debug)]
 pub struct FakeAddressResolver {
     next_actor_id: ActorID,
