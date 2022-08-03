@@ -3,11 +3,12 @@ mod types;
 
 use self::state::{StateError, TokenState};
 use crate::receiver::types::TokenReceivedParams;
-use crate::runtime::messaging::Result as MessagingResult;
 use crate::runtime::messaging::{Messaging, MessagingError};
+use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
 
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore as IpldStore;
+use fvm_ipld_encoding::Error as SerializationError;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::address::Error as AddressError;
@@ -18,15 +19,6 @@ use num_traits::Signed;
 use num_traits::Zero;
 use std::ops::Neg;
 use thiserror::Error;
-
-/// Source of a token being sent to an address
-#[derive(Debug)]
-pub enum TokenSource {
-    /// Tokens are coming from a mint action
-    Mint,
-    /// Tokens are coming from the balance of another actor
-    Actor(ActorID),
-}
 
 #[derive(Error, Debug)]
 pub enum TokenError {
@@ -50,6 +42,8 @@ pub enum TokenError {
         #[source]
         source: AddressError,
     },
+    #[error("error during serialization {0}")]
+    Serialization(#[from] SerializationError),
 }
 
 type Result<T> = std::result::Result<T, TokenError>;
@@ -68,8 +62,6 @@ where
     msg: MSG,
     /// In-memory cache of the state tree
     state: TokenState,
-    /// ActorID
-    actor_id: ActorID,
 }
 
 impl<BS, MSG> Token<BS, MSG>
@@ -81,18 +73,18 @@ where
     ///
     /// Returns a Token handle that can be used to interact with the token state tree and the Cid
     /// of the state tree root
-    pub fn new(bs: BS, msg: MSG, actor_id: ActorID) -> Result<(Self, Cid)> {
+    pub fn new(bs: BS, msg: MSG) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
-        let token = Self { bs, msg, state: init_state, actor_id };
+        let token = Self { bs, msg, state: init_state };
         Ok((token, cid))
     }
 
     /// For an already initialised state tree, loads the state tree from the blockstore and returns
     /// a Token handle to interact with it
-    pub fn load(bs: BS, msg: MSG, state_cid: Cid, actor_id: ActorID) -> Result<Self> {
+    pub fn load(bs: BS, msg: MSG, state_cid: Cid) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, msg, state, actor_id })
+        Ok(Self { bs, msg, state })
     }
 
     /// Flush state and return Cid for root
@@ -178,15 +170,18 @@ where
         self.flush()?;
 
         // Call receiver hook
-        match self.msg.call_receiver_hook(
+        let hook_params = TokenReceivedParams {
+            data: RawBytes::from(data.to_vec()),
+            from: self.msg.actor_id(),
+            to: holder_id,
+            sender: minter_id,
+            value: value.clone(),
+        };
+        match self.msg.send(
             initial_holder,
-            &TokenReceivedParams {
-                data: RawBytes::from(data.to_vec()),
-                from: self.actor_id,
-                to: holder_id,
-                sender: minter_id,
-                value: value.clone(),
-            },
+            RECEIVER_HOOK_METHOD_NUM,
+            &RawBytes::serialize(hook_params)?,
+            &TokenAmount::zero(),
         ) {
             Ok(receipt) => {
                 // hook returned true, so we can continue
@@ -196,7 +191,7 @@ where
                     self.state = old_state;
                     self.flush()?;
                     Err(TokenError::ReceiverHook {
-                        from: self.actor_id,
+                        from: self.msg.actor_id(),
                         to: holder_id,
                         sender: minter_id,
                         value: value.clone(),
@@ -445,15 +440,18 @@ where
         self.flush()?;
 
         // call receiver hook
-        match self.msg.call_receiver_hook(
+        let params = TokenReceivedParams {
+            sender: spender,
+            from: owner_id,
+            to: receiver_id,
+            value: value.clone(),
+            data: RawBytes::new(data.to_vec()),
+        };
+        match self.msg.send(
             receiver,
-            &TokenReceivedParams {
-                sender: spender,
-                from: owner_id,
-                to: receiver_id,
-                value: value.clone(),
-                data: RawBytes::new(data.to_vec()),
-            },
+            RECEIVER_HOOK_METHOD_NUM,
+            &RawBytes::serialize(params)?,
+            &TokenAmount::zero(),
         ) {
             Ok(receipt) => {
                 // hook returned true, so we can continue
@@ -524,7 +522,7 @@ mod test {
     const CAROL: &Address = &Address::new_id(5);
 
     fn new_token() -> Token<SharedMemoryBlockstore, FakeMessenger> {
-        Token::new(SharedMemoryBlockstore::new(), FakeMessenger::new(6), TOKEN_ACTOR.id().unwrap())
+        Token::new(SharedMemoryBlockstore::new(), FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6))
             .unwrap()
             .0
     }
@@ -539,7 +537,7 @@ mod test {
         // create a new token
         let bs = SharedMemoryBlockstore::new();
         let (mut token, _) =
-            Token::new(bs.clone(), FakeMessenger::new(6), TOKEN_ACTOR.id().unwrap()).unwrap();
+            Token::new(bs.clone(), FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6)).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -553,7 +551,7 @@ mod test {
 
         // the returned cid can be used to reference the same token state
         let token2 =
-            Token::load(bs, FakeMessenger::new(6), cid, TOKEN_ACTOR.id().unwrap()).unwrap();
+            Token::load(bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), cid).unwrap();
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
@@ -706,8 +704,9 @@ mod test {
         let mut token = new_token();
 
         // force hook to abort
+        token.msg.abort_next_send();
         token
-            .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), "abort".as_bytes())
+            .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), Default::default())
             .unwrap_err();
 
         // state remained unchanged
@@ -925,15 +924,17 @@ mod test {
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &[]).unwrap();
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), "abort".as_bytes()).unwrap_err();
+        token.msg.abort_next_send();
+        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), Default::default()).unwrap_err();
 
         // balances unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(0));
 
         // transfer 60 from owner -> self, simulate receiver aborting the hook
+        token.msg.abort_next_send();
         token
-            .transfer(ALICE, ALICE, ALICE, &TokenAmount::from(60), "abort".as_bytes())
+            .transfer(ALICE, ALICE, ALICE, &TokenAmount::from(60), Default::default())
             .unwrap_err();
         // balances unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
