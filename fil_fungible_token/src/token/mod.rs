@@ -115,7 +115,7 @@ where
     /// Resolves an address to an ID address, sending a message to initialise an account there if
     /// it doesn't exist
     ///
-    /// If the account cannot be created, this function returns an error
+    /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
     fn resolve_to_id(&self, address: &Address) -> MessagingResult<ActorID> {
         let holder_id = match self.msg.resolve_id(address) {
             Ok(addr) => addr,
@@ -127,7 +127,8 @@ where
         Ok(holder_id)
     }
 
-    /// Attempts to resolve an address to an ID address, returning an error if it did not exist
+    /// Attempts to resolve an address to an ID address, returning MessagingError::AddressNotInitialized
+    /// if it wasn't found
     fn get_id(&self, address: &Address) -> MessagingResult<ActorID> {
         self.msg.resolve_id(address)
     }
