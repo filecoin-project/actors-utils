@@ -12,3 +12,5 @@ This repo contains utilities and libraries to work with the
 
 Dual-licensed: [MIT](./LICENSE-MIT),
 [Apache Software License v2](./LICENSE-APACHE).
+
+<sub>Copyright Protocol Labs, Inc, 2022</sub>
