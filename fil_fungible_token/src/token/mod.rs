@@ -144,7 +144,7 @@ where
         minter: &Address,
         initial_holder: &Address,
         amount: &TokenAmount,
-        data: &[u8],
+        data: &RawBytes,
     ) -> Result<()> {
         if amount.is_negative() {
             return Err(TokenError::InvalidNegative(format!(
@@ -171,7 +171,7 @@ where
 
         // Call receiver hook
         let hook_params = TokenReceivedParams {
-            data: RawBytes::from(data.to_vec()),
+            data: data.clone(),
             from: self.msg.actor_id(),
             to: holder_id,
             sender: minter_id,
@@ -409,7 +409,7 @@ where
         owner: &Address,
         receiver: &Address,
         amount: &TokenAmount,
-        data: &[u8],
+        data: &RawBytes,
     ) -> Result<()> {
         if amount.is_negative() {
             return Err(TokenError::InvalidNegative(format!(
@@ -445,7 +445,7 @@ where
             from: owner_id,
             to: receiver_id,
             amount: amount.clone(),
-            data: RawBytes::new(data.to_vec()),
+            data: data.clone(),
         };
         match self.msg.send(
             receiver,
@@ -489,7 +489,6 @@ fn expect_id(address: &Address) -> Result<ActorID> {
 #[cfg(test)]
 mod test {
     use fvm_ipld_blockstore::MemoryBlockstore;
-    use fvm_ipld_encoding::RawBytes;
     use fvm_shared::address::{Address, BLS_PUB_LEN};
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
@@ -512,7 +511,7 @@ mod test {
 
     // Returns a new Actor address, that is uninitializable by the FakeMessenger
     fn actor_address() -> Address {
-        Address::new_actor(&[])
+        Address::new_actor(Default::default())
     }
 
     const TOKEN_ACTOR: &Address = &Address::new_id(1);
@@ -543,7 +542,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::zero());
 
         // mint some value
-        token.mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(100), &[]).unwrap();
+        token.mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(100), &Default::default()).unwrap();
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // flush token to blockstore
@@ -588,28 +587,30 @@ mod test {
         let mut token = new_token();
 
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
-        token.mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), &[]).unwrap();
+        token
+            .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), &Default::default())
+            .unwrap();
 
         // balance and total supply both went up
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
 
         // cannot mint a negative amount
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(-1), &[]).unwrap_err();
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(-1), &Default::default()).unwrap_err();
 
         // state remained unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
 
         // mint zero
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::zero(), &[]).unwrap();
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::zero(), &Default::default()).unwrap();
 
         // check receiver hook was called with correct shape
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
                 sender: TOKEN_ACTOR.id().unwrap(),
-                data: RawBytes::default(),
+                data: Default::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: ALICE.id().unwrap(),
                 amount: TokenAmount::zero(),
@@ -621,7 +622,9 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
 
         // mint again to same address
-        token.mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), &[]).unwrap();
+        token
+            .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), &Default::default())
+            .unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(2_000_000));
@@ -631,7 +634,7 @@ mod test {
             &token.msg,
             TokenReceivedParams {
                 sender: TOKEN_ACTOR.id().unwrap(),
-                data: RawBytes::default(),
+                data: Default::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: TREASURY.id().unwrap(),
                 amount: TokenAmount::from(1_000_000),
@@ -639,7 +642,7 @@ mod test {
         );
 
         // mint to a different address
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(1_000_000), &[]).unwrap();
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(1_000_000), &Default::default()).unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(3_000_000));
@@ -649,7 +652,7 @@ mod test {
             &token.msg,
             TokenReceivedParams {
                 sender: TOKEN_ACTOR.id().unwrap(),
-                data: RawBytes::default(),
+                data: Default::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: ALICE.id().unwrap(),
                 amount: TokenAmount::from(1_000_000),
@@ -664,14 +667,16 @@ mod test {
         // initially zero
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::zero());
         // self-mint to secp address
-        token.mint(TOKEN_ACTOR, &secp_address, &TokenAmount::from(1_000_000), &[]).unwrap();
+        token
+            .mint(TOKEN_ACTOR, &secp_address, &TokenAmount::from(1_000_000), &Default::default())
+            .unwrap();
 
         // check receiver hook was called with correct shape
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
                 sender: TOKEN_ACTOR.id().unwrap(),
-                data: RawBytes::default(),
+                data: Default::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: token.get_id(&secp_address).unwrap(),
                 amount: TokenAmount::from(1_000_000),
@@ -683,7 +688,9 @@ mod test {
         // initially zero
         assert_eq!(token.balance_of(&bls_address).unwrap(), TokenAmount::zero());
         // minting creates the account
-        token.mint(TOKEN_ACTOR, &bls_address, &TokenAmount::from(1_000_000), &[]).unwrap();
+        token
+            .mint(TOKEN_ACTOR, &bls_address, &TokenAmount::from(1_000_000), &Default::default())
+            .unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::from(1_000_000));
@@ -695,7 +702,7 @@ mod test {
             &token.msg,
             TokenReceivedParams {
                 sender: TOKEN_ACTOR.id().unwrap(),
-                data: RawBytes::default(),
+                data: Default::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: token.get_id(&bls_address).unwrap(),
                 amount: TokenAmount::from(1_000_000),
@@ -704,7 +711,9 @@ mod test {
 
         // mint fails if actor address cannot be initialised
         let actor_address: Address = actor_address();
-        token.mint(TOKEN_ACTOR, &actor_address, &TokenAmount::from(1_000_000), &[]).unwrap_err();
+        token
+            .mint(TOKEN_ACTOR, &actor_address, &TokenAmount::from(1_000_000), &Default::default())
+            .unwrap_err();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::from(1_000_000));
@@ -719,7 +728,7 @@ mod test {
         // force hook to abort
         token.msg.abort_next_send();
         token
-            .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), Default::default())
+            .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), &Default::default())
             .unwrap_err();
 
         // state remained unchanged
@@ -733,7 +742,7 @@ mod test {
 
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(600_000);
-        token.mint(TOKEN_ACTOR, TREASURY, &mint_amount, &[]).unwrap();
+        token.mint(TOKEN_ACTOR, TREASURY, &mint_amount, &Default::default()).unwrap();
         token.burn(TREASURY, TREASURY, &burn_amount).unwrap();
 
         // total supply decreased
@@ -777,7 +786,7 @@ mod test {
 
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(2_000_000);
-        token.mint(TOKEN_ACTOR, TREASURY, &mint_amount, &[]).unwrap();
+        token.mint(TOKEN_ACTOR, TREASURY, &mint_amount, &Default::default()).unwrap();
         token.burn(TREASURY, TREASURY, &burn_amount).unwrap_err();
 
         // balances and supply were unchanged
@@ -790,9 +799,9 @@ mod test {
         let mut token = new_token();
 
         // mint 100 for owner
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &[]).unwrap();
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
         // transfer 60 from owner -> receiver
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), &[]).unwrap();
+        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), &Default::default()).unwrap();
 
         // owner has 100 - 60 = 40
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
@@ -809,12 +818,12 @@ mod test {
                 from: ALICE.id().unwrap(),
                 amount: TokenAmount::from(60),
                 to: BOB.id().unwrap(),
-                data: RawBytes::default(),
+                data: Default::default(),
             }
         );
 
         // cannot transfer a negative value
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(-1), &[]).unwrap_err();
+        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(-1), &Default::default()).unwrap_err();
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
@@ -822,7 +831,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // transfer zero value
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::zero(), &[]).unwrap();
+        token.transfer(ALICE, ALICE, BOB, &TokenAmount::zero(), &Default::default()).unwrap();
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
@@ -837,12 +846,12 @@ mod test {
                 from: ALICE.id().unwrap(),
                 to: BOB.id().unwrap(),
                 amount: TokenAmount::zero(),
-                data: RawBytes::default(),
+                data: Default::default(),
             },
         );
 
         // transfer zero to self
-        token.transfer(ALICE, ALICE, ALICE, &TokenAmount::zero(), &[]).unwrap();
+        token.transfer(ALICE, ALICE, ALICE, &TokenAmount::zero(), &Default::default()).unwrap();
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
@@ -857,12 +866,12 @@ mod test {
                 from: ALICE.id().unwrap(),
                 to: ALICE.id().unwrap(),
                 amount: TokenAmount::zero(),
-                data: RawBytes::default(),
+                data: Default::default(),
             },
         );
 
         // transfer value to self
-        token.transfer(ALICE, ALICE, ALICE, &TokenAmount::from(10), &[]).unwrap();
+        token.transfer(ALICE, ALICE, ALICE, &TokenAmount::from(10), &Default::default()).unwrap();
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
@@ -877,14 +886,16 @@ mod test {
                 from: ALICE.id().unwrap(),
                 to: ALICE.id().unwrap(),
                 amount: TokenAmount::from(10),
-                data: RawBytes::default(),
+                data: Default::default(),
             },
         );
 
         // transfer to pubkey
         let secp_address = &secp_address();
         assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
-        token.transfer(ALICE, ALICE, secp_address, &TokenAmount::from(10), &[]).unwrap();
+        token
+            .transfer(ALICE, ALICE, secp_address, &TokenAmount::from(10), &Default::default())
+            .unwrap();
         // alice supply dropped
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(30));
         assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::from(10));
@@ -900,14 +911,16 @@ mod test {
                 from: ALICE.id().unwrap(),
                 to: token.get_id(secp_address).unwrap(),
                 amount: TokenAmount::from(10),
-                data: RawBytes::default(),
+                data: Default::default(),
             },
         );
 
         // transfer to uninitialized pubkey
         let bls_address = &bls_address();
         assert_eq!(token.balance_of(bls_address).unwrap(), TokenAmount::zero());
-        token.transfer(ALICE, ALICE, bls_address, &TokenAmount::from(10), &[]).unwrap();
+        token
+            .transfer(ALICE, ALICE, bls_address, &TokenAmount::from(10), &Default::default())
+            .unwrap();
         // alice supply dropped
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(20));
         // new address has balance
@@ -925,7 +938,7 @@ mod test {
                 to: token.get_id(bls_address).unwrap(),
                 from: ALICE.id().unwrap(),
                 amount: TokenAmount::from(10),
-                data: RawBytes::default(),
+                data: Default::default(),
             },
         );
     }
@@ -935,10 +948,10 @@ mod test {
         let mut token = new_token();
 
         // mint 100 for owner
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &[]).unwrap();
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
         token.msg.abort_next_send();
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), Default::default()).unwrap_err();
+        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), &Default::default()).unwrap_err();
 
         // balances unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
@@ -947,7 +960,7 @@ mod test {
         // transfer 60 from owner -> self, simulate receiver aborting the hook
         token.msg.abort_next_send();
         token
-            .transfer(ALICE, ALICE, ALICE, &TokenAmount::from(60), Default::default())
+            .transfer(ALICE, ALICE, ALICE, &TokenAmount::from(60), &Default::default())
             .unwrap_err();
         // balances unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
@@ -959,11 +972,11 @@ mod test {
         let mut token = new_token();
 
         // mint 50 for the owner
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(50), &[]).unwrap();
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(50), &Default::default()).unwrap();
 
         // attempt transfer 51 from owner -> receiver
         token
-            .transfer(ALICE, ALICE, BOB, &TokenAmount::from(51), &[])
+            .transfer(ALICE, ALICE, BOB, &TokenAmount::from(51), &Default::default())
             .expect_err("transfer should have failed");
 
         // balances remained unchanged
@@ -1035,11 +1048,11 @@ mod test {
         let mut token = new_token();
 
         // mint 100 for the owner
-        token.mint(ALICE, ALICE, &TokenAmount::from(100), &[]).unwrap();
+        token.mint(ALICE, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
         // approve 100 spending allowance for spender
         token.increase_allowance(ALICE, CAROL, &TokenAmount::from(100)).unwrap();
         // spender makes transfer of 60 from owner -> receiver
-        token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &[]).unwrap();
+        token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &Default::default()).unwrap();
 
         // verify all balances are correct
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
@@ -1054,7 +1067,7 @@ mod test {
                 from: ALICE.id().unwrap(),
                 to: BOB.id().unwrap(),
                 amount: TokenAmount::from(60),
-                data: RawBytes::default(),
+                data: Default::default(),
             },
         );
 
@@ -1063,7 +1076,7 @@ mod test {
         assert_eq!(spender_allowance, TokenAmount::from(40));
 
         // spender makes another transfer of 40 from owner -> self
-        token.transfer(CAROL, ALICE, CAROL, &TokenAmount::from(40), &[]).unwrap();
+        token.transfer(CAROL, ALICE, CAROL, &TokenAmount::from(40), &Default::default()).unwrap();
 
         // verify all balances are correct
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
@@ -1078,7 +1091,7 @@ mod test {
                 from: ALICE.id().unwrap(),
                 to: CAROL.id().unwrap(),
                 amount: TokenAmount::from(40),
-                data: RawBytes::default(),
+                data: Default::default(),
             },
         );
 
@@ -1095,7 +1108,7 @@ mod test {
         let burn_amount = TokenAmount::from(600_000);
 
         // mint the total amount
-        token.mint(TOKEN_ACTOR, TREASURY, &mint_amount, &[]).unwrap();
+        token.mint(TOKEN_ACTOR, TREASURY, &mint_amount, &Default::default()).unwrap();
         // approve the burner to spend the allowance
         token.increase_allowance(TREASURY, ALICE, &approval_amount).unwrap();
         // burn the approved amount
@@ -1132,12 +1145,12 @@ mod test {
         let mut token = new_token();
 
         // mint 100 for the owner
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &[]).unwrap();
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
         // approve only 40 spending allowance for spender
         token.increase_allowance(ALICE, CAROL, &TokenAmount::from(40)).unwrap();
         // spender attempts makes transfer of 60 from owner -> receiver
         // this is within the owner's balance but not within the spender's allowance
-        token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &[]).unwrap_err();
+        token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &Default::default()).unwrap_err();
 
         // verify all balances are correct
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
@@ -1153,14 +1166,14 @@ mod test {
         let mut token = new_token();
 
         // mint 50 for the owner
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(50), &[]).unwrap();
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(50), &Default::default()).unwrap();
 
         // allow 100 to be spent by spender
         token.increase_allowance(ALICE, BOB, &TokenAmount::from(100)).unwrap();
 
         // spender attempts transfer 51 from owner -> spender
         // they have enough allowance, but not enough balance
-        token.transfer(BOB, ALICE, BOB, &TokenAmount::from(51), &[]).unwrap_err();
+        token.transfer(BOB, ALICE, BOB, &TokenAmount::from(51), &Default::default()).unwrap_err();
 
         // attempt burn 51 by spender
         token.burn(BOB, ALICE, &TokenAmount::from(51)).unwrap_err();
