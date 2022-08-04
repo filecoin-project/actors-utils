@@ -3,11 +3,10 @@ name = "fvm_dispatch"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-hasher = { path = "hasher" }
 fvm_ipld_encoding = { version = "0.2.2" }
 fvm_sdk = { version = "1.0.0" }
 fvm_shared = { version = "0.8.0" }
+hasher = { path = "hasher" }
+macros = { path = "macros" }
 thiserror = { version = "1.0.31" }
