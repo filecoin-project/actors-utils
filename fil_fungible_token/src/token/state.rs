@@ -294,24 +294,24 @@ impl TokenState {
         bs: &BS,
         spender: u64,
         owner: u64,
-        value: &TokenAmount,
+        amount: &TokenAmount,
     ) -> Result<TokenAmount> {
         let current_allowance = self.get_allowance_between(bs, owner, spender)?;
 
-        if value.is_zero() {
+        if amount.is_zero() {
             return Ok(current_allowance);
         }
 
-        if current_allowance.lt(value) {
+        if current_allowance.lt(amount) {
             return Err(StateError::InsufficentAllowance {
                 owner,
                 spender,
                 allowance: current_allowance,
-                delta: value.clone(),
+                delta: amount.clone(),
             });
         }
 
-        let new_allowance = current_allowance - value;
+        let new_allowance = current_allowance - amount;
 
         // TODO: helper function to set a new allowance and flush hamts
         let owner_allowances = self.get_owner_allowance_map(bs, owner)?;

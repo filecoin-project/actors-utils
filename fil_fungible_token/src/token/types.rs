@@ -98,7 +98,7 @@ pub trait FrcXXXToken {
 pub struct MintParams {
     pub initial_holder: ActorID,
     #[serde(with = "bigint_ser")]
-    pub value: TokenAmount,
+    pub amount: TokenAmount,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple)]
@@ -119,7 +119,7 @@ pub struct ChangeAllowanceParams {
     pub owner: Address,
     pub spender: Address,
     #[serde(with = "bigint_ser")]
-    pub value: TokenAmount,
+    pub amount: TokenAmount,
 }
 
 /// Params to get allowance between to addresses
@@ -142,7 +142,7 @@ pub struct AllowanceReturn {
     pub owner: Address,
     pub spender: Address,
     #[serde(with = "bigint_ser")]
-    pub value: TokenAmount,
+    pub amount: TokenAmount,
 }
 
 impl Cbor for ChangeAllowanceParams {}
@@ -155,7 +155,7 @@ impl Cbor for AllowanceReturn {}
 pub struct BurnParams {
     pub owner: Address,
     #[serde(with = "bigint_ser")]
-    pub value: TokenAmount,
+    pub amount: TokenAmount,
     pub data: RawBytes,
 }
 
@@ -176,7 +176,7 @@ pub struct TransferParams {
     pub from: Address,
     pub to: Address,
     #[serde(with = "bigint_ser")]
-    pub value: TokenAmount,
+    pub amount: TokenAmount,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple)]
@@ -184,7 +184,7 @@ pub struct TransferReturn {
     pub from: Address,
     pub to: Address,
     #[serde(with = "bigint_ser")]
-    pub value: TokenAmount,
+    pub amount: TokenAmount,
 }
 
 impl Cbor for TransferParams {}

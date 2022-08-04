@@ -25,7 +25,7 @@ pub struct TokenReceivedParams {
     /// The account that the tokens are being sent to (the receiver address)
     pub to: ActorID,
     #[serde(with = "bigint_ser")]
-    pub value: TokenAmount,
+    pub amount: TokenAmount,
     pub data: RawBytes,
 }
 

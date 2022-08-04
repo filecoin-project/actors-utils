@@ -28,12 +28,12 @@ pub enum TokenError {
     InvalidNegative(String),
     #[error("error calling receiver hook: {0}")]
     Messaging(#[from] MessagingError),
-    #[error("receiver hook aborted when {from:?} sent {value:?} to {to:?} by {sender:?} with exit code {exit_code:?}")]
+    #[error("receiver hook aborted when {from:?} sent {amount:?} to {to:?} by {sender:?} with exit code {exit_code:?}")]
     ReceiverHook {
         from: ActorID,
         to: ActorID,
         sender: ActorID,
-        value: TokenAmount,
+        amount: TokenAmount,
         exit_code: ExitCode,
     },
     #[error("expected {address:?} to be a resolvable id address but threw {source:?} when attempting to resolve")]
@@ -143,13 +143,13 @@ where
         &mut self,
         minter: &Address,
         initial_holder: &Address,
-        value: &TokenAmount,
+        amount: &TokenAmount,
         data: &[u8],
     ) -> Result<()> {
-        if value.is_negative() {
+        if amount.is_negative() {
             return Err(TokenError::InvalidNegative(format!(
                 "mint amount {} cannot be negative",
-                value
+                amount
             )));
         }
 
@@ -161,8 +161,8 @@ where
 
         // Increase the balance of the actor and increase total supply
         self.transaction(|state, bs| {
-            state.change_balance_by(&bs, holder_id, value)?;
-            state.change_supply_by(value)?;
+            state.change_balance_by(&bs, holder_id, amount)?;
+            state.change_supply_by(amount)?;
             Ok(())
         })?;
 
@@ -175,7 +175,7 @@ where
             from: self.msg.actor_id(),
             to: holder_id,
             sender: minter_id,
-            value: value.clone(),
+            amount: amount.clone(),
         };
         match self.msg.send(
             initial_holder,
@@ -194,7 +194,7 @@ where
                         from: self.msg.actor_id(),
                         to: holder_id,
                         sender: minter_id,
-                        value: value.clone(),
+                        amount: amount.clone(),
                         exit_code: receipt.exit_code,
                     })
                 }
@@ -350,12 +350,12 @@ where
         &mut self,
         spender: &Address,
         owner: &Address,
-        value: &TokenAmount,
+        amount: &TokenAmount,
     ) -> Result<TokenAmount> {
-        if value.is_negative() {
+        if amount.is_negative() {
             return Err(TokenError::InvalidNegative(format!(
                 "burn amount {} cannot be negative",
-                value
+                amount
             )));
         }
 
@@ -366,13 +366,13 @@ where
         let new_amount = self.transaction(|state, bs| {
             if spender != owner {
                 // attempt to use allowance and return early if not enough
-                state.attempt_use_allowance(&bs, spender, owner, value)?;
+                state.attempt_use_allowance(&bs, spender, owner, amount)?;
             }
             // attempt to burn the requested amount
-            let new_amount = state.change_balance_by(&bs, owner, &value.clone().neg())?;
+            let new_amount = state.change_balance_by(&bs, owner, &amount.clone().neg())?;
 
             // decrease total_supply
-            state.change_supply_by(&value.neg())?;
+            state.change_supply_by(&amount.neg())?;
             Ok(new_amount)
         })?;
 
@@ -408,13 +408,13 @@ where
         spender: &Address,
         owner: &Address,
         receiver: &Address,
-        value: &TokenAmount,
+        amount: &TokenAmount,
         data: &[u8],
     ) -> Result<()> {
-        if value.is_negative() {
+        if amount.is_negative() {
             return Err(TokenError::InvalidNegative(format!(
                 "transfer amount {} cannot be negative",
-                value
+                amount
             )));
         }
 
@@ -429,10 +429,10 @@ where
         self.transaction(|state, bs| {
             if spender != owner_id {
                 // attempt to use allowance and return early if not enough
-                state.attempt_use_allowance(&bs, spender, owner_id, value)?;
+                state.attempt_use_allowance(&bs, spender, owner_id, amount)?;
             }
-            state.change_balance_by(&bs, receiver_id, value)?;
-            state.change_balance_by(&bs, owner_id, &value.neg())?;
+            state.change_balance_by(&bs, receiver_id, amount)?;
+            state.change_balance_by(&bs, owner_id, &amount.neg())?;
             Ok(())
         })?;
 
@@ -444,7 +444,7 @@ where
             sender: spender,
             from: owner_id,
             to: receiver_id,
-            value: value.clone(),
+            amount: amount.clone(),
             data: RawBytes::new(data.to_vec()),
         };
         match self.msg.send(
@@ -464,7 +464,7 @@ where
                         from: owner_id,
                         to: receiver_id,
                         sender: spender,
-                        value: value.clone(),
+                        amount: amount.clone(),
                         exit_code: receipt.exit_code,
                     })
                 }
@@ -612,7 +612,7 @@ mod test {
                 data: RawBytes::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: ALICE.id().unwrap(),
-                value: TokenAmount::zero(),
+                amount: TokenAmount::zero(),
             },
         );
 
@@ -634,7 +634,7 @@ mod test {
                 data: RawBytes::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: TREASURY.id().unwrap(),
-                value: TokenAmount::from(1_000_000),
+                amount: TokenAmount::from(1_000_000),
             },
         );
 
@@ -652,7 +652,7 @@ mod test {
                 data: RawBytes::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: ALICE.id().unwrap(),
-                value: TokenAmount::from(1_000_000),
+                amount: TokenAmount::from(1_000_000),
             },
         );
 
@@ -674,7 +674,7 @@ mod test {
                 data: RawBytes::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: token.get_id(&secp_address).unwrap(),
-                value: TokenAmount::from(1_000_000),
+                amount: TokenAmount::from(1_000_000),
             },
         );
 
@@ -698,7 +698,7 @@ mod test {
                 data: RawBytes::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: token.get_id(&bls_address).unwrap(),
-                value: TokenAmount::from(1_000_000),
+                amount: TokenAmount::from(1_000_000),
             },
         );
 
@@ -807,7 +807,7 @@ mod test {
             TokenReceivedParams {
                 sender: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
-                value: TokenAmount::from(60),
+                amount: TokenAmount::from(60),
                 to: BOB.id().unwrap(),
                 data: RawBytes::default(),
             }
@@ -836,7 +836,7 @@ mod test {
                 sender: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: BOB.id().unwrap(),
-                value: TokenAmount::zero(),
+                amount: TokenAmount::zero(),
                 data: RawBytes::default(),
             },
         );
@@ -856,7 +856,7 @@ mod test {
                 sender: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: ALICE.id().unwrap(),
-                value: TokenAmount::zero(),
+                amount: TokenAmount::zero(),
                 data: RawBytes::default(),
             },
         );
@@ -876,7 +876,7 @@ mod test {
                 sender: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: ALICE.id().unwrap(),
-                value: TokenAmount::from(10),
+                amount: TokenAmount::from(10),
                 data: RawBytes::default(),
             },
         );
@@ -899,7 +899,7 @@ mod test {
                 sender: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: token.get_id(secp_address).unwrap(),
-                value: TokenAmount::from(10),
+                amount: TokenAmount::from(10),
                 data: RawBytes::default(),
             },
         );
@@ -924,7 +924,7 @@ mod test {
                 sender: ALICE.id().unwrap(),
                 to: token.get_id(bls_address).unwrap(),
                 from: ALICE.id().unwrap(),
-                value: TokenAmount::from(10),
+                amount: TokenAmount::from(10),
                 data: RawBytes::default(),
             },
         );
@@ -1053,7 +1053,7 @@ mod test {
                 sender: CAROL.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: BOB.id().unwrap(),
-                value: TokenAmount::from(60),
+                amount: TokenAmount::from(60),
                 data: RawBytes::default(),
             },
         );
@@ -1077,7 +1077,7 @@ mod test {
                 sender: CAROL.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: CAROL.id().unwrap(),
-                value: TokenAmount::from(40),
+                amount: TokenAmount::from(40),
                 data: RawBytes::default(),
             },
         );
