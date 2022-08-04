@@ -1,5 +1,5 @@
 use blake2b_simd::blake2b;
-use fvm_dispatch::hash::Hasher;
+use hasher::hash::Hasher;
 
 pub struct Blake2bHasher {}
 impl Hasher for Blake2bHasher {

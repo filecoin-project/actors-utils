@@ -2,6 +2,7 @@
 
 members = [
     "fvm_dispatch",
+    "fvm_dispatch/hasher",
     "fvm_dispatch/macros",
     "fvm_dispatch/macros/example",
     "fvm_dispatch_tools",
