@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[cfg(target_family = "wasm")]
+#[cfg(not(feature = "no_sdk"))]
 use fvm_sdk::crypto;
 
 /// Minimal interface for a hashing function
@@ -17,14 +17,14 @@ pub trait Hasher {
 pub struct Blake2bSyscall {}
 
 impl Hasher for Blake2bSyscall {
-    // fvm_sdk syscalls only work for WASM targets
-    #[cfg(target_family = "wasm")]
+    // fvm_sdk dependence can be removed using no_sdk feature
+    #[cfg(not(feature = "no_sdk"))]
     fn hash(&self, bytes: &[u8]) -> Vec<u8> {
         crypto::hash_blake2b(bytes).try_into().unwrap()
     }
 
     // stub version for non-wasm targets (eg: proc macros running on x86_64)
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(feature = "no_sdk")]
     #[allow(unused_variables)]
     fn hash(&self, bytes: &[u8]) -> Vec<u8> {
         unimplemented!();

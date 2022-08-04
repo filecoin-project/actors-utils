@@ -4,5 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fvm_dispatch = { version = "0.1.0", path = "../../../fvm_dispatch" }
-fvm_dispatch_macros = { path = ".." }
+macros = { path = ".." }

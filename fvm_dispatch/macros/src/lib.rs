@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 
-use fvm_dispatch::hash::MethodResolver;
+use hasher::hash::MethodResolver;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::{parse_macro_input, LitStr, Result};
