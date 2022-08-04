@@ -15,7 +15,7 @@ pub struct MethodMessenger<T: Hasher> {
     method_resolver: MethodResolver<T>,
 }
 
-#[derive(Error, PartialEq, Debug)]
+#[derive(Error, PartialEq, Eq, Debug)]
 pub enum MethodMessengerError {
     #[error("error when calculating method name: `{0}`")]
     MethodName(#[from] MethodNameErr),
