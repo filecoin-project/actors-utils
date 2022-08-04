@@ -31,3 +31,40 @@ macro_rules! match_method {
         }
     };
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn handle_constructor() {
+        let method_num = 1u64; // constructor should always hash to 1
+        let ret = match_method!(method_num, {
+            "Constructor" => Some(1),
+            _ => None,
+        });
+
+        assert_eq!(ret, Some(1));
+    }
+
+    #[test]
+    fn handle_unknown_method() {
+        let method_num = 12345u64; // not a method we know about
+        let ret = match_method!(method_num, {
+            "Constructor" => Some(1),
+            _ => None,
+        });
+
+        assert_eq!(ret, None);
+    }
+
+    #[test]
+    fn handle_user_method() {
+        let method_num = crate::method_hash!("TokensReceived");
+        let ret = match_method!(method_num, {
+            "Constructor" => Some(1),
+            "TokensReceived" => Some(2),
+            _ => None,
+        });
+
+        assert_eq!(ret, Some(2));
+    }
+}
