@@ -47,56 +47,45 @@ pub trait FrcXXXToken {
     /// This will method attempt to resolve addresses to ID-addresses
     fn balance_of(&self, params: Address) -> Result<TokenAmount>;
 
-    /// Atomically increase the amount that a spender can pull from the owner account
+    /// Atomically increase the amount that a operator can pull from the owner account
     ///
     /// The increase must be non-negative. Returns the new allowance between those two addresses if
     /// successful
     fn increase_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn>;
 
-    /// Atomically decrease the amount that a spender can pull from an account
+    /// Atomically decrease the amount that a operator can pull from an account
     ///
     /// The decrease must be non-negative. The resulting allowance is set to zero if the decrease is
     /// more than the current allowance. Returns the new allowance between the two addresses if
     /// successful
     fn decrease_allowance(&self, params: ChangeAllowanceParams) -> Result<AllowanceReturn>;
 
-    /// Set the allowance a spender has on the owner's account to zero
+    /// Set the allowance a operator has on the owner's account to zero
     fn revoke_allowance(&self, params: RevokeAllowanceParams) -> Result<AllowanceReturn>;
 
     /// Get the allowance between two addresses
     ///
-    /// The spender can burn or transfer the allowance amount out of the owner's address. If the
+    /// The operator can burn or transfer the allowance amount out of the owner's address. If the
     /// address of the owner cannot be resolved, this method returns an error. If the owner can be
-    /// resolved, but the spender address is not registered with an allowance, an implicit allowance
+    /// resolved, but the operator address is not registered with an allowance, an implicit allowance
     /// of 0 is returned
     fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn>;
 
     /// Burn tokens from the caller's account, decreasing the total supply
     ///
     /// When burning tokens:
-    /// - Any holder MUST be allowed to burn their own tokens
-    /// - The balance of the holder MUST decrease by the amount burned
-    /// - This method MUST revert if the burn amount is more than the holder's balance
+    /// - Any owner MUST be allowed to burn their own tokens
+    /// - The balance of the owner MUST decrease by the amount burned
+    /// - This method MUST revert if the burn amount is more than the owner's balance
     fn burn(&self, params: BurnParams) -> Result<BurnReturn>;
 
-    /// Burn tokens from the owner's account, decreasing the total supply
-    ///
-    /// When burning on behalf of the owner:
-    /// - The same rules on the holder apply as `burn`
-    /// - This method MUST revert if the burn amount is more than the allowance authorised by the
-    /// owner
-    fn burn_from(&self, params: BurnParams) -> Result<BurnReturn>;
-
-    /// Transfer tokens from the caller to the receiver
-    ///
+    /// Transfer tokens from one account to another
     fn transfer(&self, params: TransferParams) -> Result<TransferReturn>;
-
-    fn transfer_from(&self, params: TransferParams) -> Result<TransferReturn>;
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct MintParams {
-    pub initial_holder: ActorID,
+    pub initial_owner: ActorID,
     #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
 }
@@ -117,7 +106,7 @@ impl Cbor for MintReturn {}
 #[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct ChangeAllowanceParams {
     pub owner: Address,
-    pub spender: Address,
+    pub operator: Address,
     #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
 }
@@ -126,21 +115,21 @@ pub struct ChangeAllowanceParams {
 #[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct GetAllowanceParams {
     pub owner: Address,
-    pub spender: Address,
+    pub operator: Address,
 }
 
 /// Instruction to revoke (set to 0) an allowance
 #[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct RevokeAllowanceParams {
     pub owner: Address,
-    pub spender: Address,
+    pub operator: Address,
 }
 
 /// The updated value after allowance is increased or decreased
 #[derive(Serialize_tuple, Deserialize_tuple)]
 pub struct AllowanceReturn {
     pub owner: Address,
-    pub spender: Address,
+    pub operator: Address,
     #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
 }

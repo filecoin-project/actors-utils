@@ -18,8 +18,8 @@ pub trait FrcXXXTokenReceiver {
 
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
 pub struct TokenReceivedParams {
-    /// Address of the sender or operator that initiated the transfer
-    pub sender: ActorID,
+    /// Address of the operator that initiated the transfer
+    pub operator: ActorID,
     /// The account that the tokens are being pulled from (the token actor address itself for mint)
     pub from: ActorID,
     /// The account that the tokens are being sent to (the receiver address)

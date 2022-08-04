@@ -28,11 +28,14 @@ pub enum TokenError {
     InvalidNegative(String),
     #[error("error calling receiver hook: {0}")]
     Messaging(#[from] MessagingError),
-    #[error("receiver hook aborted when {from:?} sent {amount:?} to {to:?} by {sender:?} with exit code {exit_code:?}")]
+    #[error("receiver hook aborted when {operator:?} sent {amount:?} to {to:?} from {from:?} with exit code {exit_code:?}")]
     ReceiverHook {
+        /// Whose balance is being debited
         from: ActorID,
+        /// Whose balance is being credited
         to: ActorID,
-        sender: ActorID,
+        /// Who initiated the transfer of funds
+        operator: ActorID,
         amount: TokenAmount,
         exit_code: ExitCode,
     },
@@ -113,14 +116,14 @@ where
     ///
     /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
     fn resolve_to_id(&self, address: &Address) -> MessagingResult<ActorID> {
-        let holder_id = match self.msg.resolve_id(address) {
+        let id = match self.msg.resolve_id(address) {
             Ok(addr) => addr,
             Err(MessagingError::AddressNotInitialized(_e)) => {
                 self.msg.initialize_account(address)?
             }
             Err(e) => return Err(e),
         };
-        Ok(holder_id)
+        Ok(id)
     }
 
     /// Attempts to resolve an address to an ID address, returning MessagingError::AddressNotInitialized
@@ -141,8 +144,8 @@ where
     /// The mint amount must be non-negative or the method returns an error.
     pub fn mint(
         &mut self,
-        minter: &Address,
-        initial_holder: &Address,
+        operator: &Address,
+        initial_owner: &Address,
         amount: &TokenAmount,
         data: &RawBytes,
     ) -> Result<()> {
@@ -154,14 +157,14 @@ where
         }
 
         // Resolve to id addresses
-        let minter_id = expect_id(minter)?;
-        let holder_id = self.resolve_to_id(initial_holder)?;
+        let operator_id = expect_id(operator)?;
+        let owner_id = self.resolve_to_id(initial_owner)?;
 
         let old_state = self.state.clone();
 
         // Increase the balance of the actor and increase total supply
         self.transaction(|state, bs| {
-            state.change_balance_by(&bs, holder_id, amount)?;
+            state.change_balance_by(&bs, owner_id, amount)?;
             state.change_supply_by(amount)?;
             Ok(())
         })?;
@@ -173,12 +176,12 @@ where
         let hook_params = TokenReceivedParams {
             data: data.clone(),
             from: self.msg.actor_id(),
-            to: holder_id,
-            sender: minter_id,
+            to: owner_id,
+            operator: operator_id,
             amount: amount.clone(),
         };
         match self.msg.send(
-            initial_holder,
+            initial_owner,
             RECEIVER_HOOK_METHOD_NUM,
             &RawBytes::serialize(hook_params)?,
             &TokenAmount::zero(),
@@ -191,9 +194,9 @@ where
                     self.state = old_state;
                     self.flush()?;
                     Err(TokenError::ReceiverHook {
-                        from: self.msg.actor_id(),
-                        to: holder_id,
-                        sender: minter_id,
+                        from: operator_id,
+                        to: owner_id,
+                        operator: self.msg.actor_id(),
                         amount: amount.clone(),
                         exit_code: receipt.exit_code,
                     })
@@ -219,12 +222,12 @@ where
     /// Returns the balance associated with a particular address
     ///
     /// Accounts that have never received transfers implicitly have a zero-balance
-    pub fn balance_of(&self, holder: &Address) -> Result<TokenAmount> {
+    pub fn balance_of(&self, owner: &Address) -> Result<TokenAmount> {
         // Load the HAMT holding balances
-        let holder = self.get_id(holder);
+        let owner = self.get_id(owner);
 
-        match holder {
-            Ok(holder) => Ok(self.state.get_balance(&self.bs, holder)?),
+        match owner {
+            Ok(owner) => Ok(self.state.get_balance(&self.bs, owner)?),
             Err(MessagingError::AddressNotInitialized(_)) => {
                 // uninitialized address has implicit zero balance
                 Ok(TokenAmount::zero())
@@ -233,11 +236,11 @@ where
         }
     }
 
-    /// Gets the allowance between owner and spender
+    /// Gets the allowance between owner and operator
     ///
-    /// The allowance is the amount that the spender can transfer or burn out of the owner's account
+    /// The allowance is the amount that the operator can transfer or burn out of the owner's account
     /// via the `transfer_from` and `burn_from` methods.
-    pub fn allowance(&self, owner: &Address, spender: &Address) -> Result<TokenAmount> {
+    pub fn allowance(&self, owner: &Address, operator: &Address) -> Result<TokenAmount> {
         let owner = self.get_id(owner);
         let owner = match owner {
             Ok(owner) => owner,
@@ -248,9 +251,9 @@ where
             Err(e) => return Err(e.into()),
         };
 
-        let spender = self.get_id(spender);
-        let spender = match spender {
-            Ok(spender) => spender,
+        let operator = self.get_id(operator);
+        let operator = match operator {
+            Ok(operator) => operator,
             Err(MessagingError::AddressNotInitialized(_)) => {
                 // uninitialized address has implicit zero allowance
                 return Ok(TokenAmount::zero());
@@ -258,11 +261,11 @@ where
             Err(e) => return Err(e.into()),
         };
 
-        let allowance = self.state.get_allowance_between(&self.bs, owner, spender)?;
+        let allowance = self.state.get_allowance_between(&self.bs, owner, operator)?;
         Ok(allowance)
     }
 
-    /// Increase the allowance that a spender controls of the owner's balance by the requested delta
+    /// Increase the allowance that an operator controls of the owner's balance by the requested delta
     ///
     /// The caller of this method is implicitly defined as the owner.
     /// Returns an error if requested delta is negative or there are errors in (de)serialization of
@@ -270,7 +273,7 @@ where
     pub fn increase_allowance(
         &mut self,
         owner: &Address,
-        spender: &Address,
+        operator: &Address,
         delta: &TokenAmount,
     ) -> Result<TokenAmount> {
         if delta.is_negative() {
@@ -281,22 +284,22 @@ where
         }
 
         let owner = expect_id(owner)?;
-        let spender = self.resolve_to_id(spender)?;
-        let new_amount = self.state.change_allowance_by(&self.bs, owner, spender, delta)?;
+        let operator = self.resolve_to_id(operator)?;
+        let new_amount = self.state.change_allowance_by(&self.bs, owner, operator, delta)?;
 
         Ok(new_amount)
     }
 
-    /// Decrease the allowance that a spender controls of the owner's balance by the requested delta
+    /// Decrease the allowance that an operator controls of the owner's balance by the requested delta
     ///
     /// The caller of this method is implicitly defined as the owner.
-    /// If the resulting allowance would be negative, the allowance between owner and spender is set
-    /// to zero. Returns an error if either the spender or owner address is unresolvable. Returns an
+    /// If the resulting allowance would be negative, the allowance between owner and operator is set
+    /// to zero. Returns an error if either the operator or owner address is unresolvable. Returns an
     /// error if requested delta is negative. Else returns the new allowance
     pub fn decrease_allowance(
         &mut self,
         owner: &Address,
-        spender: &Address,
+        operator: &Address,
         delta: &TokenAmount,
     ) -> Result<TokenAmount> {
         if delta.is_negative() {
@@ -307,18 +310,18 @@ where
         }
 
         let owner = expect_id(owner)?;
-        let spender = self.resolve_to_id(spender)?;
+        let operator = self.resolve_to_id(operator)?;
         let new_allowance =
-            self.state.change_allowance_by(&self.bs, owner, spender, &delta.neg())?;
+            self.state.change_allowance_by(&self.bs, owner, operator, &delta.neg())?;
 
         Ok(new_allowance)
     }
 
-    /// Sets the allowance between owner and spender to 0
-    pub fn revoke_allowance(&mut self, owner: &Address, spender: &Address) -> Result<()> {
+    /// Sets the allowance between owner and operator to 0
+    pub fn revoke_allowance(&mut self, owner: &Address, operator: &Address) -> Result<()> {
         let owner = expect_id(owner)?;
-        let spender = self.resolve_to_id(spender)?;
-        self.state.revoke_allowance(&self.bs, owner, spender)?;
+        let operator = self.resolve_to_id(operator)?;
+        self.state.revoke_allowance(&self.bs, owner, operator)?;
 
         Ok(())
     }
@@ -333,22 +336,22 @@ where
     /// - The target's balance MUST decrease by the requested value
     /// - The total_supply MUST decrease by the requested value
     ///
-    /// ## Spender equals owner address
-    /// If the spender is the targeted address, they are implicitly approved to burn an unlimited
+    /// ## Operator is the owner address
+    /// If the operator is the targeted address, they are implicitly approved to burn an unlimited
     /// amount of tokens (up to their balance)
     ///
-    /// ## Spender burning on behalf of owner address
-    /// If the spender is burning on behalf of the owner the following preconditions
+    /// ## Operator burning on behalf of another address
+    /// If the operator is burning on behalf of the owner the following preconditions
     /// must be met on top of the general burn conditions:
-    /// - The spender MUST have an allowance not less than the requested value
+    /// - The operator MUST have an allowance not less than the requested value
     /// In addition to the general postconditions:
-    /// - The target-spender allowance MUST decrease by the requested value
+    /// - The target-operator allowance MUST decrease by the requested value
     ///
     /// If the burn operation would result in a negative balance for the owner, the burn is
     /// discarded and this method returns an error
     pub fn burn(
         &mut self,
-        spender: &Address,
+        operator: &Address,
         owner: &Address,
         amount: &TokenAmount,
     ) -> Result<TokenAmount> {
@@ -359,14 +362,14 @@ where
             )));
         }
 
-        // owner and spender must exist to burn from
-        let spender = expect_id(spender)?;
+        // owner and operator must exist to burn from
+        let operator = expect_id(operator)?;
         let owner = self.resolve_to_id(owner)?;
 
         let new_amount = self.transaction(|state, bs| {
-            if spender != owner {
+            if operator != owner {
                 // attempt to use allowance and return early if not enough
-                state.attempt_use_allowance(&bs, spender, owner, amount)?;
+                state.attempt_use_allowance(&bs, operator, owner, amount)?;
             }
             // attempt to burn the requested amount
             let new_amount = state.change_balance_by(&bs, owner, &amount.clone().neg())?;
@@ -385,7 +388,7 @@ where
     ///
     /// - The requested value MUST be non-negative
     /// - The requested value MUST NOT exceed the sender's balance
-    /// - The receiver actor MUST implement a method called `tokens_received`, corresponding to the
+    /// - The receiving actor MUST implement a method called `tokens_received`, corresponding to the
     /// interface specified for FRC-XXX token receivers
     /// - The receiver's `tokens_received` hook MUST NOT abort
     ///
@@ -393,21 +396,21 @@ where
     /// - The senders's balance MUST decrease by the requested value
     /// - The receiver's balance MUST increase by the requested value
     ///
-    /// ## Spender equals owner address
-    /// If the spender is the owner address, they are implicitly approved to transfer an unlimited
+    /// ## Operator equals owner address
+    /// If the operator is the owner address, they are implicitly approved to transfer an unlimited
     /// amount of tokens (up to their balance)
     ///
-    /// ## Spender transferring on behalf of owner address
-    /// If the spender is transferring on behalf of the target token holder the following preconditions
+    /// ## Operator transferring on behalf of owner address
+    /// If the operator is transferring on behalf of the target token owner the following preconditions
     /// must be met on top of the general burn conditions:
-    /// - The spender MUST have an allowance not less than the requested value
+    /// - The operator MUST have an allowance not less than the requested value
     /// In addition to the general postconditions:
-    /// - The owner-spender allowance MUST decrease by the requested value
+    /// - The owner-operator allowance MUST decrease by the requested value
     pub fn transfer(
         &mut self,
-        spender: &Address,
-        owner: &Address,
-        receiver: &Address,
+        operator: &Address,
+        from: &Address,
+        to: &Address,
         amount: &TokenAmount,
         data: &RawBytes,
     ) -> Result<()> {
@@ -420,19 +423,19 @@ where
 
         let old_state = self.state.clone();
 
-        // spender must be an id address
-        let spender = expect_id(spender)?;
+        // operator must be an id address
+        let operator = expect_id(operator)?;
         // resolve owner and receiver
-        let owner_id = self.resolve_to_id(owner)?;
-        let receiver_id = self.resolve_to_id(receiver)?;
+        let from = self.resolve_to_id(from)?;
+        let to_id = self.resolve_to_id(to)?;
 
         self.transaction(|state, bs| {
-            if spender != owner_id {
+            if operator != from {
                 // attempt to use allowance and return early if not enough
-                state.attempt_use_allowance(&bs, spender, owner_id, amount)?;
+                state.attempt_use_allowance(&bs, operator, from, amount)?;
             }
-            state.change_balance_by(&bs, receiver_id, amount)?;
-            state.change_balance_by(&bs, owner_id, &amount.neg())?;
+            state.change_balance_by(&bs, to_id, amount)?;
+            state.change_balance_by(&bs, from, &amount.neg())?;
             Ok(())
         })?;
 
@@ -441,14 +444,14 @@ where
 
         // call receiver hook
         let params = TokenReceivedParams {
-            sender: spender,
-            from: owner_id,
-            to: receiver_id,
+            operator,
+            from,
+            to: to_id,
             amount: amount.clone(),
             data: data.clone(),
         };
         match self.msg.send(
-            receiver,
+            to,
             RECEIVER_HOOK_METHOD_NUM,
             &RawBytes::serialize(params)?,
             &TokenAmount::zero(),
@@ -461,9 +464,9 @@ where
                     self.state = old_state;
                     self.flush()?;
                     Err(TokenError::ReceiverHook {
-                        from: owner_id,
-                        to: receiver_id,
-                        sender: spender,
+                        operator: from,
+                        to: to_id,
+                        from: operator,
                         amount: amount.clone(),
                         exit_code: receipt.exit_code,
                     })
@@ -609,7 +612,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: TOKEN_ACTOR.id().unwrap(),
+                operator: TOKEN_ACTOR.id().unwrap(),
                 data: Default::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: ALICE.id().unwrap(),
@@ -633,7 +636,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: TOKEN_ACTOR.id().unwrap(),
+                operator: TOKEN_ACTOR.id().unwrap(),
                 data: Default::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: TREASURY.id().unwrap(),
@@ -651,7 +654,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: TOKEN_ACTOR.id().unwrap(),
+                operator: TOKEN_ACTOR.id().unwrap(),
                 data: Default::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: ALICE.id().unwrap(),
@@ -675,7 +678,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: TOKEN_ACTOR.id().unwrap(),
+                operator: TOKEN_ACTOR.id().unwrap(),
                 data: Default::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: token.get_id(&secp_address).unwrap(),
@@ -701,7 +704,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: TOKEN_ACTOR.id().unwrap(),
+                operator: TOKEN_ACTOR.id().unwrap(),
                 data: Default::default(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: token.get_id(&bls_address).unwrap(),
@@ -814,7 +817,7 @@ mod test {
         assert_eq!(
             token.msg.last_hook.borrow().clone().unwrap(),
             TokenReceivedParams {
-                sender: ALICE.id().unwrap(),
+                operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 amount: TokenAmount::from(60),
                 to: BOB.id().unwrap(),
@@ -842,7 +845,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: ALICE.id().unwrap(),
+                operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: BOB.id().unwrap(),
                 amount: TokenAmount::zero(),
@@ -862,7 +865,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: ALICE.id().unwrap(),
+                operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: ALICE.id().unwrap(),
                 amount: TokenAmount::zero(),
@@ -882,7 +885,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: ALICE.id().unwrap(),
+                operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: ALICE.id().unwrap(),
                 amount: TokenAmount::from(10),
@@ -907,7 +910,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: ALICE.id().unwrap(),
+                operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: token.get_id(secp_address).unwrap(),
                 amount: TokenAmount::from(10),
@@ -934,7 +937,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: ALICE.id().unwrap(),
+                operator: ALICE.id().unwrap(),
                 to: token.get_id(bls_address).unwrap(),
                 from: ALICE.id().unwrap(),
                 amount: TokenAmount::from(10),
@@ -1049,9 +1052,9 @@ mod test {
 
         // mint 100 for the owner
         token.mint(ALICE, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
-        // approve 100 spending allowance for spender
+        // approve 100 spending allowance for operator
         token.increase_allowance(ALICE, CAROL, &TokenAmount::from(100)).unwrap();
-        // spender makes transfer of 60 from owner -> receiver
+        // operator makes transfer of 60 from owner -> receiver
         token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &Default::default()).unwrap();
 
         // verify all balances are correct
@@ -1063,7 +1066,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: CAROL.id().unwrap(),
+                operator: CAROL.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: BOB.id().unwrap(),
                 amount: TokenAmount::from(60),
@@ -1072,10 +1075,10 @@ mod test {
         );
 
         // verify allowance is correct
-        let spender_allowance = token.allowance(ALICE, CAROL).unwrap();
-        assert_eq!(spender_allowance, TokenAmount::from(40));
+        let operator_allowance = token.allowance(ALICE, CAROL).unwrap();
+        assert_eq!(operator_allowance, TokenAmount::from(40));
 
-        // spender makes another transfer of 40 from owner -> self
+        // operator makes another transfer of 40 from owner -> self
         token.transfer(CAROL, ALICE, CAROL, &TokenAmount::from(40), &Default::default()).unwrap();
 
         // verify all balances are correct
@@ -1087,7 +1090,7 @@ mod test {
         assert_last_msg_eq(
             &token.msg,
             TokenReceivedParams {
-                sender: CAROL.id().unwrap(),
+                operator: CAROL.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: CAROL.id().unwrap(),
                 amount: TokenAmount::from(40),
@@ -1146,10 +1149,10 @@ mod test {
 
         // mint 100 for the owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
-        // approve only 40 spending allowance for spender
+        // approve only 40 spending allowance for operator
         token.increase_allowance(ALICE, CAROL, &TokenAmount::from(40)).unwrap();
-        // spender attempts makes transfer of 60 from owner -> receiver
-        // this is within the owner's balance but not within the spender's allowance
+        // operator attempts makes transfer of 60 from owner -> receiver
+        // this is within the owner's balance but not within the operator's allowance
         token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &Default::default()).unwrap_err();
 
         // verify all balances are correct
@@ -1168,14 +1171,14 @@ mod test {
         // mint 50 for the owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(50), &Default::default()).unwrap();
 
-        // allow 100 to be spent by spender
+        // allow 100 to be spent by operator
         token.increase_allowance(ALICE, BOB, &TokenAmount::from(100)).unwrap();
 
-        // spender attempts transfer 51 from owner -> spender
+        // operator attempts transfer 51 from owner -> operator
         // they have enough allowance, but not enough balance
         token.transfer(BOB, ALICE, BOB, &TokenAmount::from(51), &Default::default()).unwrap_err();
 
-        // attempt burn 51 by spender
+        // attempt burn 51 by operator
         token.burn(BOB, ALICE, &TokenAmount::from(51)).unwrap_err();
 
         // balances remained unchanged
