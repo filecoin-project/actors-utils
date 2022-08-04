@@ -6,7 +6,6 @@ macro_rules! match_method {
     (@match $method:expr, {$($body:tt)*}, $(,)*) => {
         match $method {
             $($body)*
-            _ => None // TODO: add a separate rule for user to specify this
         }
     };
     (@match $method:expr, {$($body:tt)*}, $p:literal => $e:expr, $($tail:tt)*) => {
@@ -16,6 +15,17 @@ macro_rules! match_method {
             {
                 $($body)*
                 $crate::method_hash!($p) => $e,
+            },
+            $($tail)*
+        }
+    };
+    (@match $method:expr, {$($body:tt)*}, _ => $e:expr, $($tail:tt)*) => {
+        match_method! {
+            @match
+            $method,
+            {
+                $($body)*
+                _ => $e,
             },
             $($tail)*
         }
