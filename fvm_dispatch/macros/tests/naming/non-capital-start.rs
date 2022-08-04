@@ -1,4 +1,4 @@
-use fvm_dispatch_macros::method_hash;
+use macros::method_hash;
 
 fn main() {
 	// should panic because the name starts with non-capital letter
