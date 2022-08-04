@@ -38,7 +38,7 @@ pub struct MethodResolver<T: Hasher> {
     hasher: T,
 }
 
-#[derive(Error, PartialEq, Debug)]
+#[derive(Error, PartialEq, Eq, Debug)]
 pub enum MethodNameErr {
     #[error("empty method name provided")]
     EmptyString,
@@ -48,7 +48,7 @@ pub enum MethodNameErr {
     IndeterminableId,
 }
 
-#[derive(Error, PartialEq, Debug)]
+#[derive(Error, PartialEq, Eq, Debug)]
 pub enum IllegalNameErr {
     #[error("method name doesn't start with capital letter")]
     NotCapitalStart,
