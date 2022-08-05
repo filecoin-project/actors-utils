@@ -194,9 +194,9 @@ where
                     self.state = old_state;
                     self.flush()?;
                     Err(TokenError::ReceiverHook {
-                        from: operator_id,
+                        operator: operator_id,
+                        from: self.msg.actor_id(),
                         to: owner_id,
-                        operator: self.msg.actor_id(),
                         amount: amount.clone(),
                         exit_code: receipt.exit_code,
                     })
@@ -464,9 +464,9 @@ where
                     self.state = old_state;
                     self.flush()?;
                     Err(TokenError::ReceiverHook {
-                        operator: from,
+                        operator,
+                        from,
                         to: to_id,
-                        from: operator,
                         amount: amount.clone(),
                         exit_code: receipt.exit_code,
                     })
@@ -499,6 +499,7 @@ mod test {
     use super::Token;
     use crate::receiver::types::TokenReceivedParams;
     use crate::runtime::messaging::FakeMessenger;
+    use crate::token::TokenError;
 
     /// Returns a static secp256k1 address
     fn secp_address() -> Address {
@@ -730,9 +731,20 @@ mod test {
 
         // force hook to abort
         token.msg.abort_next_send();
-        token
+        let err = token
             .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), &Default::default())
             .unwrap_err();
+
+        // check error shape
+        match err {
+            TokenError::ReceiverHook { from, to, operator, amount, exit_code: _exit_code } => {
+                assert_eq!(from, TOKEN_ACTOR.id().unwrap());
+                assert_eq!(to, TREASURY.id().unwrap());
+                assert_eq!(operator, TOKEN_ACTOR.id().unwrap());
+                assert_eq!(amount, TokenAmount::from(1_000_000));
+            }
+            _ => panic!("expected receiver hook error"),
+        };
 
         // state remained unchanged
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
@@ -952,9 +964,23 @@ mod test {
 
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
         token.msg.abort_next_send();
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), &Default::default()).unwrap_err();
+        let err = token
+            .transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), &Default::default())
+            .unwrap_err();
+
+        // check error shape
+        match err {
+            TokenError::ReceiverHook { from, to, operator, amount, exit_code: _exit_code } => {
+                assert_eq!(from, ALICE.id().unwrap());
+                assert_eq!(to, BOB.id().unwrap());
+                assert_eq!(operator, ALICE.id().unwrap());
+                assert_eq!(amount, TokenAmount::from(60));
+            }
+            _ => panic!("expected receiver hook error"),
+        };
 
         // balances unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
@@ -962,9 +988,21 @@ mod test {
 
         // transfer 60 from owner -> self, simulate receiver aborting the hook
         token.msg.abort_next_send();
-        token
+        let err = token
             .transfer(ALICE, ALICE, ALICE, &TokenAmount::from(60), &Default::default())
             .unwrap_err();
+
+        // check error shape
+        match err {
+            TokenError::ReceiverHook { from, to, operator, amount, exit_code: _exit_code } => {
+                assert_eq!(from, ALICE.id().unwrap());
+                assert_eq!(to, ALICE.id().unwrap());
+                assert_eq!(operator, ALICE.id().unwrap());
+                assert_eq!(amount, TokenAmount::from(60));
+            }
+            _ => panic!("expected receiver hook error"),
+        };
+
         // balances unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(0));
