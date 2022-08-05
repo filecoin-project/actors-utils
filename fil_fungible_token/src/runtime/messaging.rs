@@ -40,9 +40,9 @@ pub trait Messaging {
         value: &TokenAmount,
     ) -> Result<Receipt>;
 
-    /// Resolves the given address to its ID address form
+    /// Attempts to resolve the given address to its ID address form
     ///
-    /// Returns MessagingError::AddressNotInitialised if the address could not be resolved
+    /// Returns MessagingError::AddressNotResolved if the address could not be resolved
     fn resolve_id(&self, address: &Address) -> Result<ActorID>;
 
     /// Creates an account at a pubkey address and returns the ID address
