@@ -70,7 +70,7 @@ pub trait FrcXXXToken<E> {
     fn decrease_allowance(&mut self, params: ChangeAllowanceParams) -> Result<AllowanceReturn, E>;
 
     /// Set the allowance a operator has on the owner's account to zero
-    fn revoke_allowance(&self, params: RevokeAllowanceParams) -> Result<AllowanceReturn, E>;
+    fn revoke_allowance(&mut self, params: RevokeAllowanceParams) -> Result<AllowanceReturn, E>;
 
     /// Get the allowance between two addresses
     ///
@@ -78,7 +78,7 @@ pub trait FrcXXXToken<E> {
     /// address of the owner cannot be resolved, this method returns an error. If the owner can be
     /// resolved, but the operator address is not registered with an allowance, an implicit allowance
     /// of 0 is returned
-    fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn, E>;
+    fn allowance(&mut self, params: GetAllowanceParams) -> Result<AllowanceReturn, E>;
 
     /// Burn tokens from the caller's account, decreasing the total supply
     ///
@@ -86,10 +86,10 @@ pub trait FrcXXXToken<E> {
     /// - Any owner MUST be allowed to burn their own tokens
     /// - The balance of the owner MUST decrease by the amount burned
     /// - This method MUST revert if the burn amount is more than the owner's balance
-    fn burn(&self, params: BurnParams) -> Result<BurnReturn, E>;
+    fn burn(&mut self, params: BurnParams) -> Result<BurnReturn, E>;
 
     /// Transfer tokens from one account to another
-    fn transfer(&self, params: TransferParams) -> Result<TransferReturn, E>;
+    fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, E>;
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple)]
@@ -173,6 +173,7 @@ pub struct TransferParams {
     pub to: Address,
     #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
+    pub data: RawBytes,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple)]

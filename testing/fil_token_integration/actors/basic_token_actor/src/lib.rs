@@ -51,8 +51,9 @@ impl FrcXXXToken<RuntimeError> for BasicToken {
         params: ChangeAllowanceParams,
     ) -> Result<AllowanceReturn, RuntimeError> {
         let owner = caller_address();
-        let new_allowance = self.util.increase_allowance(&owner, &params.spender, &params.value)?;
-        Ok(AllowanceReturn { owner, spender: params.spender, value: new_allowance })
+        let new_allowance =
+            self.util.increase_allowance(&owner, &params.operator, &params.amount)?;
+        Ok(AllowanceReturn { owner, operator: params.operator, amount: new_allowance })
     }
 
     fn decrease_allowance(
@@ -60,8 +61,9 @@ impl FrcXXXToken<RuntimeError> for BasicToken {
         params: ChangeAllowanceParams,
     ) -> Result<AllowanceReturn, RuntimeError> {
         let owner = caller_address();
-        let new_allowance = self.util.decrease_allowance(&owner, &params.spender, &params.value)?;
-        Ok(AllowanceReturn { owner, spender: params.spender, value: new_allowance })
+        let new_allowance =
+            self.util.decrease_allowance(&owner, &params.operator, &params.amount)?;
+        Ok(AllowanceReturn { owner, operator: params.operator, amount: new_allowance })
     }
 
     fn revoke_allowance(
@@ -69,22 +71,22 @@ impl FrcXXXToken<RuntimeError> for BasicToken {
         params: RevokeAllowanceParams,
     ) -> Result<AllowanceReturn, RuntimeError> {
         let owner = caller_address();
-        self.util.revoke_allowance(&owner, &params.spender)?;
-        Ok(AllowanceReturn { owner, spender: params.spender, value: TokenAmount::zero() })
+        self.util.revoke_allowance(&owner, &params.operator)?;
+        Ok(AllowanceReturn { owner, operator: params.operator, amount: TokenAmount::zero() })
     }
 
-    fn allowance(&self, params: GetAllowanceParams) -> Result<AllowanceReturn, RuntimeError> {
-        let allowance = self.util.allowance(&params.owner, &params.spender)?;
-        Ok(AllowanceReturn { owner: params.owner, spender: params.spender, value: allowance })
+    fn allowance(&mut self, params: GetAllowanceParams) -> Result<AllowanceReturn, RuntimeError> {
+        let allowance = self.util.allowance(&params.owner, &params.operator)?;
+        Ok(AllowanceReturn { owner: params.owner, operator: params.operator, amount: allowance })
     }
 
     fn burn(&mut self, params: BurnParams) -> Result<BurnReturn, RuntimeError> {
         let spender = caller_address();
-        let remaining = self.util.burn(&spender, &params.owner, &params.value)?;
+        let remaining = self.util.burn(&spender, &params.owner, &params.amount)?;
         Ok(BurnReturn {
             by: spender,
             remaining_balance: remaining,
-            burnt: params.value.clone(),
+            burnt: params.amount.clone(),
             owner: params.owner,
         })
     }
@@ -95,14 +97,14 @@ impl FrcXXXToken<RuntimeError> for BasicToken {
             &caller_address(),
             &params.from,
             &params.to,
-            &params.value,
-            params.data.bytes(),
+            &params.amount,
+            &params.data,
         )?;
         Ok(TransferReturn {
             from: params.from,
             to: params.to,
             by: spender,
-            value: params.value.clone(),
+            amount: params.amount.clone(),
         })
     }
 }
@@ -212,7 +214,10 @@ pub fn invoke(params: u32) -> u32 {
                     // Mint
                     // This is an exmaple mint function which simply gives the caller 100 tokens
                     let minter = caller_address();
-                    token_actor.util.mint(&minter, &minter, &TokenAmount::from(100), &[]).unwrap();
+                    token_actor
+                        .util
+                        .mint(&minter, &minter, &TokenAmount::from(100), &Default::default())
+                        .unwrap();
                     token_actor.util.flush().unwrap();
                     NO_DATA_BLOCK_ID
                 }
