@@ -528,8 +528,9 @@ mod test {
             .0
     }
 
-    fn assert_last_msg_eq(messenger: &FakeMessenger, expected: TokenReceivedParams) {
-        let last_called = messenger.last_hook.borrow().clone().unwrap();
+    fn assert_last_hook_call_eq(messenger: &FakeMessenger, expected: TokenReceivedParams) {
+        let last_called = messenger.last_message.borrow().clone().unwrap();
+        let last_called: TokenReceivedParams = last_called.deserialize().unwrap();
         assert_eq!(last_called, expected);
     }
 
@@ -608,7 +609,7 @@ mod test {
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::zero(), &Default::default()).unwrap();
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: TOKEN_ACTOR.id().unwrap(),
@@ -632,7 +633,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(2_000_000));
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: TOKEN_ACTOR.id().unwrap(),
@@ -650,7 +651,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(3_000_000));
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: TOKEN_ACTOR.id().unwrap(),
@@ -674,7 +675,7 @@ mod test {
             .unwrap();
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: TOKEN_ACTOR.id().unwrap(),
@@ -700,7 +701,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(5_000_000));
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: TOKEN_ACTOR.id().unwrap(),
@@ -824,15 +825,15 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // check receiver hook was called with correct shape
-        assert_eq!(
-            token.msg.last_hook.borrow().clone().unwrap(),
+        assert_last_hook_call_eq(
+            &token.msg,
             TokenReceivedParams {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 amount: TokenAmount::from(60),
                 to: BOB.id().unwrap(),
                 data: Default::default(),
-            }
+            },
         );
 
         // cannot transfer a negative value
@@ -852,7 +853,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: ALICE.id().unwrap(),
@@ -872,7 +873,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: ALICE.id().unwrap(),
@@ -892,7 +893,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: ALICE.id().unwrap(),
@@ -917,7 +918,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: ALICE.id().unwrap(),
@@ -944,7 +945,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: ALICE.id().unwrap(),
@@ -1099,7 +1100,7 @@ mod test {
         assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::zero());
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: CAROL.id().unwrap(),
@@ -1123,7 +1124,7 @@ mod test {
         assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::from(40));
 
         // check receiver hook was called with correct shape
-        assert_last_msg_eq(
+        assert_last_hook_call_eq(
             &token.msg,
             TokenReceivedParams {
                 operator: CAROL.id().unwrap(),

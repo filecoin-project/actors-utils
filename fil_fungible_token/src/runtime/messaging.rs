@@ -12,8 +12,6 @@ use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
 use num_traits::Zero;
 use thiserror::Error;
 
-use crate::receiver::types::TokenReceivedParams;
-
 pub type Result<T> = std::result::Result<T, MessagingError>;
 
 #[derive(Error, Debug)]
@@ -95,7 +93,7 @@ impl Messaging for FvmMessenger {
 ///
 #[derive(Debug)]
 pub struct FakeMessenger {
-    pub last_hook: RefCell<Option<TokenReceivedParams>>,
+    pub last_message: RefCell<Option<RawBytes>>,
     address_resolver: RefCell<FakeAddressResolver>,
     actor_id: ActorID,
     abort_next_send: RefCell<bool>,
@@ -114,7 +112,7 @@ impl FakeMessenger {
         Self {
             actor_id,
             address_resolver: RefCell::new(FakeAddressResolver::new(first_usable_actor_id)),
-            last_hook: Default::default(),
+            last_message: Default::default(),
             abort_next_send: RefCell::new(false),
         }
     }
@@ -132,10 +130,12 @@ impl Messaging for FakeMessenger {
     fn send(
         &self,
         _to: &Address,
-        method: MethodNum,
+        _method: MethodNum,
         params: &RawBytes,
         _value: &TokenAmount,
     ) -> Result<Receipt> {
+        self.last_message.borrow_mut().replace(params.clone());
+
         if *self.abort_next_send.borrow() {
             self.abort_next_send.replace(false);
             return Ok(Receipt {
@@ -143,11 +143,6 @@ impl Messaging for FakeMessenger {
                 gas_used: 0,
                 return_data: Default::default(),
             });
-        }
-
-        if method == RECEIVER_HOOK_METHOD_NUM {
-            let hook_params = params.deserialize().unwrap();
-            self.last_hook.borrow_mut().replace(hook_params);
         }
 
         Ok(Receipt { exit_code: ExitCode::OK, return_data: Default::default(), gas_used: 0 })
