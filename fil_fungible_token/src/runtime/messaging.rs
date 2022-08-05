@@ -20,7 +20,9 @@ pub type Result<T> = std::result::Result<T, MessagingError>;
 pub enum MessagingError {
     #[error("fvm syscall error: `{0}`")]
     Syscall(#[from] ErrorNumber),
-    #[error("address not initialized: `{0}`")]
+    #[error("address could not be resolved: `{0}`")]
+    AddressNotResolved(Address),
+    #[error("address could not be initialized: `{0}`")]
     AddressNotInitialized(Address),
     #[error("ipld serialization error: `{0}`")]
     Ipld(#[from] IpldError),
@@ -77,7 +79,7 @@ impl Messaging for FvmMessenger {
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
-        actor::resolve_address(address).ok_or(MessagingError::AddressNotInitialized(*address))
+        actor::resolve_address(address).ok_or(MessagingError::AddressNotResolved(*address))
     }
 
     fn initialize_account(&self, address: &Address) -> Result<ActorID> {
@@ -195,7 +197,7 @@ impl FakeAddressResolver {
         // else resolve it if it is an id address
         match address.payload() {
             fvm_shared::address::Payload::ID(id) => Ok(*id),
-            _ => Err(MessagingError::AddressNotInitialized(*address)),
+            _ => Err(MessagingError::AddressNotResolved(*address)),
         }
     }
 

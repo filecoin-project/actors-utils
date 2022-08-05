@@ -118,9 +118,7 @@ where
     fn resolve_to_id(&self, address: &Address) -> MessagingResult<ActorID> {
         let id = match self.msg.resolve_id(address) {
             Ok(addr) => addr,
-            Err(MessagingError::AddressNotInitialized(_e)) => {
-                self.msg.initialize_account(address)?
-            }
+            Err(MessagingError::AddressNotResolved(_e)) => self.msg.initialize_account(address)?,
             Err(e) => return Err(e),
         };
         Ok(id)
@@ -228,7 +226,7 @@ where
 
         match owner {
             Ok(owner) => Ok(self.state.get_balance(&self.bs, owner)?),
-            Err(MessagingError::AddressNotInitialized(_)) => {
+            Err(MessagingError::AddressNotResolved(_)) => {
                 // uninitialized address has implicit zero balance
                 Ok(TokenAmount::zero())
             }
@@ -244,7 +242,7 @@ where
         let owner = self.get_id(owner);
         let owner = match owner {
             Ok(owner) => owner,
-            Err(MessagingError::AddressNotInitialized(_)) => {
+            Err(MessagingError::AddressNotResolved(_)) => {
                 // uninitialized address has implicit zero allowance
                 return Ok(TokenAmount::zero());
             }
@@ -254,7 +252,7 @@ where
         let operator = self.get_id(operator);
         let operator = match operator {
             Ok(operator) => operator,
-            Err(MessagingError::AddressNotInitialized(_)) => {
+            Err(MessagingError::AddressNotResolved(_)) => {
                 // uninitialized address has implicit zero allowance
                 return Ok(TokenAmount::zero());
             }
