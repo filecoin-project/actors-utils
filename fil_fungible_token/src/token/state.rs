@@ -29,11 +29,11 @@ pub enum StateError {
     #[error("negative balance caused by changing {owner:?}'s balance of {balance:?} by {delta:?}")]
     NegativeBalance { owner: ActorID, balance: TokenAmount, delta: TokenAmount },
     #[error(
-        "{spender:?} attempted to utilise {delta:?} of allowance {allowance:?} set by {owner:?}"
+        "{operator:?} attempted to utilise {delta:?} of allowance {allowance:?} set by {owner:?}"
     )]
     InsufficentAllowance {
         owner: ActorID,
-        spender: ActorID,
+        operator: ActorID,
         allowance: TokenAmount,
         delta: TokenAmount,
     },
@@ -54,7 +54,7 @@ pub struct TokenState {
 
     /// Map<ActorId, TokenAmount> of balances as a Hamt
     pub balances: Cid,
-    /// Map<ActorId, Map<ActorId, TokenAmount>> as a Hamt. Allowances are stored balances[owner][spender]
+    /// Map<ActorId, Map<ActorId, TokenAmount>> as a Hamt. Allowances are stored balances[owner][operator]
     pub allowances: Cid,
 }
 
@@ -180,19 +180,19 @@ impl TokenState {
         Ok(&self.supply)
     }
 
-    /// Get the allowance that an owner has approved for a spender
+    /// Get the allowance that an owner has approved for a operator
     ///
     /// If an existing allowance cannot be found, it is implicitly assumed to be zero
     pub fn get_allowance_between<BS: Blockstore>(
         &self,
         bs: &BS,
         owner: ActorID,
-        spender: ActorID,
+        operator: ActorID,
     ) -> Result<TokenAmount> {
         let owner_allowances = self.get_owner_allowance_map(bs, owner)?;
         match owner_allowances {
             Some(hamt) => {
-                let maybe_allowance = hamt.get(&spender)?;
+                let maybe_allowance = hamt.get(&operator)?;
                 if let Some(allowance) = maybe_allowance {
                     return Ok(allowance.clone().0);
                 }
@@ -202,17 +202,17 @@ impl TokenState {
         }
     }
 
-    /// Change the allowance between owner and spender by the specified delta
+    /// Change the allowance between owner and operator by the specified delta
     pub fn change_allowance_by<BS: Blockstore>(
         &mut self,
         bs: &BS,
         owner: ActorID,
-        spender: ActorID,
+        operator: ActorID,
         delta: &TokenAmount,
     ) -> Result<TokenAmount> {
         if delta.is_zero() {
             // This is a no-op as far as mutating state
-            return self.get_allowance_between(bs, owner, spender);
+            return self.get_allowance_between(bs, owner, operator);
         }
 
         let mut global_allowances_map = self.get_allowances_map(bs)?;
@@ -232,7 +232,7 @@ impl TokenState {
         };
 
         // calculate new allowance (max with zero)
-        let new_allowance = match allowance_map.get(&spender)? {
+        let new_allowance = match allowance_map.get(&operator)? {
             Some(existing_allowance) => existing_allowance.0.clone() + delta,
             None => (*delta).clone(),
         }
@@ -240,9 +240,9 @@ impl TokenState {
 
         // if the new allowance is zero, we can remove the entry from the state tree
         if new_allowance.is_zero() {
-            allowance_map.delete(&spender)?;
+            allowance_map.delete(&operator)?;
         } else {
-            allowance_map.set(spender, BigIntDe(new_allowance.clone()))?;
+            allowance_map.set(operator, BigIntDe(new_allowance.clone()))?;
         }
 
         // if the owner-allowance map is empty, remove it from the global allowances map
@@ -259,18 +259,18 @@ impl TokenState {
         Ok(new_allowance)
     }
 
-    /// Revokes an approved allowance by removing the entry from the owner-spender map
+    /// Revokes an approved allowance by removing the entry from the owner-operator map
     ///
     /// If that map becomes empty, it is removed from the root map.
     pub fn revoke_allowance<BS: Blockstore>(
         &mut self,
         bs: &BS,
         owner: ActorID,
-        spender: ActorID,
+        operator: ActorID,
     ) -> Result<()> {
         let allowance_map = self.get_owner_allowance_map(bs, owner)?;
         if let Some(mut map) = allowance_map {
-            map.delete(&spender)?;
+            map.delete(&operator)?;
             if map.is_empty() {
                 let mut root_allowance_map = self.get_allowances_map(bs)?;
                 root_allowance_map.delete(&owner)?;
@@ -292,32 +292,32 @@ impl TokenState {
     pub fn attempt_use_allowance<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        spender: u64,
+        operator: u64,
         owner: u64,
-        value: &TokenAmount,
+        amount: &TokenAmount,
     ) -> Result<TokenAmount> {
-        let current_allowance = self.get_allowance_between(bs, owner, spender)?;
+        let current_allowance = self.get_allowance_between(bs, owner, operator)?;
 
-        if value.is_zero() {
+        if amount.is_zero() {
             return Ok(current_allowance);
         }
 
-        if current_allowance.lt(value) {
+        if current_allowance.lt(amount) {
             return Err(StateError::InsufficentAllowance {
                 owner,
-                spender,
+                operator,
                 allowance: current_allowance,
-                delta: value.clone(),
+                delta: amount.clone(),
             });
         }
 
-        let new_allowance = current_allowance - value;
+        let new_allowance = current_allowance - amount;
 
         // TODO: helper function to set a new allowance and flush hamts
         let owner_allowances = self.get_owner_allowance_map(bs, owner)?;
         // to reach here, allowance must have been previously non zero; so safe to assume the map exists
         let mut owner_allowances = owner_allowances.unwrap();
-        owner_allowances.set(spender, BigIntDe(new_allowance.clone()))?;
+        owner_allowances.set(operator, BigIntDe(new_allowance.clone()))?;
         let mut allowance_map = self.get_allowances_map(bs)?;
         allowance_map.set(owner, owner_allowances.flush()?)?;
         self.allowances = allowance_map.flush()?;
@@ -411,36 +411,36 @@ mod test {
         let bs = &MemoryBlockstore::new();
         let mut state = TokenState::new(&bs).unwrap();
         let owner: ActorID = 1;
-        let spender: ActorID = 2;
+        let operator: ActorID = 2;
 
         // initial allowance is zero
-        let initial_allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        let initial_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(initial_allowance, BigInt::zero());
 
         // can set a positive allowance
         let delta = BigInt::from(100);
-        let ret = state.change_allowance_by(bs, owner, spender, &delta).unwrap();
+        let ret = state.change_allowance_by(bs, owner, operator, &delta).unwrap();
         assert_eq!(ret, delta);
-        let allowance_1 = state.get_allowance_between(bs, owner, spender).unwrap();
+        let allowance_1 = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(allowance_1, delta);
 
         // vice-versa allowance was unaffected
-        let reverse_allowance = state.get_allowance_between(bs, spender, owner).unwrap();
+        let reverse_allowance = state.get_allowance_between(bs, operator, owner).unwrap();
         assert_eq!(reverse_allowance, BigInt::zero());
 
         // can subtract an allowance
         let delta = BigInt::from(-50);
-        let ret = state.change_allowance_by(bs, owner, spender, &delta).unwrap();
+        let ret = state.change_allowance_by(bs, owner, operator, &delta).unwrap();
         assert_eq!(ret, BigInt::from(50));
-        let allowance_2 = state.get_allowance_between(bs, owner, spender).unwrap();
+        let allowance_2 = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(allowance_2, allowance_1 + delta);
         assert_eq!(allowance_2, BigInt::from(50));
 
         // allowance won't go negative
         let delta = BigInt::from(-100);
-        let ret = state.change_allowance_by(bs, owner, spender, &delta).unwrap();
+        let ret = state.change_allowance_by(bs, owner, operator, &delta).unwrap();
         assert_eq!(ret, BigInt::zero());
-        let allowance_3 = state.get_allowance_between(bs, owner, spender).unwrap();
+        let allowance_3 = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(allowance_3, BigInt::zero());
     }
 
@@ -449,23 +449,23 @@ mod test {
         let bs = &MemoryBlockstore::new();
         let mut state = TokenState::new(bs).unwrap();
         let owner: ActorID = 1;
-        let spender: ActorID = 2;
+        let operator: ActorID = 2;
 
         // set a positive allowance
         let delta = BigInt::from(100);
-        state.change_allowance_by(bs, owner, spender, &delta).unwrap();
+        state.change_allowance_by(bs, owner, operator, &delta).unwrap();
 
         // can consume an allowance
         let new_allowance =
-            state.attempt_use_allowance(bs, spender, owner, &BigInt::from(60)).unwrap();
+            state.attempt_use_allowance(bs, operator, owner, &BigInt::from(60)).unwrap();
         assert_eq!(new_allowance, BigInt::from(40));
-        let new_allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        let new_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(new_allowance, BigInt::from(40));
 
         // cannot consume more allowance than approved
-        state.attempt_use_allowance(bs, spender, owner, &BigInt::from(50)).unwrap_err();
+        state.attempt_use_allowance(bs, operator, owner, &BigInt::from(50)).unwrap_err();
         // allowance was unchanged
-        let new_allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        let new_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(new_allowance, BigInt::from(40));
     }
 
@@ -474,17 +474,17 @@ mod test {
         let bs = &MemoryBlockstore::new();
         let mut state = TokenState::new(bs).unwrap();
         let owner: ActorID = 1;
-        let spender: ActorID = 2;
+        let operator: ActorID = 2;
 
         // set a positive allowance
         let delta = BigInt::from(100);
-        state.change_allowance_by(bs, owner, spender, &delta).unwrap();
-        state.change_allowance_by(bs, owner, spender, &delta).unwrap();
-        let allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        state.change_allowance_by(bs, owner, operator, &delta).unwrap();
+        state.change_allowance_by(bs, owner, operator, &delta).unwrap();
+        let allowance = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(allowance, BigInt::from(200));
 
-        state.revoke_allowance(bs, owner, spender).unwrap();
-        let allowance = state.get_allowance_between(bs, owner, spender).unwrap();
+        state.revoke_allowance(bs, owner, operator).unwrap();
+        let allowance = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(allowance, BigInt::zero());
     }
 }
