@@ -988,7 +988,34 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::zero());
 
         // secp_address was initialized
-        assert!(token.get_id(secp_address).is_ok())
+        assert!(token.get_id(secp_address).is_ok());
+
+        let actor_address = &actor_address();
+        // transfers from actors fail with uninitializable
+        let err = token
+            .transfer(
+                actor_address,
+                actor_address,
+                ALICE,
+                &TokenAmount::zero(),
+                &Default::default(),
+            )
+            .unwrap_err();
+
+        if let TokenError::Messaging(MessagingError::AddressNotInitialized(e)) = err {
+            assert_eq!(e, *actor_address);
+        } else {
+            panic!("Expected AddressNotInitialized error");
+        }
+
+        // balances unchanged
+        assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
+        // supply unchanged
+        assert_eq!(token.total_supply(), TokenAmount::zero());
+
+        // actor address was not initialized
+        assert!(token.get_id(actor_address).is_err())
     }
 
     #[test]
