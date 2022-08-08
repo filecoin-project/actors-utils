@@ -8,6 +8,7 @@ use fvm_ipld_encoding::CborStore;
 use fvm_ipld_encoding::DAG_CBOR;
 use fvm_ipld_hamt::Error as HamtError;
 use fvm_ipld_hamt::Hamt;
+use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::bigint::Zero;
@@ -32,8 +33,8 @@ pub enum StateError {
         "{operator:?} attempted to utilise {delta:?} of allowance {allowance:?} set by {owner:?}"
     )]
     InsufficentAllowance {
-        owner: ActorID,
-        operator: ActorID,
+        owner: Address,
+        operator: Address,
         allowance: TokenAmount,
         delta: TokenAmount,
     },
@@ -304,8 +305,8 @@ impl TokenState {
 
         if current_allowance.lt(amount) {
             return Err(StateError::InsufficentAllowance {
-                owner,
-                operator,
+                owner: Address::new_id(owner),
+                operator: Address::new_id(operator),
                 allowance: current_allowance,
                 delta: amount.clone(),
             });

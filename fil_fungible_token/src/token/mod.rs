@@ -1,7 +1,7 @@
 mod state;
 mod types;
 
-use self::state::{StateError, TokenState};
+use self::state::{StateError as TokenStateError, TokenState};
 use crate::receiver::types::TokenReceivedParams;
 use crate::runtime::messaging::{Messaging, MessagingError};
 use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
@@ -23,7 +23,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum TokenError {
     #[error("error in underlying state {0}")]
-    State(#[from] StateError),
+    TokenState(#[from] TokenStateError),
     #[error("invalid negative: {0}")]
     InvalidNegative(String),
     #[error("error calling receiver hook: {0}")]
@@ -128,6 +128,43 @@ where
     /// if it wasn't found
     fn get_id(&self, address: &Address) -> MessagingResult<ActorID> {
         self.msg.resolve_id(address)
+    }
+
+    /// Calls the receiver hook, reverting the state if it aborts or there is a messaging error
+    fn call_receiver_hook_or_revert(
+        &mut self,
+        token_receiver: &Address,
+        params: TokenReceivedParams,
+        old_state: TokenState,
+    ) -> Result<()> {
+        let receipt = match self.msg.send(
+            token_receiver,
+            RECEIVER_HOOK_METHOD_NUM,
+            &RawBytes::serialize(params.clone())?,
+            &TokenAmount::zero(),
+        ) {
+            Ok(receipt) => receipt,
+            Err(e) => {
+                self.state = old_state;
+                self.flush()?;
+                return Err(e.into());
+            }
+        };
+
+        match receipt.exit_code {
+            ExitCode::OK => Ok(()),
+            abort_code => {
+                self.state = old_state;
+                self.flush()?;
+                Err(TokenError::ReceiverHook {
+                    from: params.from,
+                    to: params.to,
+                    operator: params.operator,
+                    amount: params.amount,
+                    exit_code: abort_code,
+                })
+            }
+        }
     }
 }
 
@@ -393,23 +430,26 @@ where
     /// - The requested value MUST be non-negative
     /// - The requested value MUST NOT exceed the sender's balance
     /// - The receiving actor MUST implement a method called `tokens_received`, corresponding to the
-    /// interface specified for FRC-XXX token receivers
-    /// - The receiver's `tokens_received` hook MUST NOT abort
-    ///
-    /// Upon successful transfer:
-    /// - The senders's balance MUST decrease by the requested value
-    /// - The receiver's balance MUST increase by the requested value
+    /// interface specified for FRC-XXX token receiver. If the receiving hook aborts, when called,
+    /// the transfer is discarded and this method returns an error
     ///
     /// ## Operator equals owner address
     /// If the operator is the owner address, they are implicitly approved to transfer an unlimited
     /// amount of tokens (up to their balance)
     ///
+    /// Upon successful transfer:
+    /// - The senders's balance decreases by the requested value
+    /// - The receiver's balance increases by the requested value
+    ///
     /// ## Operator transferring on behalf of owner address
     /// If the operator is transferring on behalf of the target token owner the following preconditions
-    /// must be met on top of the general burn conditions:
-    /// - The operator MUST have an allowance not less than the requested value
-    /// In addition to the general postconditions:
-    /// - The owner-operator allowance MUST decrease by the requested value
+    /// must be met on top of the general transfer conditions:
+    /// - The operator MUST be initialised AND have an allowance not less than the requested value
+    ///
+    /// Upon successful transfer:
+    /// - The owner-operator allowance decreases by the requested value
+    /// - The senders's balance decreases by the requested value
+    /// - The receiver's balance increases by the requested value
     pub fn transfer(
         &mut self,
         operator: &Address,
@@ -424,64 +464,75 @@ where
                 amount
             )));
         }
-
         let old_state = self.state.clone();
 
-        // resolve the involved actors
-        let operator = self.resolve_to_id(operator)?;
+        // owner-initiated transfer
+        if operator == from {
+            let from = self.resolve_to_id(from)?;
+            let to_id = self.resolve_to_id(to)?;
+            // skip allowance check for self-managed transfers
+            self.transaction(|state, bs| {
+                state.change_balance_by(&bs, to_id, amount)?;
+                state.change_balance_by(&bs, from, &amount.neg())?;
+                Ok(())
+            })?;
+
+            // call receiver hook
+            self.flush()?;
+            return self.call_receiver_hook_or_revert(
+                to,
+                TokenReceivedParams {
+                    operator: from,
+                    from,
+                    to: to_id,
+                    amount: amount.clone(),
+                    data: data.clone(),
+                },
+                old_state,
+            );
+        }
+
+        // operator-initiated transfer must have a resolvable operator
+        let operator = match self.get_id(operator) {
+            // if operator resolved, we can continue with other checks
+            Ok(id) => id,
+            // if we cannot resolve the operator, they are forbidden to transfer
+            Err(MessagingError::AddressNotResolved(operator)) => {
+                return Err(TokenError::TokenState(TokenStateError::InsufficentAllowance {
+                    operator,
+                    owner: *from,
+                    allowance: TokenAmount::zero(),
+                    delta: amount.clone(),
+                }));
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        // resolve the participating actors
         let from = self.resolve_to_id(from)?;
         let to_id = self.resolve_to_id(to)?;
 
+        // update token state
         self.transaction(|state, bs| {
-            if operator != from {
-                // attempt to use allowance and return early if not enough
-                state.attempt_use_allowance(&bs, operator, from, amount)?;
-            }
+            state.attempt_use_allowance(&bs, operator, from, amount)?;
             state.change_balance_by(&bs, to_id, amount)?;
             state.change_balance_by(&bs, from, &amount.neg())?;
             Ok(())
         })?;
 
-        // flush state as re-entrant call needs to see new balances
+        // flush state as receiver hook needs to see new balances
         self.flush()?;
-
-        // call receiver hook
-        let params = TokenReceivedParams {
-            operator,
-            from,
-            to: to_id,
-            amount: amount.clone(),
-            data: data.clone(),
-        };
-        match self.msg.send(
+        self.call_receiver_hook_or_revert(
             to,
-            RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(params)?,
-            &TokenAmount::zero(),
-        ) {
-            Ok(receipt) => {
-                // hook returned true, so we can continue
-                if receipt.exit_code.is_success() {
-                    Ok(())
-                } else {
-                    self.state = old_state;
-                    self.flush()?;
-                    Err(TokenError::ReceiverHook {
-                        operator,
-                        from,
-                        to: to_id,
-                        amount: amount.clone(),
-                        exit_code: receipt.exit_code,
-                    })
-                }
-            }
-            Err(e) => {
-                // error calling receiver hook, revert state
-                self.state = old_state;
-                self.flush()?;
-                Err(e.into())
-            }
-        }
+            TokenReceivedParams {
+                operator,
+                from,
+                to: to_id,
+                amount: amount.clone(),
+                data: data.clone(),
+            },
+            old_state,
+        )
     }
 }
 
@@ -492,9 +543,10 @@ mod test {
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
 
+    use super::state::StateError;
     use super::Token;
     use crate::receiver::types::TokenReceivedParams;
-    use crate::runtime::messaging::{FakeMessenger, MessagingError};
+    use crate::runtime::messaging::{FakeMessenger, Messaging, MessagingError};
     use crate::token::TokenError;
 
     /// Returns a static secp256k1 address
@@ -861,12 +913,19 @@ mod test {
                 data: Default::default(),
             },
         );
+    }
 
+    #[test]
+    fn it_transfers_to_self() {
+        let mut token = new_token();
+
+        // mint 100 for owner
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
         // transfer zero to self
         token.transfer(ALICE, ALICE, ALICE, &TokenAmount::zero(), &Default::default()).unwrap();
+
         // balances are unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
         // total supply is unchanged
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
@@ -885,8 +944,7 @@ mod test {
         // transfer value to self
         token.transfer(ALICE, ALICE, ALICE, &TokenAmount::from(10), &Default::default()).unwrap();
         // balances are unchanged
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
-        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
         // total supply is unchanged
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
@@ -904,19 +962,19 @@ mod test {
     }
 
     #[test]
-    fn it_transfers_to_pubkey_addresses() {
+    fn it_transfers_to_uninitialized_addresses() {
         let mut token = new_token();
 
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
 
-        // transfer to pubkey
+        // transfer to an uninitialized pubkey
         let secp_address = &secp_address();
         assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
         token
             .transfer(ALICE, ALICE, secp_address, &TokenAmount::from(10), &Default::default())
             .unwrap();
 
-        // alice supply dropped
+        // balances changed
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(90));
         assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::from(10));
 
@@ -930,32 +988,6 @@ mod test {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: token.get_id(secp_address).unwrap(),
-                amount: TokenAmount::from(10),
-                data: Default::default(),
-            },
-        );
-
-        // transfer to uninitialized pubkey
-        let bls_address = &bls_address();
-        assert_eq!(token.balance_of(bls_address).unwrap(), TokenAmount::zero());
-        token
-            .transfer(ALICE, ALICE, bls_address, &TokenAmount::from(10), &Default::default())
-            .unwrap();
-        // alice supply dropped
-        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(80));
-        // new address has balance
-        assert_eq!(token.balance_of(bls_address).unwrap(), TokenAmount::from(10));
-        assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::from(10));
-        // total supply is unchanged
-        assert_eq!(token.total_supply(), TokenAmount::from(100));
-
-        // check receiver hook was called with correct shape
-        assert_last_hook_call_eq(
-            &token.msg,
-            TokenReceivedParams {
-                operator: ALICE.id().unwrap(),
-                to: token.get_id(bls_address).unwrap(),
-                from: ALICE.id().unwrap(),
                 amount: TokenAmount::from(10),
                 data: Default::default(),
             },
@@ -1198,6 +1230,132 @@ mod test {
 
         // verify allowance is correct
         assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::zero());
+    }
+
+    #[test]
+    fn it_allows_delegated_transfer_by_resolvable_pubkey() {
+        let mut token = new_token();
+
+        // mint 100 for owner
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+
+        let initialised_address = &secp_address();
+        token.msg.initialize_account(initialised_address).unwrap();
+
+        // an initialised pubkey can transfer zero out of Alice balance
+        token
+            .transfer(
+                initialised_address,
+                ALICE,
+                initialised_address,
+                &TokenAmount::zero(),
+                &Default::default(),
+            )
+            .unwrap();
+        // balances remained same
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
+        assert_eq!(token.balance_of(initialised_address).unwrap(), TokenAmount::zero());
+        // supply remains same
+        assert_eq!(token.total_supply(), TokenAmount::from(100));
+
+        // initialised pubkey can has zero-allowance, so cannot transfer non-zero amount
+        token
+            .transfer(
+                initialised_address,
+                ALICE,
+                initialised_address,
+                &TokenAmount::from(1),
+                &Default::default(),
+            )
+            .unwrap_err();
+        // balances remained same
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
+        assert_eq!(token.balance_of(initialised_address).unwrap(), TokenAmount::zero());
+        // supply remains same
+        assert_eq!(token.total_supply(), TokenAmount::from(100));
+
+        // the pubkey can be given an allowance which it can use to transfer tokens
+        token.increase_allowance(ALICE, initialised_address, &TokenAmount::from(100)).unwrap();
+        token
+            .transfer(
+                initialised_address,
+                ALICE,
+                initialised_address,
+                &TokenAmount::from(1),
+                &Default::default(),
+            )
+            .unwrap();
+        // balances and allowance changed
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(99));
+        assert_eq!(token.balance_of(initialised_address).unwrap(), TokenAmount::from(1));
+        assert_eq!(token.allowance(ALICE, initialised_address).unwrap(), TokenAmount::from(99));
+        // supply remains same
+        assert_eq!(token.total_supply(), TokenAmount::from(100));
+    }
+
+    #[test]
+    fn it_disallows_delgated_transfer_by_uninitialised_pubkey() {
+        let mut token = new_token();
+
+        // mint 100 for owner
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+
+        // non-zero transfer by an uninitialized pubkey
+        let secp_address = &secp_address();
+        let err = token
+            .transfer(secp_address, ALICE, ALICE, &TokenAmount::from(10), &Default::default())
+            .unwrap_err();
+
+        // returns the implied insufficient allowance error
+        match err {
+            TokenError::TokenState(StateError::InsufficentAllowance {
+                owner,
+                operator,
+                allowance,
+                delta,
+            }) => {
+                assert_eq!(owner, *ALICE);
+                assert_eq!(operator, *secp_address);
+                assert_eq!(allowance, TokenAmount::zero());
+                assert_eq!(delta, TokenAmount::from(10));
+            }
+            e => panic!("Unexpected error {:?}", e),
+        }
+        // balances unchanged
+        assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
+        // supply unchanged
+        assert_eq!(token.total_supply(), TokenAmount::from(100));
+        // account wasn't created
+        assert!(token.msg.resolve_id(secp_address).is_err());
+
+        // zero transfer by an uninitialized pubkey
+        let err = token
+            .transfer(secp_address, ALICE, ALICE, &TokenAmount::zero(), &Default::default())
+            .unwrap_err();
+
+        // returns the implied insufficient allowance error even for zero transfers
+        match err {
+            TokenError::TokenState(StateError::InsufficentAllowance {
+                owner,
+                operator,
+                allowance,
+                delta,
+            }) => {
+                assert_eq!(owner, *ALICE);
+                assert_eq!(operator, *secp_address);
+                assert_eq!(allowance, TokenAmount::zero());
+                assert_eq!(delta, TokenAmount::zero());
+            }
+            e => panic!("Unexpected error {:?}", e),
+        }
+        // balances unchanged
+        assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
+        // supply unchanged
+        assert_eq!(token.total_supply(), TokenAmount::from(100));
+        // account wasn't created
+        assert!(token.msg.resolve_id(secp_address).is_err());
     }
 
     #[test]
