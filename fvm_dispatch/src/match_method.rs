@@ -8,6 +8,7 @@ macro_rules! match_method {
             $($body)*
         }
     };
+    // matches block with comma
     (@match $method:expr, {$($body:tt)*}, $p:literal => $e:expr, $($tail:tt)*) => {
         match_method! {
             @match
@@ -19,6 +20,19 @@ macro_rules! match_method {
             $($tail)*
         }
     };
+    // matches block without comma
+    (@match $method:expr, {$($body:tt)*}, $p:literal => $e:block $($tail:tt)*) => {
+        match_method! {
+            @match
+            $method,
+            {
+                $($body)*
+                $crate::method_hash!($p) => $e,
+            },
+            $($tail)*
+        }
+    };
+    // matches _ with a trailing comma
     (@match $method:expr, {$($body:tt)*}, _ => $e:expr, $($tail:tt)*) => {
         match_method! {
             @match
@@ -28,6 +42,17 @@ macro_rules! match_method {
                 _ => $e,
             },
             $($tail)*
+        }
+    };
+    // matches _ without a trailing comma (common if it's the last item)
+    (@match $method:expr, {$($body:tt)*}, _ => $e:expr) => {
+        match_method! {
+            @match
+            $method,
+            {
+                $($body)*
+                _ => $e,
+            },
         }
     };
 }
@@ -63,6 +88,22 @@ mod tests {
             "Constructor" => Some(1),
             "TokensReceived" => Some(2),
             _ => None,
+        });
+
+        assert_eq!(ret, Some(2));
+    }
+
+    #[test]
+    fn handle_optional_commas() {
+        let method_num = crate::method_hash!("TokensReceived");
+        let ret = match_method!(method_num, {
+            "Constructor" => Some(1),
+            "TokensReceived" => {
+                Some(2)
+            }
+            _ => {
+                None
+            }
         });
 
         assert_eq!(ret, Some(2));
