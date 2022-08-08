@@ -206,45 +206,18 @@ where
 
         // Update state so re-entrant calls see the changes
         self.flush()?;
-
         // Call receiver hook
-        let hook_params = TokenReceivedParams {
-            data: data.clone(),
-            from: self.msg.actor_id(),
-            to: owner_id,
-            operator: operator_id,
-            amount: amount.clone(),
-        };
-        match self.msg.send(
+        self.call_receiver_hook_or_revert(
             initial_owner,
-            RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(hook_params)?,
-            &TokenAmount::zero(),
-        ) {
-            Ok(receipt) => {
-                // hook returned true, so we can continue
-                if receipt.exit_code.is_success() {
-                    Ok(())
-                } else {
-                    // receiver aborted the transfer, so revert state
-                    self.state = old_state;
-                    self.flush()?;
-                    Err(TokenError::ReceiverHook {
-                        operator: operator_id,
-                        from: self.msg.actor_id(),
-                        to: owner_id,
-                        amount: amount.clone(),
-                        exit_code: receipt.exit_code,
-                    })
-                }
-            }
-            Err(e) => {
-                // error calling receiver hook, revert state
-                self.state = old_state;
-                self.flush()?;
-                Err(e.into())
-            }
-        }
+            TokenReceivedParams {
+                data: data.clone(),
+                from: self.msg.actor_id(),
+                to: owner_id,
+                operator: operator_id,
+                amount: amount.clone(),
+            },
+            old_state,
+        )
     }
 
     /// Gets the total number of tokens in existence
