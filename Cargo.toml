@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+    "dispatch_examples/greeter",
     "fvm_dispatch",
     "fvm_dispatch/hasher",
     "fvm_dispatch/macros",
