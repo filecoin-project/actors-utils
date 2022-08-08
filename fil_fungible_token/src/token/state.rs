@@ -32,7 +32,7 @@ pub enum StateError {
     #[error(
         "{operator:?} attempted to utilise {delta:?} of allowance {allowance:?} set by {owner:?}"
     )]
-    InsufficentAllowance {
+    InsufficientAllowance {
         owner: Address,
         operator: Address,
         allowance: TokenAmount,
@@ -304,7 +304,7 @@ impl TokenState {
         }
 
         if current_allowance.lt(amount) {
-            return Err(StateError::InsufficentAllowance {
+            return Err(StateError::InsufficientAllowance {
                 owner: Address::new_id(owner),
                 operator: Address::new_id(operator),
                 allowance: current_allowance,

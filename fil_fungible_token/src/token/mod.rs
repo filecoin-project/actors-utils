@@ -345,24 +345,26 @@ where
     /// ## For all burn operations
     /// - The requested value MUST be non-negative
     /// - The requested value MUST NOT exceed the target's balance
-    ///
-    /// Upon successful burn
-    /// - The target's balance MUST decrease by the requested value
-    /// - The total_supply MUST decrease by the requested value
+    /// - If the burn operation would result in a negative balance for the owner, the burn is
+    /// discarded and this method returns an error
     ///
     /// ## Operator is the owner address
     /// If the operator is the targeted address, they are implicitly approved to burn an unlimited
     /// amount of tokens (up to their balance)
     ///
+    /// Upon successful burn
+    /// - The target's balance decreases by the requested value
+    /// - The total_supply decreases by the requested value
+    ///
     /// ## Operator burning on behalf of another address
     /// If the operator is burning on behalf of the owner the following preconditions
     /// must be met on top of the general burn conditions:
     /// - The operator MUST have an allowance not less than the requested value
-    /// In addition to the general postconditions:
-    /// - The target-operator allowance MUST decrease by the requested value
     ///
-    /// If the burn operation would result in a negative balance for the owner, the burn is
-    /// discarded and this method returns an error
+    /// Upon successful burn
+    /// - The target-operator allowance decreases by the requested value
+    /// - The target's balance decreases by the requested value
+    /// - The total_supply decreases by the requested value
     pub fn burn(
         &mut self,
         operator: &Address,
@@ -376,24 +378,45 @@ where
             )));
         }
 
+        // owner-initiated burn
+        if operator == owner {
+            let owner = self.resolve_to_id(owner)?;
+            return self.transaction(|state, bs| {
+                // attempt to burn the requested amount
+                let new_amount = state.change_balance_by(&bs, owner, &amount.clone().neg())?;
+                // decrease total_supply
+                state.change_supply_by(&amount.neg())?;
+                Ok(new_amount)
+            });
+        }
+
         // instantiate the actors if required
-        let operator = self.resolve_to_id(operator)?;
+        let operator = match self.get_id(operator) {
+            Ok(operator) => operator,
+            Err(MessagingError::AddressNotResolved(addr)) => {
+                // if not resolved, implicit allowance zero is not permitted to burn, so return an
+                // insufficient allowance error
+                return Err(TokenStateError::InsufficientAllowance {
+                    owner: *owner,
+                    operator: addr,
+                    allowance: TokenAmount::zero(),
+                    delta: amount.clone(),
+                }
+                .into());
+            }
+            Err(e) => return Err(e.into()),
+        };
+        // resolve the owner
         let owner = self.resolve_to_id(owner)?;
 
-        let new_amount = self.transaction(|state, bs| {
-            if operator != owner {
-                // attempt to use allowance and return early if not enough
-                state.attempt_use_allowance(&bs, operator, owner, amount)?;
-            }
+        self.transaction(|state, bs| {
+            state.attempt_use_allowance(&bs, operator, owner, amount)?;
             // attempt to burn the requested amount
             let new_amount = state.change_balance_by(&bs, owner, &amount.clone().neg())?;
-
             // decrease total_supply
             state.change_supply_by(&amount.neg())?;
             Ok(new_amount)
-        })?;
-
-        Ok(new_amount)
+        })
     }
 
     /// Transfers an amount from one actor to another
@@ -471,7 +494,7 @@ where
             Ok(id) => id,
             // if we cannot resolve the operator, they are forbidden to transfer
             Err(MessagingError::AddressNotResolved(operator)) => {
-                return Err(TokenError::TokenState(TokenStateError::InsufficentAllowance {
+                return Err(TokenError::TokenState(TokenStateError::InsufficientAllowance {
                     operator,
                     owner: *from,
                     allowance: TokenAmount::zero(),
@@ -1081,9 +1104,7 @@ mod test {
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(50), &Default::default()).unwrap();
 
         // attempt transfer 51 from owner -> receiver
-        token
-            .transfer(ALICE, ALICE, BOB, &TokenAmount::from(51), &Default::default())
-            .expect_err("transfer should have failed");
+        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(51), &Default::default()).unwrap_err();
 
         // balances remained unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(50));
@@ -1281,7 +1302,7 @@ mod test {
 
         // returns the implied insufficient allowance error
         match err {
-            TokenError::TokenState(StateError::InsufficentAllowance {
+            TokenError::TokenState(StateError::InsufficientAllowance {
                 owner,
                 operator,
                 allowance,
@@ -1309,7 +1330,7 @@ mod test {
 
         // returns the implied insufficient allowance error even for zero transfers
         match err {
-            TokenError::TokenState(StateError::InsufficentAllowance {
+            TokenError::TokenState(StateError::InsufficientAllowance {
                 owner,
                 operator,
                 allowance,
@@ -1353,23 +1374,156 @@ mod test {
         // burner approval decreased
         assert_eq!(token.allowance(TREASURY, ALICE).unwrap(), TokenAmount::zero());
 
-        // disallows another delegated burn as approval is zero
+        // disallows another delegated burn as approval is now zero
         // burn the approved amount
-        token.burn(ALICE, TREASURY, &burn_amount).expect_err("unable to burn more than allowance");
+        token.burn(ALICE, TREASURY, &burn_amount).unwrap_err();
 
         // balances didn't change
         assert_eq!(token.total_supply(), TokenAmount::from(400_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
         assert_eq!(token.allowance(TREASURY, ALICE).unwrap(), TokenAmount::zero());
 
-        // cannot burn on uninitialized account
-        let initializable = bls_address();
-        token.burn(&initializable, &initializable, &TokenAmount::from(1)).unwrap_err();
+        // cannot burn again due to insufficient balance
+        let err = token.burn(ALICE, TREASURY, &burn_amount).unwrap_err();
+
+        // gets an allowance error
+        match err {
+            TokenError::TokenState(StateError::InsufficientAllowance {
+                owner,
+                operator,
+                allowance,
+                delta,
+            }) => {
+                assert_eq!(owner, *TREASURY);
+                assert_eq!(operator, *ALICE);
+                assert_eq!(allowance, TokenAmount::zero());
+                assert_eq!(delta, burn_amount);
+            }
+            e => panic!("unexpected error {:?}", e),
+        };
 
         // balances didn't change
         assert_eq!(token.total_supply(), TokenAmount::from(400_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
         assert_eq!(token.allowance(TREASURY, ALICE).unwrap(), TokenAmount::zero());
+    }
+
+    #[test]
+    fn it_allows_delegated_burns_by_resolvable_pubkeys() {
+        let mut token = new_token();
+
+        let mint_amount = TokenAmount::from(1_000_000);
+        let approval_amount = TokenAmount::from(600_000);
+        let burn_amount = TokenAmount::from(600_000);
+
+        // create a resolvable pubkey
+        let secp_address = &secp_address();
+        let secp_id = token.msg.initialize_account(secp_address).unwrap();
+
+        // mint the total amount
+        token.mint(TOKEN_ACTOR, TREASURY, &mint_amount, &Default::default()).unwrap();
+        // approve the burner to spend the allowance
+        token.increase_allowance(TREASURY, secp_address, &approval_amount).unwrap();
+        // burn the approved amount
+        token.burn(secp_address, TREASURY, &burn_amount).unwrap();
+
+        // total supply decreased
+        assert_eq!(token.total_supply(), TokenAmount::from(400_000));
+        // treasury balance decreased
+        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
+        // burner approval decreased
+        assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
+
+        // cannot burn non-zero again
+        let err = token.burn(secp_address, TREASURY, &burn_amount).unwrap_err();
+        // gets an allowance error
+        match err {
+            TokenError::TokenState(StateError::InsufficientAllowance {
+                owner,
+                operator,
+                allowance,
+                delta,
+            }) => {
+                assert_eq!(owner, *TREASURY);
+                assert_eq!(operator, Address::new_id(secp_id));
+                assert_eq!(allowance, TokenAmount::zero());
+                assert_eq!(delta, burn_amount);
+            }
+            e => panic!("unexpected error {:?}", e),
+        };
+        // balances unchanged
+        assert_eq!(token.total_supply(), TokenAmount::from(400_000));
+        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
+        assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
+
+        // but can burn zero
+        let res = token.burn(secp_address, TREASURY, &TokenAmount::zero());
+        // balances unchanged
+        assert!(res.is_ok());
+        assert_eq!(token.total_supply(), TokenAmount::from(400_000));
+        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
+        assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
+    }
+
+    #[test]
+    fn it_disallows_delegated_burns_by_uninitialised_pubkeys() {
+        let mut token = new_token();
+
+        let mint_amount = TokenAmount::from(1_000_000);
+        let burn_amount = TokenAmount::from(600_000);
+
+        // create a resolvable pubkey
+        let secp_address = &secp_address();
+
+        // mint the total amount
+        token.mint(TOKEN_ACTOR, TREASURY, &mint_amount, &Default::default()).unwrap();
+
+        // cannot burn non-zero
+        let err = token.burn(secp_address, TREASURY, &burn_amount).unwrap_err();
+        // gets an allowance error
+        match err {
+            TokenError::TokenState(StateError::InsufficientAllowance {
+                owner,
+                operator,
+                allowance,
+                delta,
+            }) => {
+                assert_eq!(owner, *TREASURY);
+                assert_eq!(operator, *secp_address);
+                assert_eq!(allowance, TokenAmount::zero());
+                assert_eq!(delta, burn_amount);
+            }
+            e => panic!("unexpected error {:?}", e),
+        };
+        // balances unchanged
+        assert_eq!(token.total_supply(), mint_amount);
+        assert_eq!(token.balance_of(TREASURY).unwrap(), mint_amount);
+        assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
+
+        // also cannot burn zero
+        let err = token.burn(secp_address, TREASURY, &TokenAmount::zero()).unwrap_err();
+        // gets an allowance error
+        match err {
+            TokenError::TokenState(StateError::InsufficientAllowance {
+                owner,
+                operator,
+                allowance,
+                delta,
+            }) => {
+                assert_eq!(owner, *TREASURY);
+                assert_eq!(operator, *secp_address);
+                assert_eq!(allowance, TokenAmount::zero());
+                assert_eq!(delta, TokenAmount::zero());
+            }
+            e => panic!("unexpected error {:?}", e),
+        };
+        // balances unchanged
+        assert_eq!(token.total_supply(), mint_amount);
+        assert_eq!(token.balance_of(TREASURY).unwrap(), mint_amount);
+        assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
+
+        // account was not initialised
+        assert!(token.msg.resolve_id(secp_address).is_err());
     }
 
     #[test]
