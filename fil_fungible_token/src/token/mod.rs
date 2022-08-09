@@ -30,7 +30,7 @@ type Result<T> = std::result::Result<T, TokenError>;
 /// Library functions that implement core FRC-??? standards
 ///
 /// Holds injectable services to access/interface with IPLD/FVM layer.
-pub struct Token<BS, MSG>
+pub struct Token<'st, BS, MSG>
 where
     BS: Blockstore,
     MSG: Messaging,
@@ -40,7 +40,7 @@ where
     /// Minimal interface to call methods on other actors (i.e. receiver hooks)
     msg: MSG,
     /// In-memory cache of the state tree
-    state: TokenState,
+    state: &'st mut TokenState,
     /// Minimum granularity of token amounts.
     /// All balances and amounts must be a multiple of this granularity.
     /// Set to 1 for standard 18-dp precision, TOKEN_PRECISION for whole units only, or some
@@ -48,54 +48,37 @@ where
     granularity: u64,
 }
 
-impl<BS, MSG> Token<BS, MSG>
+impl<'st, BS, MSG> Token<'st, BS, MSG>
 where
     BS: Blockstore,
     MSG: Messaging,
 {
-    /// Creates a new token instance using the given blockstore and creates a new empty state tree
+    /// Creates a new clean token state instance
     ///
-    /// Returns a Token handle that can be used to interact with the token state tree and the Cid
-    /// of the state tree root
-    pub fn create(bs: BS, msg: MSG, granularity: u64) -> Result<(Self, Cid)> {
-        let init_state = TokenState::new(&bs)?;
-        let cid = init_state.save(&bs)?;
-        let token = Self { bs, msg, state: init_state, granularity };
-        Ok((token, cid))
+    /// This should be wrapped in a Token handle for convenience. Must be flushed to the blockstore
+    /// explicitly to persist changes
+    pub fn create_state(bs: &BS) -> Result<TokenState> {
+        Ok(TokenState::new(bs)?)
     }
 
-    /// For an already initialised state tree, loads the state tree from the blockstore and returns
-    /// a Token handle to interact with it
-    pub fn load(bs: BS, msg: MSG, state_cid: Cid, granularity: u64) -> Result<Self> {
-        let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, msg, state, granularity })
+    /// Wrap an existing token state
+    pub fn wrap(bs: BS, msg: MSG, granularity: u64, state: &'st mut TokenState) -> Self {
+        Self { bs, msg, granularity, state }
     }
 
-    /// Passes a token instance to a callback, mutating a provided token state reference if
-    /// the callback succeeds.  
-    // NOTE: this is a bit awkward for read-only callers.
-    // Does a Token and TokenMut trait separation make sense?
-    pub fn with<F, R, E>(
-        bs: BS,
-        msg: MSG,
-        state: &mut TokenState,
-        granularity: u64,
-        f: F,
-    ) -> std::result::Result<R, E>
-    where
-        F: FnOnce(&mut Self) -> std::result::Result<R, E>,
-    {
-        // This is an inefficient implementation that clones the state twice.
-        // But if the token held a reference rather than ownership, would be clean.
-        let mut token = Token { bs, msg, state: state.clone(), granularity };
-        let ret = f(&mut token)?;
-        *state = token.state;
-        Ok(ret)
+    /// For an already initialised state tree, loads the state tree from the blockstore at a Cid
+    pub fn load_state(bs: &BS, state_cid: &Cid) -> Result<TokenState> {
+        Ok(TokenState::load(bs, state_cid)?)
     }
 
     /// Flush state and return Cid for root
     pub fn flush(&mut self) -> Result<Cid> {
         Ok(self.state.save(&self.bs)?)
+    }
+
+    /// Get a reference to the wrapped state tree
+    pub fn state(&self) -> &TokenState {
+        self.state
     }
 
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
@@ -110,12 +93,12 @@ where
         let mut mutable_state = self.state.clone();
         let res = f(&mut mutable_state, &self.bs)?;
         // if closure didn't error, save state
-        self.state = mutable_state;
+        *self.state = mutable_state;
         Ok(res)
     }
 }
 
-impl<BS, MSG> Token<BS, MSG>
+impl<'st, BS, MSG> Token<'st, BS, MSG>
 where
     BS: Blockstore,
     MSG: Messaging,
@@ -137,8 +120,9 @@ where
         // init the owner account as allowance and balance checks are not performed for minting
         let owner_id = self.resolve_or_init(initial_owner)?;
 
-        // Increase the balance of the actor and increase total supply
         let old_state = self.state.clone();
+
+        // Increase the balance of the actor and increase total supply
         self.transaction(|state, bs| {
             state.change_balance_by(&bs, owner_id, amount)?;
             state.change_supply_by(amount)?;
@@ -148,17 +132,42 @@ where
         // Update state so re-entrant calls see the changes
         self.flush()?;
         // Call receiver hook
-        self.call_receiver_hook_or_revert(
+        let hook_params = TokenReceivedParams {
+            data: data.clone(),
+            from: self.msg.actor_id(),
+            to: owner_id,
+            operator: operator_id,
+            amount: amount.clone(),
+        };
+        match self.msg.send(
             initial_owner,
-            TokenReceivedParams {
-                data: data.clone(),
-                from: self.msg.actor_id(),
-                to: owner_id,
-                operator: operator_id,
-                amount: amount.clone(),
-            },
-            old_state,
-        )
+            RECEIVER_HOOK_METHOD_NUM,
+            &RawBytes::serialize(hook_params)?,
+            &TokenAmount::zero(),
+        ) {
+            Ok(receipt) => {
+                // hook returned true, so we can continue
+                if receipt.exit_code.is_success() {
+                    Ok(())
+                } else {
+                    *self.state = old_state;
+                    self.flush()?;
+                    Err(TokenError::ReceiverHook {
+                        operator: operator_id,
+                        from: self.msg.actor_id(),
+                        to: owner_id,
+                        amount: amount.clone(),
+                        exit_code: receipt.exit_code,
+                    })
+                }
+            }
+            Err(e) => {
+                // error calling receiver hook, revert state
+                *self.state = old_state;
+                self.flush()?;
+                Err(e.into())
+            }
+        }
     }
 
     /// Gets the total number of tokens in existence
@@ -512,7 +521,7 @@ where
     }
 }
 
-impl<BS, MSG> Token<BS, MSG>
+impl<'st, BS, MSG> Token<'st, BS, MSG>
 where
     BS: Blockstore,
     MSG: Messaging,
@@ -575,7 +584,7 @@ where
         ) {
             Ok(receipt) => receipt,
             Err(e) => {
-                self.state = old_state;
+                *self.state = old_state;
                 self.flush()?;
                 return Err(e.into());
             }
@@ -584,7 +593,7 @@ where
         match receipt.exit_code {
             ExitCode::OK => Ok(()),
             abort_code => {
-                self.state = old_state;
+                *self.state = old_state;
                 self.flush()?;
                 Err(TokenError::ReceiverHook {
                     from: params.from,
@@ -630,12 +639,19 @@ mod test {
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
 
-    use super::state::StateError;
-    use super::Token;
     use crate::receiver::types::TokenReceivedParams;
     use crate::runtime::messaging::{FakeMessenger, Messaging, MessagingError};
+    use crate::token::state::StateError;
     use crate::token::state::TokenState;
+    use crate::token::Token;
     use crate::token::TokenError;
+
+    fn new_token(
+        bs: MemoryBlockstore,
+        state: &mut TokenState,
+    ) -> Token<MemoryBlockstore, FakeMessenger> {
+        Token::wrap(bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), 1, state)
+    }
 
     /// Returns a static secp256k1 address
     fn secp_address() -> Address {
@@ -660,16 +676,6 @@ mod test {
     const BOB: &Address = &Address::new_id(4);
     const CAROL: &Address = &Address::new_id(5);
 
-    fn new_token(granularity: u64) -> Token<MemoryBlockstore, FakeMessenger> {
-        Token::create(
-            MemoryBlockstore::default(),
-            FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6),
-            granularity,
-        )
-        .unwrap()
-        .0
-    }
-
     fn assert_last_hook_call_eq(messenger: &FakeMessenger, expected: TokenReceivedParams) {
         let last_called = messenger.last_message.borrow().clone().unwrap();
         let last_called: TokenReceivedParams = last_called.deserialize().unwrap();
@@ -677,11 +683,38 @@ mod test {
     }
 
     #[test]
+    fn it_wraps_a_previously_loaded_state_tree() {
+        struct ActorState {
+            token_state: TokenState,
+        }
+
+        // simulate the token state being a node in a larger state tree
+        let bs = MemoryBlockstore::default();
+        let mut actor_state =
+            ActorState { token_state: Token::<_, FakeMessenger>::create_state(&bs).unwrap() };
+
+        // wrap the token state, moving it into a TokenHandle
+        let mut token = Token::wrap(
+            &bs,
+            FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6),
+            1,
+            &mut actor_state.token_state,
+        );
+
+        token.mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1), &Default::default()).unwrap();
+
+        let state = token.state();
+        // gets a read-only state
+        assert_eq!(state.supply, TokenAmount::from(1));
+    }
+
+    #[test]
     fn it_instantiates_and_persists() {
         // create a new token
         let bs = MemoryBlockstore::new();
-        let (mut token, _) =
-            Token::create(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), 1).unwrap();
+        let mut state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token =
+            Token::wrap(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), 1, &mut state);
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -694,44 +727,38 @@ mod test {
         let cid = token.flush().unwrap();
 
         // the returned cid can be used to reference the same token state
+        let mut state = Token::<_, FakeMessenger>::load_state(&bs, &cid).unwrap();
         let token2 =
-            Token::load(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), cid, 1).unwrap();
+            Token::wrap(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), 1, &mut state);
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
     #[test]
-    fn it_mutates_state_with() {
+    fn it_mutates_externally_loaded_state() {
         let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
         let msg = FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6);
-        Token::with(&bs, msg, &mut state, 1, |token| {
-            token.mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(100), &Default::default())
-        })
-        .unwrap();
+        let mut state = TokenState::new(&bs).unwrap();
+        let mut token = Token::wrap(&bs, msg, 1, &mut state);
 
+        // mutate state via the handle
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+
+        // visible via the handle
+        assert_eq!(token.total_supply(), TokenAmount::from(100));
+
+        // the underlying state was mutated
         assert_eq!(state.supply, TokenAmount::from(100));
-    }
+        assert_eq!(state.get_balance(&bs, ALICE.id().unwrap()).unwrap(), TokenAmount::from(100));
 
-    #[test]
-    fn it_doesnt_mutates_state_when_with_fails() {
-        let bs = MemoryBlockstore::new();
-        let mut state = TokenState::new(&bs).unwrap();
-        let msg = FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6);
-        Token::with(&bs, msg, &mut state, 1, |token| {
-            token
-                .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(100), &Default::default())
-                .unwrap();
-            let ret: Result<(), String> = Err("".to_string());
-            ret
-        })
-        .unwrap_err();
-
-        assert_eq!(state.supply, TokenAmount::from(0)); // no change
+        // note: its not allowed here to use the token handle anymore given that we have read from state
+        // assert_eq!(token.total_supply(), TokenAmount::from(100));
     }
 
     #[test]
     fn it_provides_atomic_transactions() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // entire transaction succeeds
         token
@@ -759,7 +786,9 @@ mod test {
 
     #[test]
     fn it_mints() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
         token
@@ -900,7 +929,9 @@ mod test {
 
     #[test]
     fn it_fails_to_mint_if_receiver_hook_aborts() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // force hook to abort
         token.msg.abort_next_send();
@@ -927,7 +958,9 @@ mod test {
 
     #[test]
     fn it_burns() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(600_000);
@@ -972,7 +1005,9 @@ mod test {
 
     #[test]
     fn it_fails_to_burn_below_zero() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(2_000_000);
@@ -987,7 +1022,9 @@ mod test {
 
     #[test]
     fn it_transfers() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1044,7 +1081,9 @@ mod test {
 
     #[test]
     fn it_transfers_to_self() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1090,7 +1129,9 @@ mod test {
 
     #[test]
     fn it_transfers_to_uninitialized_addresses() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
 
@@ -1123,7 +1164,9 @@ mod test {
 
     #[test]
     fn it_transfers_from_uninitialized_addresses() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         let secp_address = &secp_address();
         // non-zero transfer should fail
@@ -1180,7 +1223,9 @@ mod test {
 
     #[test]
     fn it_fails_to_transfer_when_receiver_hook_aborts() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1231,7 +1276,9 @@ mod test {
 
     #[test]
     fn it_fails_to_transfer_when_insufficient_balance() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // mint 50 for the owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(50), &Default::default()).unwrap();
@@ -1247,7 +1294,9 @@ mod test {
 
     #[test]
     fn it_tracks_allowances() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // set allowance between Alice and Carol as 100
         let new_allowance =
@@ -1307,7 +1356,9 @@ mod test {
 
     #[test]
     fn it_allows_delegated_transfer() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for the owner
         token.mint(ALICE, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1367,7 +1418,9 @@ mod test {
 
     #[test]
     fn it_allows_delegated_transfer_by_resolvable_pubkey() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1429,7 +1482,9 @@ mod test {
 
     #[test]
     fn it_disallows_delgated_transfer_by_uninitialised_pubkey() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1494,7 +1549,9 @@ mod test {
 
     #[test]
     fn it_allows_delegated_burns() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         let mint_amount = TokenAmount::from(1_000_000);
         let approval_amount = TokenAmount::from(600_000);
@@ -1550,7 +1607,9 @@ mod test {
 
     #[test]
     fn it_allows_delegated_burns_by_resolvable_pubkeys() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         let mint_amount = TokenAmount::from(1_000_000);
         let approval_amount = TokenAmount::from(600_000);
@@ -1608,7 +1667,9 @@ mod test {
 
     #[test]
     fn it_disallows_delegated_burns_by_uninitialised_pubkeys() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(600_000);
@@ -1669,7 +1730,9 @@ mod test {
 
     #[test]
     fn it_fails_to_transfer_when_insufficient_allowance() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for the owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1691,7 +1754,9 @@ mod test {
 
     #[test]
     fn it_doesnt_use_allowance_when_insufficent_balance() {
-        let mut token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
 
         // mint 50 for the owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(50), &Default::default()).unwrap();
@@ -1715,7 +1780,10 @@ mod test {
 
     #[test]
     fn it_enforces_granularity() {
-        let mut token = new_token(100);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
+        token.granularity = 100;
 
         // Minting
         token
@@ -1763,7 +1831,10 @@ mod test {
 
     #[test]
     fn it_doesnt_initialize_accounts_when_default_values_can_be_returned() {
-        let token = new_token(1);
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let token = new_token(bs, &mut token_state);
+
         let secp = &secp_address();
         let bls = &bls_address();
 
@@ -1814,14 +1885,16 @@ mod test {
 
     #[test]
     fn test_account_combinations() {
-        fn setup_accounts(
+        fn setup_accounts<'st>(
             operator: &Address,
             from: &Address,
             allowance: &TokenAmount,
             balance: &TokenAmount,
-        ) -> Token<MemoryBlockstore, FakeMessenger> {
+            bs: MemoryBlockstore,
+            state: &'st mut TokenState,
+        ) -> Token<'st, MemoryBlockstore, FakeMessenger> {
             // fresh token state
-            let mut token = new_token(1);
+            let mut token = new_token(bs, state);
             // set allowance if not zero (avoiding unecessary account instantiation)
             if !allowance.is_zero() && !(from == operator) {
                 token.increase_allowance(from, operator, allowance).unwrap();
@@ -1841,11 +1914,15 @@ mod test {
             transfer: u32,
             behaviour: &str,
         ) {
+            let bs = MemoryBlockstore::default();
+            let mut token_state = TokenState::new(&bs).unwrap();
             let mut token = setup_accounts(
                 operator,
                 from,
                 &TokenAmount::from(allowance),
                 &TokenAmount::from(balance),
+                bs,
+                &mut token_state,
             );
             let res = token.transfer(
                 operator,
