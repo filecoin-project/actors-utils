@@ -17,6 +17,7 @@ use fvm_shared::error::ExitCode;
 use fvm_shared::ActorID;
 use num_traits::Signed;
 use num_traits::Zero;
+use std::cell::{Ref, RefCell};
 use std::ops::Neg;
 use thiserror::Error;
 
@@ -64,7 +65,7 @@ where
     /// Minimal interface to call methods on other actors (i.e. receiver hooks)
     msg: MSG,
     /// In-memory cache of the state tree
-    state: TokenState,
+    state: RefCell<TokenState>,
 }
 
 impl<BS, MSG> Token<BS, MSG>
@@ -79,7 +80,7 @@ where
     pub fn new(bs: BS, msg: MSG) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
-        let token = Self { bs, msg, state: init_state };
+        let token = Self { bs, msg, state: RefCell::new(init_state) };
         Ok((token, cid))
     }
 
@@ -87,12 +88,22 @@ where
     /// a Token handle to interact with it
     pub fn load(bs: BS, msg: MSG, state_cid: Cid) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, msg, state })
+        Ok(Self { bs, msg, state: RefCell::new(state) })
+    }
+
+    /// Wrap an existing loaded state tree in a Token handle
+    pub fn wrap(bs: BS, msg: MSG, token_state: TokenState) -> Self {
+        Self { bs, msg, state: RefCell::new(token_state) }
+    }
+
+    /// Expose the underlying state tree
+    pub fn borrow_state(&self) -> Ref<TokenState> {
+        self.state.borrow()
     }
 
     /// Flush state and return Cid for root
     pub fn flush(&mut self) -> Result<Cid> {
-        Ok(self.state.save(&self.bs)?)
+        Ok(self.state.borrow().save(&self.bs)?)
     }
 
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
@@ -104,10 +115,10 @@ where
     where
         F: FnOnce(&mut TokenState, &BS) -> Result<Res>,
     {
-        let mut mutable_state = self.state.clone();
+        let mut mutable_state = self.state.borrow().clone();
         let res = f(&mut mutable_state, &self.bs)?;
         // if closure didn't error, save state
-        self.state = mutable_state;
+        self.state.replace(mutable_state);
         Ok(res)
     }
 
@@ -216,7 +227,7 @@ where
     /// This equals the sum of `balance_of` called on all addresses. This equals sum of all
     /// successful `mint` calls minus the sum of all successful `burn`/`burn_from` calls
     pub fn total_supply(&self) -> TokenAmount {
-        self.state.supply.clone()
+        self.state.borrow().supply.clone()
     }
 
     /// Returns the balance associated with a particular address
@@ -227,7 +238,7 @@ where
         let owner = self.get_id(owner);
 
         match owner {
-            Ok(owner) => Ok(self.state.get_balance(&self.bs, owner)?),
+            Ok(owner) => Ok(self.state.borrow().get_balance(&self.bs, owner)?),
             Err(MessagingError::AddressNotInitialized(_)) => {
                 // uninitialized address has implicit zero balance
                 Ok(TokenAmount::zero())
@@ -261,7 +272,7 @@ where
             Err(e) => return Err(e.into()),
         };
 
-        let allowance = self.state.get_allowance_between(&self.bs, owner, operator)?;
+        let allowance = self.state.borrow().get_allowance_between(&self.bs, owner, operator)?;
         Ok(allowance)
     }
 
@@ -285,7 +296,8 @@ where
 
         let owner = expect_id(owner)?;
         let operator = self.resolve_to_id(operator)?;
-        let new_amount = self.state.change_allowance_by(&self.bs, owner, operator, delta)?;
+        let new_amount =
+            self.state.borrow_mut().change_allowance_by(&self.bs, owner, operator, delta)?;
 
         Ok(new_amount)
     }
@@ -312,7 +324,7 @@ where
         let owner = expect_id(owner)?;
         let operator = self.resolve_to_id(operator)?;
         let new_allowance =
-            self.state.change_allowance_by(&self.bs, owner, operator, &delta.neg())?;
+            self.state.borrow_mut().change_allowance_by(&self.bs, owner, operator, &delta.neg())?;
 
         Ok(new_allowance)
     }
@@ -321,7 +333,7 @@ where
     pub fn revoke_allowance(&mut self, owner: &Address, operator: &Address) -> Result<()> {
         let owner = expect_id(owner)?;
         let operator = self.resolve_to_id(operator)?;
-        self.state.revoke_allowance(&self.bs, owner, operator)?;
+        self.state.borrow_mut().revoke_allowance(&self.bs, owner, operator)?;
 
         Ok(())
     }
@@ -499,6 +511,7 @@ mod test {
     use super::Token;
     use crate::receiver::types::TokenReceivedParams;
     use crate::runtime::messaging::FakeMessenger;
+    use crate::token::state::TokenState;
     use crate::token::TokenError;
 
     /// Returns a static secp256k1 address
@@ -533,6 +546,29 @@ mod test {
     fn assert_last_msg_eq(messenger: &FakeMessenger, expected: TokenReceivedParams) {
         let last_called = messenger.last_hook.borrow().clone().unwrap();
         assert_eq!(last_called, expected);
+    }
+
+    #[test]
+    fn it_wraps_a_previously_loaded_state_tree() {
+        struct ActorState {
+            token_state: TokenState,
+        }
+
+        // simulate the token state being a node in a larger state tree
+        let bs = MemoryBlockstore::default();
+        let actor_state = ActorState { token_state: TokenState::new(&bs).unwrap() };
+
+        // wrap the token state, moving it into a TokenHandle
+        let mut token = Token::wrap(
+            &bs,
+            FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6),
+            actor_state.token_state,
+        );
+
+        token.mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1), &Default::default()).unwrap();
+        // gets a read-only state
+        let state = token.borrow_state();
+        assert_eq!(state.supply, TokenAmount::from(1));
     }
 
     #[test]
