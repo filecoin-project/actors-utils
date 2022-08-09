@@ -8,10 +8,10 @@ build: install-toolchain
 
 check: install-toolchain
 	cargo fmt --check
-	cargo clippy --workspace --all-targets --all-features -- -D warnings
+	cargo clippy --workspace -- -D warnings
 
 check-build: check
-	cargo build --workspace --all-targets --all-features
+	cargo build --workspace
 
 test: install-toolchain
 	cargo test
