@@ -515,8 +515,21 @@ where
             let to_id = self.resolve_or_init(to)?;
             // skip allowance check for self-managed transfers
             self.transaction(|state, bs| {
-                state.change_balance_by(&bs, to_id, amount)?;
-                state.change_balance_by(&bs, from, &amount.neg())?;
+                // don't change balance if to == from, but must check that the transfer doesn't exceed balance
+                if to_id == from {
+                    let balance = state.get_balance(&bs, from)?;
+                    if balance.lt(amount) {
+                        return Err(TokenStateError::InsufficientBalance {
+                            owner: from,
+                            balance,
+                            delta: amount.clone().neg(),
+                        }
+                        .into());
+                    }
+                } else {
+                    state.change_balance_by(&bs, to_id, amount)?;
+                    state.change_balance_by(&bs, from, &amount.neg())?;
+                }
                 Ok(())
             })?;
 
@@ -570,9 +583,22 @@ where
 
         // update token state
         self.transaction(|state, bs| {
-            state.attempt_use_allowance(&bs, operator_id, from, amount)?;
-            state.change_balance_by(&bs, to_id, amount)?;
-            state.change_balance_by(&bs, from, &amount.neg())?;
+            state.attempt_use_allowance(&bs, operator, from, amount)?;
+            // don't change balance if to == from, but must check that the transfer doesn't exceed balance
+            if to_id == from {
+                let balance = state.get_balance(&bs, from)?;
+                if balance.lt(amount) {
+                    return Err(TokenStateError::InsufficientBalance {
+                        owner: from,
+                        balance,
+                        delta: amount.clone().neg(),
+                    }
+                    .into());
+                }
+            } else {
+                state.change_balance_by(&bs, to_id, amount)?;
+                state.change_balance_by(&bs, from, &amount.neg())?;
+            }
             Ok(())
         })?;
 
@@ -598,6 +624,7 @@ mod test {
     use fvm_shared::address::{Address, BLS_PUB_LEN};
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
+    use std::ops::Neg;
 
     use super::state::StateError;
     use super::Token;
@@ -1236,6 +1263,10 @@ mod test {
 
         // mint 100 for the owner
         token.mint(ALICE, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+
+        // operator can't transfer without allowance, even if amount is zero
+        token.transfer(CAROL, ALICE, ALICE, &TokenAmount::zero(), &Default::default()).unwrap_err();
+
         // approve 100 spending allowance for operator
         token.increase_allowance(ALICE, CAROL, &TokenAmount::from(100)).unwrap();
         // operator makes transfer of 60 from owner -> receiver
@@ -1296,7 +1327,7 @@ mod test {
         let initialised_address = &secp_address();
         token.msg.initialize_account(initialised_address).unwrap();
 
-        // an initialised pubkey can transfer zero out of Alice balance
+        // an initialised pubkey cannot transfer zero out of Alice balance without an allowance
         token
             .transfer(
                 initialised_address,
@@ -1306,6 +1337,7 @@ mod test {
                 &Default::default(),
             )
             .unwrap_err();
+
         // balances remained same
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
         assert_eq!(token.balance_of(initialised_address).unwrap(), TokenAmount::zero());
@@ -1516,8 +1548,9 @@ mod test {
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
         assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
 
-        // but can burn zero
+        // cannot burn zero now that allowance is zero
         let res = token.burn(secp_address, TREASURY, &TokenAmount::zero());
+
         // balances unchanged
         assert!(res.is_err());
         assert_eq!(token.total_supply(), TokenAmount::from(400_000));
@@ -1679,6 +1712,158 @@ mod test {
         } else {
             panic!("expected AddressNotResolved error");
         }
+    }
+
+    #[test]
+    fn test_account_combinations() {
+        fn setup_accounts(
+            operator: &Address,
+            from: &Address,
+            allowance: &TokenAmount,
+            balance: &TokenAmount,
+        ) -> Token<MemoryBlockstore, FakeMessenger> {
+            // fresh token state
+            let mut token = new_token();
+            // set allowance if not zero (avoiding unecessary account instantiation)
+            if !allowance.is_zero() && !(from == operator) {
+                token.increase_allowance(from, operator, allowance).unwrap();
+            }
+            // set balance if not zero (avoiding unecessary account insantiation)
+            if !balance.is_zero() {
+                token.mint(from, from, balance, &Default::default()).unwrap();
+            }
+            token
+        }
+
+        fn assert_behaviour(
+            operator: &Address,
+            from: &Address,
+            allowance: u32,
+            balance: u32,
+            transfer: u32,
+            behaviour: &str,
+        ) {
+            let mut token = setup_accounts(
+                operator,
+                from,
+                &TokenAmount::from(allowance),
+                &TokenAmount::from(balance),
+            );
+            let res = token.transfer(
+                operator,
+                from,
+                operator,
+                &TokenAmount::from(transfer),
+                &Default::default(),
+            );
+
+            match behaviour {
+                "OK" => res.expect("expected transfer to succeed"),
+                "ALLOWANCE_ERR" => {
+                    let err = res.unwrap_err();
+                    if let TokenError::TokenState(StateError::InsufficientAllowance {
+                        // can't match addresses as may be pubkey or ID (though they would resolve to the same)
+                        owner: _,
+                        operator: _,
+                        allowance: a,
+                        delta,
+                    }) = err
+                    {
+                        assert_eq!(a, TokenAmount::from(allowance));
+                        assert_eq!(delta, TokenAmount::from(transfer));
+                    } else {
+                        panic!("unexpected error {:?}", err);
+                    }
+                }
+                "BALANCE_ERR" => {
+                    let err = res.unwrap_err();
+                    if let TokenError::TokenState(StateError::InsufficientBalance {
+                        owner,
+                        balance: b,
+                        delta,
+                    }) = err
+                    {
+                        assert_eq!(owner, token.msg.resolve_id(from).unwrap());
+                        assert_eq!(delta, TokenAmount::from(transfer).neg());
+                        assert_eq!(b, TokenAmount::from(balance));
+                    } else {
+                        panic!("unexpected error {:?}", err);
+                    }
+                }
+                "ADDRESS_ERR" => {
+                    let err = res.unwrap_err();
+                    if let TokenError::Messaging(MessagingError::AddressNotInitialized(addr)) = err
+                    {
+                        assert!((addr == *operator) || (addr == *from));
+                    } else {
+                        panic!("unexpected error {:?}", err);
+                    }
+                }
+                _ => panic!("test case not implemented"),
+            }
+        }
+
+        // distinct resolvable address operates on resolvable address
+        assert_behaviour(ALICE, BOB, 0, 0, 0, "ALLOWANCE_ERR");
+        assert_behaviour(ALICE, BOB, 0, 0, 1, "ALLOWANCE_ERR");
+        assert_behaviour(ALICE, BOB, 0, 1, 0, "ALLOWANCE_ERR");
+        assert_behaviour(ALICE, BOB, 0, 1, 1, "ALLOWANCE_ERR");
+        assert_behaviour(ALICE, BOB, 1, 0, 0, "OK");
+        assert_behaviour(ALICE, BOB, 1, 0, 1, "BALANCE_ERR");
+        assert_behaviour(ALICE, BOB, 1, 1, 0, "OK");
+        assert_behaviour(ALICE, BOB, 1, 1, 1, "OK");
+
+        // initialisable (but uninitialised) address operates on resolved address
+        assert_behaviour(&secp_address(), BOB, 0, 0, 0, "ALLOWANCE_ERR");
+        assert_behaviour(&secp_address(), BOB, 0, 0, 1, "ALLOWANCE_ERR");
+        assert_behaviour(&secp_address(), BOB, 0, 1, 0, "ALLOWANCE_ERR");
+        assert_behaviour(&secp_address(), BOB, 0, 1, 1, "ALLOWANCE_ERR");
+        // impossible to have non-zero allowance specified for uninitialised address
+
+        // resolvable address operates on initialisable address
+        assert_behaviour(BOB, &secp_address(), 0, 0, 0, "ALLOWANCE_ERR");
+        assert_behaviour(BOB, &secp_address(), 0, 0, 1, "ALLOWANCE_ERR");
+        // impossible to have uninitialised address have a balance
+        // impossible to have non-zero allowance specified by an uninitialised address
+
+        // distinct uninitialised address operates on uninitialised address
+        assert_behaviour(&bls_address(), &secp_address(), 0, 0, 0, "ALLOWANCE_ERR");
+        assert_behaviour(&bls_address(), &secp_address(), 0, 0, 1, "ALLOWANCE_ERR");
+        // impossible to have uninitialised address have a balance
+        // impossible to have non-zero allowance specified by an uninitialised address
+
+        // distinct actor address operates on actor address
+        assert_behaviour(&Address::new_actor(&[1]), &actor_address(), 0, 0, 0, "ALLOWANCE_ERR");
+        assert_behaviour(&Address::new_actor(&[1]), &actor_address(), 0, 0, 1, "ALLOWANCE_ERR");
+        // impossible for actor to have balance (for now)
+        // impossible for actor to have allowance (for now)
+
+        // actor addresses are currently never initialisable, so they have different errors to pubkey addresses
+        // the error here is from attempting to call the receiver hook on an uninitialised address
+        // id address operates on actor address
+        assert_behaviour(ALICE, &actor_address(), 0, 0, 0, "ADDRESS_ERR");
+        assert_behaviour(ALICE, &actor_address(), 0, 0, 1, "ADDRESS_ERR");
+        // impossible for actor to have balance (for now)
+        // impossible for actor to have allowance (for now)
+        // even the same actor will fail to transfer to itself
+        assert_behaviour(&actor_address(), &actor_address(), 0, 0, 0, "ADDRESS_ERR");
+        assert_behaviour(&actor_address(), &actor_address(), 0, 0, 1, "ADDRESS_ERR");
+
+        // transfers should never fail with allowance err when the operator is the owner
+        // all allowance err should be replaced with successes or balance errs
+        assert_behaviour(ALICE, ALICE, 0, 0, 0, "OK");
+        assert_behaviour(ALICE, ALICE, 0, 0, 1, "BALANCE_ERR");
+        assert_behaviour(ALICE, ALICE, 0, 1, 0, "OK");
+        assert_behaviour(ALICE, ALICE, 0, 1, 1, "OK");
+        assert_behaviour(ALICE, ALICE, 1, 0, 0, "OK");
+        assert_behaviour(ALICE, ALICE, 1, 0, 1, "BALANCE_ERR");
+        assert_behaviour(ALICE, ALICE, 1, 1, 0, "OK");
+        assert_behaviour(ALICE, ALICE, 1, 1, 1, "OK");
+        // pubkey to pubkey
+        assert_behaviour(&secp_address(), &secp_address(), 0, 0, 0, "OK");
+        assert_behaviour(&secp_address(), &secp_address(), 0, 0, 1, "BALANCE_ERR");
+        assert_behaviour(&bls_address(), &bls_address(), 0, 0, 0, "OK");
+        assert_behaviour(&bls_address(), &bls_address(), 0, 0, 1, "BALANCE_ERR");
     }
 
     // TODO: test for re-entrancy bugs by implementing a MethodCaller that calls back on the token contract
