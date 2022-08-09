@@ -1,5 +1,5 @@
-mod state;
-mod types;
+pub mod state;
+pub mod types;
 
 use self::state::{StateError, TokenState};
 use crate::receiver::types::TokenReceivedParams;
