@@ -583,7 +583,7 @@ where
 
         // update token state
         self.transaction(|state, bs| {
-            state.attempt_use_allowance(&bs, operator, from, amount)?;
+            state.attempt_use_allowance(&bs, operator_id, from, amount)?;
             // don't change balance if to == from, but must check that the transfer doesn't exceed balance
             if to_id == from {
                 let balance = state.get_balance(&bs, from)?;
@@ -1838,14 +1838,14 @@ mod test {
         // impossible for actor to have balance (for now)
         // impossible for actor to have allowance (for now)
 
-        // actor addresses are currently never initialisable, so they have different errors to pubkey addresses
-        // the error here is from attempting to call the receiver hook on an uninitialised address
+        // actor addresses are currently never initialisable, but may be in the future, so it returns allowance errors to mirror pubkey behaviour
         // id address operates on actor address
-        assert_behaviour(ALICE, &actor_address(), 0, 0, 0, "ADDRESS_ERR");
-        assert_behaviour(ALICE, &actor_address(), 0, 0, 1, "ADDRESS_ERR");
+        assert_behaviour(ALICE, &actor_address(), 0, 0, 0, "ALLOWANCE_ERR");
+        assert_behaviour(ALICE, &actor_address(), 0, 0, 1, "ALLOWANCE_ERR");
         // impossible for actor to have balance (for now)
         // impossible for actor to have allowance (for now)
-        // even the same actor will fail to transfer to itself
+        // currently the same actor will fail to transfer to itself, here it fails with an address error as for self transfers, we
+        // attempt to resolve the "from" address but currently that's not possible
         assert_behaviour(&actor_address(), &actor_address(), 0, 0, 0, "ADDRESS_ERR");
         assert_behaviour(&actor_address(), &actor_address(), 0, 0, 1, "ADDRESS_ERR");
 
