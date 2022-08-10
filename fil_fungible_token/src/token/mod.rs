@@ -4,6 +4,7 @@ use cid::Cid;
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::Error as SerializationError;
 use fvm_ipld_encoding::RawBytes;
+use fvm_sdk::sys::ErrorNumber;
 use fvm_shared::address::Address;
 use fvm_shared::address::Error as AddressError;
 use fvm_shared::econ::TokenAmount;
@@ -58,6 +59,53 @@ pub enum TokenError {
     Serialization(#[from] SerializationError),
     #[error("error in state invariants {0}")]
     StateInvariant(#[from] StateInvariantError),
+}
+
+impl From<TokenError> for ExitCode {
+    fn from(error: TokenError) -> Self {
+        match error {
+            TokenError::ReceiverHook { from: _, to: _, operator: _, amount: _, exit_code } => {
+                exit_code
+            }
+            TokenError::InvalidIdAddress { address: _, source: _ } => ExitCode::USR_NOT_FOUND,
+            TokenError::Serialization(_) => ExitCode::USR_SERIALIZATION,
+            TokenError::InvalidNegative(_) => ExitCode::USR_ILLEGAL_ARGUMENT,
+            TokenError::State(state_error) => match state_error {
+                StateError::IpldHamt(_) | StateError::Serialization(_) => {
+                    ExitCode::USR_SERIALIZATION
+                }
+                StateError::MissingState(_) => ExitCode::USR_ILLEGAL_STATE,
+                StateError::NegativeBalance { balance: _, delta: _, owner: _ }
+                | StateError::InsufficentAllowance {
+                    owner: _,
+                    operator: _,
+                    allowance: _,
+                    delta: _,
+                } => ExitCode::USR_FORBIDDEN,
+                StateError::NegativeTotalSupply { supply: _, delta: _ } => ExitCode::USR_FORBIDDEN,
+            },
+            TokenError::Messaging(messaging_error) => match messaging_error {
+                MessagingError::Syscall(e) => match e {
+                    ErrorNumber::IllegalArgument => ExitCode::USR_ILLEGAL_ARGUMENT,
+                    ErrorNumber::Forbidden | ErrorNumber::IllegalOperation => {
+                        ExitCode::USR_FORBIDDEN
+                    }
+                    ErrorNumber::AssertionFailed => ExitCode::USR_ASSERTION_FAILED,
+                    ErrorNumber::InsufficientFunds => ExitCode::USR_INSUFFICIENT_FUNDS,
+                    ErrorNumber::IllegalCid
+                    | ErrorNumber::NotFound
+                    | ErrorNumber::InvalidHandle => ExitCode::USR_NOT_FOUND,
+                    ErrorNumber::Serialization | ErrorNumber::IllegalCodec => {
+                        ExitCode::USR_SERIALIZATION
+                    }
+                    ErrorNumber::LimitExceeded => ExitCode::USR_UNSPECIFIED,
+                    _ => unreachable!(),
+                },
+                MessagingError::AddressNotInitialized(_) => ExitCode::USR_NOT_FOUND,
+                MessagingError::Ipld(_) => ExitCode::USR_SERIALIZATION,
+            },
+        }
+    }
 }
 
 type Result<T> = std::result::Result<T, TokenError>;
