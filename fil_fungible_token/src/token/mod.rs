@@ -20,8 +20,8 @@ use crate::token::TokenError::InvalidGranularity;
 
 use self::state::{StateError as TokenStateError, TokenState};
 
-mod state;
-mod types;
+pub mod state;
+pub mod types;
 
 /// Ratio of integral units to interpretation as standard token units, as given by FRC-XXXX.
 /// Aka "18 decimals".
@@ -90,7 +90,7 @@ where
     ///
     /// Returns a Token handle that can be used to interact with the token state tree and the Cid
     /// of the state tree root
-    pub fn new(bs: BS, msg: MSG, granularity: u64) -> Result<(Self, Cid)> {
+    pub fn create(bs: BS, msg: MSG, granularity: u64) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
         let token = Self { bs, msg, state: init_state, granularity };
@@ -102,6 +102,28 @@ where
     pub fn load(bs: BS, msg: MSG, state_cid: Cid, granularity: u64) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
         Ok(Self { bs, msg, state, granularity })
+    }
+
+    /// Passes a token instance to a callback, mutating a provided token state reference if
+    /// the callback succeeds.  
+    // NOTE: this is a bit awkward for read-only callers.
+    // Does a Token and TokenMut trait separation make sense?
+    pub fn with<F, R, E>(
+        bs: BS,
+        msg: MSG,
+        state: &mut TokenState,
+        granularity: u64,
+        f: F,
+    ) -> std::result::Result<R, E>
+    where
+        F: FnOnce(&mut Self) -> std::result::Result<R, E>,
+    {
+        // This is an inefficient implementation that clones the state twice.
+        // But if the token held a reference rather than ownership, would be clean.
+        let mut token = Token { bs, msg, state: state.clone(), granularity };
+        let ret = f(&mut token)?;
+        *state = token.state;
+        Ok(ret)
     }
 
     /// Flush state and return Cid for root
@@ -631,6 +653,7 @@ mod test {
     use super::Token;
     use crate::receiver::types::TokenReceivedParams;
     use crate::runtime::messaging::{FakeMessenger, Messaging, MessagingError};
+    use crate::token::state::TokenState;
     use crate::token::TokenError;
 
     /// Returns a static secp256k1 address
@@ -657,7 +680,7 @@ mod test {
     const CAROL: &Address = &Address::new_id(5);
 
     fn new_token(granularity: u64) -> Token<MemoryBlockstore, FakeMessenger> {
-        Token::new(
+        Token::create(
             MemoryBlockstore::default(),
             FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6),
             granularity,
@@ -677,7 +700,7 @@ mod test {
         // create a new token
         let bs = MemoryBlockstore::new();
         let (mut token, _) =
-            Token::new(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), 1).unwrap();
+            Token::create(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), 1).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -693,6 +716,36 @@ mod test {
         let token2 =
             Token::load(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), cid, 1).unwrap();
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
+    }
+
+    #[test]
+    fn it_mutates_state_with() {
+        let bs = MemoryBlockstore::new();
+        let mut state = TokenState::new(&bs).unwrap();
+        let msg = FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6);
+        Token::with(&bs, msg, &mut state, 1, |token| {
+            token.mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(100), &Default::default())
+        })
+        .unwrap();
+
+        assert_eq!(state.supply, TokenAmount::from(100));
+    }
+
+    #[test]
+    fn it_doesnt_mutates_state_when_with_fails() {
+        let bs = MemoryBlockstore::new();
+        let mut state = TokenState::new(&bs).unwrap();
+        let msg = FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6);
+        Token::with(&bs, msg, &mut state, 1, |token| {
+            token
+                .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(100), &Default::default())
+                .unwrap();
+            let ret: Result<(), String> = Err("".to_string());
+            ret
+        })
+        .unwrap_err();
+
+        assert_eq!(state.supply, TokenAmount::from(0)); // no change
     }
 
     #[test]
