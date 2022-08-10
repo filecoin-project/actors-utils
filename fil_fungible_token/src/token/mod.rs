@@ -1,10 +1,4 @@
-mod state;
-mod types;
-
-use self::state::{StateError as TokenStateError, TokenState};
-use crate::receiver::types::TokenReceivedParams;
-use crate::runtime::messaging::{Messaging, MessagingError};
-use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
+use std::ops::{Neg, Rem};
 
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore;
@@ -17,15 +11,30 @@ use fvm_shared::error::ExitCode;
 use fvm_shared::ActorID;
 use num_traits::Signed;
 use num_traits::Zero;
-use std::ops::Neg;
 use thiserror::Error;
+
+use crate::receiver::types::TokenReceivedParams;
+use crate::runtime::messaging::{Messaging, MessagingError};
+use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
+use crate::token::TokenError::InvalidGranularity;
+
+use self::state::{StateError as TokenStateError, TokenState};
+
+mod state;
+mod types;
+
+/// Ratio of integral units to interpretation as standard token units, as given by FRC-XXXX.
+/// Aka "18 decimals".
+pub const TOKEN_PRECISION: i64 = 1_000_000_000_000_000_000;
 
 #[derive(Error, Debug)]
 pub enum TokenError {
     #[error("error in underlying state {0}")]
     TokenState(#[from] TokenStateError),
-    #[error("invalid negative: {0}")]
-    InvalidNegative(String),
+    #[error("value {amount:?} for {name:?} must be non-negative")]
+    InvalidNegative { name: &'static str, amount: TokenAmount },
+    #[error("amount {amount:?} for {name:?} must be a multiple of {granularity:?}")]
+    InvalidGranularity { name: &'static str, amount: TokenAmount, granularity: u64 },
     #[error("error calling receiver hook: {0}")]
     Messaging(#[from] MessagingError),
     #[error("receiver hook aborted when {operator:?} sent {amount:?} to {to:?} from {from:?} with exit code {exit_code:?}")]
@@ -65,6 +74,11 @@ where
     msg: MSG,
     /// In-memory cache of the state tree
     state: TokenState,
+    /// Minimum granularity of token amounts.
+    /// All balances and amounts must be a multiple of this granularity.
+    /// Set to 1 for standard 18-dp precision, TOKEN_PRECISION for whole units only, or some
+    /// value in between.
+    granularity: u64,
 }
 
 impl<BS, MSG> Token<BS, MSG>
@@ -76,18 +90,18 @@ where
     ///
     /// Returns a Token handle that can be used to interact with the token state tree and the Cid
     /// of the state tree root
-    pub fn new(bs: BS, msg: MSG) -> Result<(Self, Cid)> {
+    pub fn new(bs: BS, msg: MSG, granularity: u64) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
-        let token = Self { bs, msg, state: init_state };
+        let token = Self { bs, msg, state: init_state, granularity };
         Ok((token, cid))
     }
 
     /// For an already initialised state tree, loads the state tree from the blockstore and returns
     /// a Token handle to interact with it
-    pub fn load(bs: BS, msg: MSG, state_cid: Cid) -> Result<Self> {
+    pub fn load(bs: BS, msg: MSG, state_cid: Cid, granularity: u64) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
-        Ok(Self { bs, msg, state })
+        Ok(Self { bs, msg, state, granularity })
     }
 
     /// Flush state and return Cid for root
@@ -208,21 +222,14 @@ where
         amount: &TokenAmount,
         data: &RawBytes,
     ) -> Result<()> {
-        if amount.is_negative() {
-            return Err(TokenError::InvalidNegative(format!(
-                "mint amount {} cannot be negative",
-                amount
-            )));
-        }
-
+        let amount = validate_amount(amount, "mint", self.granularity)?;
         // init the operator account so that its actor ID can be referenced in the receiver hook
         let operator_id = self.resolve_or_init(operator)?;
         // init the owner account as allowance and balance checks are not performed for minting
         let owner_id = self.resolve_or_init(initial_owner)?;
 
-        let old_state = self.state.clone();
-
         // Increase the balance of the actor and increase total supply
+        let old_state = self.state.clone();
         self.transaction(|state, bs| {
             state.change_balance_by(&bs, owner_id, amount)?;
             state.change_supply_by(amount)?;
@@ -311,13 +318,7 @@ where
         operator: &Address,
         delta: &TokenAmount,
     ) -> Result<TokenAmount> {
-        if delta.is_negative() {
-            return Err(TokenError::InvalidNegative(format!(
-                "increase allowance delta {} cannot be negative",
-                delta
-            )));
-        }
-
+        let delta = validate_amount(delta, "allowance delta", self.granularity)?;
         // Attempt to instantiate the accounts if they don't exist
         let owner = self.resolve_or_init(owner)?;
         let operator = self.resolve_or_init(operator)?;
@@ -340,13 +341,7 @@ where
         operator: &Address,
         delta: &TokenAmount,
     ) -> Result<TokenAmount> {
-        if delta.is_negative() {
-            return Err(TokenError::InvalidNegative(format!(
-                "decrease allowance delta {} cannot be negative",
-                delta
-            )));
-        }
-
+        let delta = validate_amount(delta, "allowance delta", self.granularity)?;
         // Attempt to instantiate the accounts if they don't exist
         let owner = self.resolve_or_init(owner)?;
         let operator = self.resolve_or_init(operator)?;
@@ -408,13 +403,7 @@ where
         owner: &Address,
         amount: &TokenAmount,
     ) -> Result<TokenAmount> {
-        if amount.is_negative() {
-            return Err(TokenError::InvalidNegative(format!(
-                "burn amount {} cannot be negative",
-                amount
-            )));
-        }
-
+        let amount = validate_amount(amount, "burn", self.granularity)?;
         // owner-initiated burn
         if self.same_address(owner, operator) {
             let owner = self.resolve_or_init(owner)?;
@@ -501,12 +490,7 @@ where
         amount: &TokenAmount,
         data: &RawBytes,
     ) -> Result<()> {
-        if amount.is_negative() {
-            return Err(TokenError::InvalidNegative(format!(
-                "transfer amount {} cannot be negative",
-                amount
-            )));
-        }
+        let amount = validate_amount(amount, "transfer", self.granularity)?;
         let old_state = self.state.clone();
 
         // owner-initiated transfer
@@ -618,6 +602,23 @@ where
     }
 }
 
+/// Validates that a token amount is non-negative, and an integer multiple of granularity.
+/// Returns the argument, or an error.
+fn validate_amount<'a>(
+    a: &'a TokenAmount,
+    name: &'static str,
+    granularity: u64,
+) -> Result<&'a TokenAmount> {
+    if a.is_negative() {
+        return Err(TokenError::InvalidNegative { name, amount: a.clone() });
+    }
+    let modulus = a.rem(granularity);
+    if !modulus.is_zero() {
+        return Err(InvalidGranularity { name, amount: a.clone(), granularity });
+    }
+    Ok(a)
+}
+
 #[cfg(test)]
 mod test {
     use fvm_ipld_blockstore::MemoryBlockstore;
@@ -655,10 +656,14 @@ mod test {
     const BOB: &Address = &Address::new_id(4);
     const CAROL: &Address = &Address::new_id(5);
 
-    fn new_token() -> Token<MemoryBlockstore, FakeMessenger> {
-        Token::new(MemoryBlockstore::default(), FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6))
-            .unwrap()
-            .0
+    fn new_token(granularity: u64) -> Token<MemoryBlockstore, FakeMessenger> {
+        Token::new(
+            MemoryBlockstore::default(),
+            FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6),
+            granularity,
+        )
+        .unwrap()
+        .0
     }
 
     fn assert_last_hook_call_eq(messenger: &FakeMessenger, expected: TokenReceivedParams) {
@@ -672,7 +677,7 @@ mod test {
         // create a new token
         let bs = MemoryBlockstore::new();
         let (mut token, _) =
-            Token::new(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6)).unwrap();
+            Token::new(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), 1).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -686,13 +691,13 @@ mod test {
 
         // the returned cid can be used to reference the same token state
         let token2 =
-            Token::load(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), cid).unwrap();
+            Token::load(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), cid, 1).unwrap();
         assert_eq!(token2.total_supply(), TokenAmount::from(100));
     }
 
     #[test]
     fn it_provides_atomic_transactions() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // entire transaction succeeds
         token
@@ -720,7 +725,7 @@ mod test {
 
     #[test]
     fn it_mints() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
         token
@@ -859,7 +864,7 @@ mod test {
 
     #[test]
     fn it_fails_to_mint_if_receiver_hook_aborts() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // force hook to abort
         token.msg.abort_next_send();
@@ -885,7 +890,7 @@ mod test {
 
     #[test]
     fn it_burns() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(600_000);
@@ -929,7 +934,7 @@ mod test {
 
     #[test]
     fn it_fails_to_burn_below_zero() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(2_000_000);
@@ -943,7 +948,7 @@ mod test {
 
     #[test]
     fn it_transfers() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1000,7 +1005,7 @@ mod test {
 
     #[test]
     fn it_transfers_to_self() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1046,7 +1051,7 @@ mod test {
 
     #[test]
     fn it_transfers_to_uninitialized_addresses() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
 
@@ -1079,7 +1084,7 @@ mod test {
 
     #[test]
     fn it_transfers_from_uninitialized_addresses() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         let secp_address = &secp_address();
         // non-zero transfer should fail
@@ -1135,7 +1140,7 @@ mod test {
 
     #[test]
     fn it_fails_to_transfer_when_receiver_hook_aborts() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1185,7 +1190,7 @@ mod test {
 
     #[test]
     fn it_fails_to_transfer_when_insufficient_balance() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // mint 50 for the owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(50), &Default::default()).unwrap();
@@ -1200,7 +1205,7 @@ mod test {
 
     #[test]
     fn it_tracks_allowances() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // set allowance between Alice and Carol as 100
         let new_allowance =
@@ -1259,7 +1264,7 @@ mod test {
 
     #[test]
     fn it_allows_delegated_transfer() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // mint 100 for the owner
         token.mint(ALICE, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1319,7 +1324,7 @@ mod test {
 
     #[test]
     fn it_allows_delegated_transfer_by_resolvable_pubkey() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1381,7 +1386,7 @@ mod test {
 
     #[test]
     fn it_disallows_delgated_transfer_by_uninitialised_pubkey() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // mint 100 for owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1446,7 +1451,7 @@ mod test {
 
     #[test]
     fn it_allows_delegated_burns() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         let mint_amount = TokenAmount::from(1_000_000);
         let approval_amount = TokenAmount::from(600_000);
@@ -1502,7 +1507,7 @@ mod test {
 
     #[test]
     fn it_allows_delegated_burns_by_resolvable_pubkeys() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         let mint_amount = TokenAmount::from(1_000_000);
         let approval_amount = TokenAmount::from(600_000);
@@ -1560,7 +1565,7 @@ mod test {
 
     #[test]
     fn it_disallows_delegated_burns_by_uninitialised_pubkeys() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(600_000);
@@ -1621,7 +1626,7 @@ mod test {
 
     #[test]
     fn it_fails_to_transfer_when_insufficient_allowance() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // mint 100 for the owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
@@ -1642,7 +1647,7 @@ mod test {
 
     #[test]
     fn it_doesnt_use_allowance_when_insufficent_balance() {
-        let mut token = new_token();
+        let mut token = new_token(1);
 
         // mint 50 for the owner
         token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(50), &Default::default()).unwrap();
@@ -1664,8 +1669,56 @@ mod test {
     }
 
     #[test]
+    fn it_enforces_granularity() {
+        let mut token = new_token(100);
+
+        // Minting
+        token
+            .mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(1), &Default::default())
+            .expect_err("minted below granularity");
+        token
+            .mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(10), &Default::default())
+            .expect_err("minted below granularity");
+        token
+            .mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(99), &Default::default())
+            .expect_err("minted below granularity");
+        token
+            .mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(101), &Default::default())
+            .expect_err("minted below granularity");
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(0), &Default::default()).unwrap();
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(200), &Default::default()).unwrap();
+        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(1000), &Default::default()).unwrap();
+
+        // Burn
+        token.burn(ALICE, ALICE, &TokenAmount::from(1)).expect_err("burned below granularity");
+        token.burn(ALICE, ALICE, &TokenAmount::from(0)).unwrap();
+        token.burn(ALICE, ALICE, &TokenAmount::from(100)).unwrap();
+
+        // Allowance
+        token
+            .increase_allowance(ALICE, BOB, &TokenAmount::from(1))
+            .expect_err("allowance delta below granularity");
+        token.increase_allowance(ALICE, BOB, &TokenAmount::from(0)).unwrap();
+        token.increase_allowance(ALICE, BOB, &TokenAmount::from(100)).unwrap();
+
+        token
+            .decrease_allowance(ALICE, BOB, &TokenAmount::from(1))
+            .expect_err("allowance delta below granularity");
+        token.decrease_allowance(ALICE, BOB, &TokenAmount::from(0)).unwrap();
+        token.decrease_allowance(ALICE, BOB, &TokenAmount::from(100)).unwrap();
+
+        // Transfer
+        token
+            .transfer(ALICE, ALICE, BOB, &TokenAmount::from(1), &Default::default())
+            .expect_err("transfer delta below granularity");
+        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(0), &Default::default()).unwrap();
+        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(100), &Default::default()).unwrap();
+    }
+
+    #[test]
     fn it_doesnt_initialize_accounts_when_default_values_can_be_returned() {
-        let token = new_token();
+        let token = new_token(1);
         let secp = &secp_address();
         let bls = &bls_address();
 
@@ -1723,7 +1776,7 @@ mod test {
             balance: &TokenAmount,
         ) -> Token<MemoryBlockstore, FakeMessenger> {
             // fresh token state
-            let mut token = new_token();
+            let mut token = new_token(1);
             // set allowance if not zero (avoiding unecessary account instantiation)
             if !allowance.is_zero() && !(from == operator) {
                 token.increase_allowance(from, operator, allowance).unwrap();

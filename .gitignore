@@ -11,6 +11,7 @@ Cargo.lock
 
 # IDE specific user-config
 .vscode/
+.idea/
 
 # Code coverage instrumentation
 coverage/
