@@ -115,7 +115,7 @@ where
     /// it doesn't exist
     ///
     /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
-    fn resolve_to_id(&self, address: &Address) -> MessagingResult<ActorID> {
+    fn resolve_or_init(&self, address: &Address) -> MessagingResult<ActorID> {
         let id = match self.msg.resolve_id(address) {
             Ok(addr) => addr,
             Err(MessagingError::AddressNotResolved(_e)) => self.msg.initialize_account(address)?,
@@ -130,6 +130,30 @@ where
         self.msg.resolve_id(address)
     }
 
+    /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without
+    /// actually initiating accounts for them
+    ///
+    /// If a and b are of the same type, simply do an equality check. Otherwise, attempt to resolve
+    /// to an ActorID and compare
+    fn same_address(&self, address_a: &Address, address_b: &Address) -> bool {
+        let protocol_a = address_a.protocol();
+        let protocol_b = address_b.protocol();
+        if protocol_a == protocol_b {
+            address_a == address_b
+        } else {
+            // attempt to resolve both to ActorID
+            let id_a = match self.get_id(address_a) {
+                Ok(id) => id,
+                Err(_) => return false,
+            };
+            let id_b = match self.get_id(address_b) {
+                Ok(id) => id,
+                Err(_) => return false,
+            };
+            id_a == id_b
+        }
+    }
+
     /// Calls the receiver hook, reverting the state if it aborts or there is a messaging error
     fn call_receiver_hook_or_revert(
         &mut self,
@@ -140,7 +164,7 @@ where
         let receipt = match self.msg.send(
             token_receiver,
             RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(params.clone())?,
+            &RawBytes::serialize(&params)?,
             &TokenAmount::zero(),
         ) {
             Ok(receipt) => receipt,
@@ -191,9 +215,10 @@ where
             )));
         }
 
-        // accounts should be created if they don't exist
-        let operator_id = self.resolve_to_id(operator)?;
-        let owner_id = self.resolve_to_id(initial_owner)?;
+        // init the operator account so that its actor ID can be referenced in the receiver hook
+        let operator_id = self.resolve_or_init(operator)?;
+        // init the owner account as allowance and balance checks are not performed for minting
+        let owner_id = self.resolve_or_init(initial_owner)?;
 
         let old_state = self.state.clone();
 
@@ -294,8 +319,8 @@ where
         }
 
         // Attempt to instantiate the accounts if they don't exist
-        let owner = self.resolve_to_id(owner)?;
-        let operator = self.resolve_to_id(operator)?;
+        let owner = self.resolve_or_init(owner)?;
+        let operator = self.resolve_or_init(operator)?;
         let new_amount = self.state.change_allowance_by(&self.bs, owner, operator, delta)?;
 
         Ok(new_amount)
@@ -323,8 +348,8 @@ where
         }
 
         // Attempt to instantiate the accounts if they don't exist
-        let owner = self.resolve_to_id(owner)?;
-        let operator = self.resolve_to_id(operator)?;
+        let owner = self.resolve_or_init(owner)?;
+        let operator = self.resolve_or_init(operator)?;
         let new_allowance =
             self.state.change_allowance_by(&self.bs, owner, operator, &delta.neg())?;
 
@@ -333,8 +358,23 @@ where
 
     /// Sets the allowance between owner and operator to 0
     pub fn revoke_allowance(&mut self, owner: &Address, operator: &Address) -> Result<()> {
-        let owner = self.resolve_to_id(owner)?;
-        let operator = self.resolve_to_id(operator)?;
+        let owner = match self.get_id(owner) {
+            Ok(owner) => owner,
+            Err(MessagingError::AddressNotResolved(_)) => {
+                // uninitialized address has implicit zero allowance already
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let operator = match self.get_id(operator) {
+            Ok(operator) => operator,
+            Err(MessagingError::AddressNotResolved(_)) => {
+                // uninitialized address has implicit zero allowance already
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
+        };
+        // if both accounts resolved, explicitly set allowance to zero
         self.state.revoke_allowance(&self.bs, owner, operator)?;
 
         Ok(())
@@ -348,22 +388,19 @@ where
     /// - If the burn operation would result in a negative balance for the owner, the burn is
     /// discarded and this method returns an error
     ///
-    /// ## Operator is the owner address
-    /// If the operator is the targeted address, they are implicitly approved to burn an unlimited
-    /// amount of tokens (up to their balance)
-    ///
     /// Upon successful burn
     /// - The target's balance decreases by the requested value
     /// - The total_supply decreases by the requested value
     ///
+    /// ## Operator is the owner address
+    /// If the operator is the targeted address, they are implicitly approved to burn an unlimited
+    /// amount of tokens (up to their balance)
+    ///
     /// ## Operator burning on behalf of another address
-    /// If the operator is burning on behalf of the owner the following preconditions
-    /// must be met on top of the general burn conditions:
-    /// - The operator MUST have an allowance not less than the requested value
+    /// If the operator is burning on behalf of the owner, then additionally, the operator MUST have
+    /// an allowance not less than the requested value
     ///
     /// Upon successful burn
-    /// - The target-operator allowance decreases by the requested value
-    /// - The target's balance decreases by the requested value
     /// - The total_supply decreases by the requested value
     pub fn burn(
         &mut self,
@@ -379,8 +416,8 @@ where
         }
 
         // owner-initiated burn
-        if operator == owner {
-            let owner = self.resolve_to_id(owner)?;
+        if self.same_address(owner, operator) {
+            let owner = self.resolve_or_init(owner)?;
             return self.transaction(|state, bs| {
                 // attempt to burn the requested amount
                 let new_amount = state.change_balance_by(&bs, owner, &amount.clone().neg())?;
@@ -390,7 +427,7 @@ where
             });
         }
 
-        // instantiate the actors if required
+        // operator must be existing to have a non-zero allowance
         let operator = match self.get_id(operator) {
             Ok(operator) => operator,
             Err(MessagingError::AddressNotResolved(addr)) => {
@@ -406,8 +443,21 @@ where
             }
             Err(e) => return Err(e.into()),
         };
-        // resolve the owner
-        let owner = self.resolve_to_id(owner)?;
+
+        // owner must be existing to have set a non-zero allowance
+        let owner = match self.get_id(owner) {
+            Ok(owner) => owner,
+            Err(MessagingError::AddressNotResolved(addr)) => {
+                return Err(TokenStateError::InsufficientAllowance {
+                    owner: *owner,
+                    operator: addr,
+                    allowance: TokenAmount::zero(),
+                    delta: amount.clone(),
+                }
+                .into());
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         self.transaction(|state, bs| {
             state.attempt_use_allowance(&bs, operator, owner, amount)?;
@@ -429,23 +479,20 @@ where
     /// interface specified for FRC-XXX token receiver. If the receiving hook aborts, when called,
     /// the transfer is discarded and this method returns an error
     ///
+    /// Upon successful transfer:
+    /// - The senders's balance decreases by the requested value
+    /// - The receiver's balance increases by the requested value
+    ///
     /// ## Operator equals owner address
     /// If the operator is the owner address, they are implicitly approved to transfer an unlimited
     /// amount of tokens (up to their balance)
     ///
-    /// Upon successful transfer:
-    /// - The senders's balance decreases by the requested value
-    /// - The receiver's balance increases by the requested value
-    ///
     /// ## Operator transferring on behalf of owner address
-    /// If the operator is transferring on behalf of the target token owner the following preconditions
-    /// must be met on top of the general transfer conditions:
-    /// - The operator MUST be initialised AND have an allowance not less than the requested value
+    /// If the operator is transferring on behalf of the target token owner, then additionally, the
+    /// operator MUST be initialised AND have an allowance not less than the requested value
     ///
     /// Upon successful transfer:
     /// - The owner-operator allowance decreases by the requested value
-    /// - The senders's balance decreases by the requested value
-    /// - The receiver's balance increases by the requested value
     pub fn transfer(
         &mut self,
         operator: &Address,
@@ -463,9 +510,9 @@ where
         let old_state = self.state.clone();
 
         // owner-initiated transfer
-        if operator == from {
-            let from = self.resolve_to_id(from)?;
-            let to_id = self.resolve_to_id(to)?;
+        if self.same_address(operator, from) {
+            let from = self.resolve_or_init(from)?;
+            let to_id = self.resolve_or_init(to)?;
             // skip allowance check for self-managed transfers
             self.transaction(|state, bs| {
                 state.change_balance_by(&bs, to_id, amount)?;
@@ -489,7 +536,7 @@ where
         }
 
         // operator-initiated transfer must have a resolvable operator
-        let operator = match self.get_id(operator) {
+        let operator_id = match self.get_id(operator) {
             // if operator resolved, we can continue with other checks
             Ok(id) => id,
             // if we cannot resolve the operator, they are forbidden to transfer
@@ -504,13 +551,26 @@ where
             Err(e) => return Err(e.into()),
         };
 
-        // resolve the participating actors
-        let from = self.resolve_to_id(from)?;
-        let to_id = self.resolve_to_id(to)?;
+        // the owner must exist to have specified a non-zero allowance
+        let from = match self.get_id(from) {
+            Ok(id) => id,
+            Err(MessagingError::AddressNotResolved(from)) => {
+                return Err(TokenError::TokenState(TokenStateError::InsufficientAllowance {
+                    operator: *operator,
+                    owner: from,
+                    allowance: TokenAmount::zero(),
+                    delta: amount.clone(),
+                }));
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        // attempt to initialize the receiving account if not present
+        let to_id = self.resolve_or_init(to)?;
 
         // update token state
         self.transaction(|state, bs| {
-            state.attempt_use_allowance(&bs, operator, from, amount)?;
+            state.attempt_use_allowance(&bs, operator_id, from, amount)?;
             state.change_balance_by(&bs, to_id, amount)?;
             state.change_balance_by(&bs, from, &amount.neg())?;
             Ok(())
@@ -521,7 +581,7 @@ where
         self.call_receiver_hook_or_revert(
             to,
             TokenReceivedParams {
-                operator,
+                operator: operator_id,
                 from,
                 to: to_id,
                 amount: amount.clone(),
@@ -1245,7 +1305,7 @@ mod test {
                 &TokenAmount::zero(),
                 &Default::default(),
             )
-            .unwrap();
+            .unwrap_err();
         // balances remained same
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
         assert_eq!(token.balance_of(initialised_address).unwrap(), TokenAmount::zero());
@@ -1459,7 +1519,7 @@ mod test {
         // but can burn zero
         let res = token.burn(secp_address, TREASURY, &TokenAmount::zero());
         // balances unchanged
-        assert!(res.is_ok());
+        assert!(res.is_err());
         assert_eq!(token.total_supply(), TokenAmount::from(400_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
         assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
