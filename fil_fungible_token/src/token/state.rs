@@ -1,3 +1,6 @@
+use std::ops::Neg;
+
+use anyhow::bail;
 use cid::multihash::Code;
 use cid::Cid;
 use fvm_ipld_blockstore::Block;
@@ -39,6 +42,32 @@ pub enum StateError {
     },
     #[error("total_supply cannot be negative, cannot apply delta of {delta:?} to {supply:?}")]
     NegativeTotalSupply { supply: TokenAmount, delta: TokenAmount },
+}
+
+#[derive(Error, Debug)]
+pub enum StateInvariantError {
+    #[error("total supply was negative: {0}")]
+    SupplyNegative(TokenAmount),
+    #[error("the account for {account:?} had a negative balance of {balance:?}")]
+    BalanceNegative { account: ActorID, balance: TokenAmount },
+    #[error("the total supply {supply:?} does not match the sum of all balances {balance_sum:?}")]
+    BalanceSupplyMismatch { supply: TokenAmount, balance_sum: TokenAmount },
+    #[error(
+        "a negative allowance of {allowance:?} was specified between {owner:?} and {operator:?}"
+    )]
+    NegativeAllowance { owner: ActorID, operator: ActorID, allowance: TokenAmount },
+    #[error("stored a zero balance which should have been removed for {0}")]
+    ExplicitZeroBalance(ActorID),
+    #[error(
+        "stored a zero allowance which should have been removed between {owner:?} and {operator:?}"
+    )]
+    ExplicitZeroAllowance { owner: ActorID, operator: ActorID },
+    #[error("stored an allowance map for {0} though they have specified no allowances")]
+    ExplicitEmptyAllowance(ActorID),
+    #[error("stored an allowance for self {account:?} for {allowance:?}")]
+    ExplicitSelfAllowance { account: ActorID, allowance: TokenAmount },
+    #[error("underlying state error {0}")]
+    State(#[from] StateError),
 }
 
 type Result<T> = std::result::Result<T, StateError>;
@@ -150,7 +179,12 @@ impl TokenState {
             });
         }
 
-        balance_map.set(owner, BigIntDe(new_balance.clone()))?;
+        if new_balance.is_zero() {
+            balance_map.delete(&owner)?;
+        } else {
+            balance_map.set(owner, BigIntDe(new_balance.clone()))?;
+        }
+
         self.balances = balance_map.flush()?;
 
         Ok(new_balance)
@@ -311,16 +345,8 @@ impl TokenState {
             });
         }
 
-        let new_allowance = current_allowance - amount;
-
-        // TODO: helper function to set a new allowance and flush hamts
-        let owner_allowances = self.get_owner_allowance_map(bs, owner)?;
-        // to reach here, allowance must have been previously non zero; so safe to assume the map exists
-        let mut owner_allowances = owner_allowances.unwrap();
-        owner_allowances.set(operator, BigIntDe(new_allowance.clone()))?;
-        let mut allowance_map = self.get_allowances_map(bs)?;
-        allowance_map.set(owner, owner_allowances.flush()?)?;
-        self.allowances = allowance_map.flush()?;
+        // let new_allowance = current_allowance - amount;
+        let new_allowance = self.change_allowance_by(bs, owner, operator, &amount.neg())?;
 
         Ok(new_allowance)
     }
@@ -351,6 +377,104 @@ impl TokenState {
         bs: &'bs BS,
     ) -> Result<Map<'bs, BS, ActorID, Cid>> {
         Ok(Hamt::load_with_bit_width(&self.allowances, bs, HAMT_BIT_WIDTH)?)
+    }
+
+    /// Checks that the current state obeys all system invariants
+    ///
+    /// Checks that there are no zero balances, zero allowances or empty allowance maps explicitly
+    /// stored in the blockstore. Checks that balances, total supply, allowances are never negative.
+    /// Checks that sum of all balances matches total_supply. Checks that no allowances are stored
+    /// where operator == owner.
+    pub fn check_invariants<BS: Blockstore>(
+        &self,
+        bs: &BS,
+    ) -> std::result::Result<(), StateInvariantError> {
+        // check total supply
+        if self.supply.is_negative() {
+            return Err(StateInvariantError::SupplyNegative(self.supply.clone()));
+        }
+
+        // check balances
+        let mut balance_sum = TokenAmount::zero();
+        let mut maybe_err: Option<StateInvariantError> = None;
+        let balances = self.get_balance_map(bs)?;
+        let res = balances.for_each(|owner, balance| {
+            // all balances must be positive
+            if balance.0.is_negative() {
+                maybe_err = Some(StateInvariantError::BalanceNegative {
+                    account: *owner,
+                    balance: balance.0.clone(),
+                });
+                bail!("invariant failed")
+            }
+            // zero balances should not be stored in the Hamt
+            if balance.0.is_zero() {
+                maybe_err = Some(StateInvariantError::ExplicitZeroBalance(*owner));
+                bail!("invariant failed")
+            }
+            balance_sum = balance_sum.clone() + balance.0.clone();
+            Ok(())
+        });
+        if res.is_err() {
+            return Err(maybe_err.unwrap());
+        }
+
+        // all balances must add up to total supply
+        if balance_sum.ne(&self.supply) {
+            return Err(StateInvariantError::BalanceSupplyMismatch {
+                supply: self.supply.clone(),
+                balance_sum,
+            });
+        }
+
+        let mut maybe_err: Option<StateInvariantError> = None;
+        // check allowances are all non-negative
+        let allowances_map = self.get_allowances_map(bs)?;
+        let res = allowances_map.for_each(|owner, _| {
+            let allowance_map = self.get_owner_allowance_map(bs, *owner)?;
+            // check that the allowance map isn't empty
+            if allowance_map.is_none() {
+                maybe_err = Some(StateInvariantError::ExplicitEmptyAllowance(*owner));
+                bail!("invariant failed")
+            }
+
+            let allowance_map = allowance_map.unwrap();
+            allowance_map.for_each(|operator, allowance| {
+                // check there's no stored self-stored allowance
+                if *owner == *operator {
+                    maybe_err = Some(StateInvariantError::ExplicitSelfAllowance {
+                        account: *owner,
+                        allowance: allowance.0.clone(),
+                    });
+                    bail!("invariant failed")
+                }
+                // check the allowance isn't negative
+                if allowance.0.is_negative() {
+                    maybe_err = Some(StateInvariantError::NegativeAllowance {
+                        owner: *owner,
+                        operator: *operator,
+                        allowance: allowance.0.clone(),
+                    });
+                    bail!("invariant failed")
+                }
+                // check there's no explicit zero allowance
+                if allowance.0.is_zero() {
+                    maybe_err = Some(StateInvariantError::ExplicitZeroAllowance {
+                        owner: *owner,
+                        operator: *operator,
+                    });
+                    bail!("invariant failed")
+                }
+                Ok(())
+            })?;
+            Ok(())
+        });
+
+        if res.is_err() {
+            return Err(maybe_err.unwrap());
+        }
+
+        Ok(())
     }
 }
 
