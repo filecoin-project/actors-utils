@@ -706,6 +706,13 @@ mod test {
         let state = token.state();
         // gets a read-only state
         assert_eq!(state.supply, TokenAmount::from(1));
+        // can get a token_state here but doing so borrows the value making the mutable borrow on line 550 invalid
+        assert_eq!(actor_state.token_state.supply, TokenAmount::from(1));
+
+        // therefore, after the above line 560, can no longer use the token handle to read OR mutate state
+        // any single one of these lines now causes a compiler error
+        // token.mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1), &Default::default()).unwrap();
+        // token.balance_of(TREASURY).unwrap();
     }
 
     #[test]
