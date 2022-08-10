@@ -103,6 +103,7 @@ pub struct TokenState {
 impl TokenState {
     /// Create a new token state-tree, without committing it to a blockstore
     pub fn new<BS: Blockstore>(store: &BS) -> Result<Self> {
+        // Blockstore is still needed to create valid Cids for the Hamts
         let empty_balance_map = Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH).flush()?;
         let empty_allowances_map =
             Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH).flush()?;
