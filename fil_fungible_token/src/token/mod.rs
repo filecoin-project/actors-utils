@@ -73,11 +73,16 @@ where
     BS: Blockstore,
     MSG: Messaging,
 {
+    /// Take an existing loaded state tree and create a token handle
+    pub fn new(bs: BS, msg: MSG, token_state: TokenState) -> Self {
+        Self { bs, msg, state: RefCell::new(token_state) }
+    }
+
     /// Creates a new token instance using the given blockstore and creates a new empty state tree
     ///
     /// Returns a Token handle that can be used to interact with the token state tree and the Cid
     /// of the state tree root
-    pub fn new(bs: BS, msg: MSG) -> Result<(Self, Cid)> {
+    pub fn create(bs: BS, msg: MSG) -> Result<(Self, Cid)> {
         let init_state = TokenState::new(&bs)?;
         let cid = init_state.save(&bs)?;
         let token = Self { bs, msg, state: RefCell::new(init_state) };
@@ -89,11 +94,6 @@ where
     pub fn load(bs: BS, msg: MSG, state_cid: Cid) -> Result<Self> {
         let state = TokenState::load(&bs, &state_cid)?;
         Ok(Self { bs, msg, state: RefCell::new(state) })
-    }
-
-    /// Wrap an existing loaded state tree in a Token handle
-    pub fn wrap(bs: BS, msg: MSG, token_state: TokenState) -> Self {
-        Self { bs, msg, state: RefCell::new(token_state) }
     }
 
     /// Expose the underlying state tree
@@ -538,7 +538,7 @@ mod test {
     const CAROL: &Address = &Address::new_id(5);
 
     fn new_token() -> Token<MemoryBlockstore, FakeMessenger> {
-        Token::new(MemoryBlockstore::default(), FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6))
+        Token::create(MemoryBlockstore::default(), FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6))
             .unwrap()
             .0
     }
@@ -559,7 +559,7 @@ mod test {
         let actor_state = ActorState { token_state: TokenState::new(&bs).unwrap() };
 
         // wrap the token state, moving it into a TokenHandle
-        let mut token = Token::wrap(
+        let mut token = Token::new(
             &bs,
             FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6),
             actor_state.token_state,
@@ -569,6 +569,9 @@ mod test {
         // gets a read-only state
         let state = token.borrow_state();
         assert_eq!(state.supply, TokenAmount::from(1));
+
+        // actor_state.token_state is moved when `wrap` is called so cannot be accessed anymore
+        // assert_eq!(actor_state.token_state.supply, TokenAmount::zero());
     }
 
     #[test]
@@ -576,7 +579,7 @@ mod test {
         // create a new token
         let bs = MemoryBlockstore::new();
         let (mut token, _) =
-            Token::new(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6)).unwrap();
+            Token::create(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6)).unwrap();
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
