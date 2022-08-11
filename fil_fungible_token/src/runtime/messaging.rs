@@ -12,15 +12,15 @@ use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
 use num_traits::Zero;
 use thiserror::Error;
 
-use crate::receiver::types::TokenReceivedParams;
-
 pub type Result<T> = std::result::Result<T, MessagingError>;
 
 #[derive(Error, Debug)]
 pub enum MessagingError {
     #[error("fvm syscall error: `{0}`")]
     Syscall(#[from] ErrorNumber),
-    #[error("address not initialized: `{0}`")]
+    #[error("address could not be resolved: `{0}`")]
+    AddressNotResolved(Address),
+    #[error("address could not be initialized: `{0}`")]
     AddressNotInitialized(Address),
     #[error("ipld serialization error: `{0}`")]
     Ipld(#[from] IpldError),
@@ -40,9 +40,9 @@ pub trait Messaging {
         value: &TokenAmount,
     ) -> Result<Receipt>;
 
-    /// Resolves the given address to its ID address form
+    /// Attempts to resolve the given address to its ID address form
     ///
-    /// Returns MessagingError::AddressNotInitialised if the address could not be resolved
+    /// Returns MessagingError::AddressNotResolved if the address could not be resolved
     fn resolve_id(&self, address: &Address) -> Result<ActorID>;
 
     /// Creates an account at a pubkey address and returns the ID address
@@ -77,7 +77,7 @@ impl Messaging for FvmMessenger {
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
-        actor::resolve_address(address).ok_or(MessagingError::AddressNotInitialized(*address))
+        actor::resolve_address(address).ok_or(MessagingError::AddressNotResolved(*address))
     }
 
     fn initialize_account(&self, address: &Address) -> Result<ActorID> {
@@ -93,7 +93,7 @@ impl Messaging for FvmMessenger {
 ///
 #[derive(Debug)]
 pub struct FakeMessenger {
-    pub last_hook: RefCell<Option<TokenReceivedParams>>,
+    pub last_message: RefCell<Option<RawBytes>>,
     address_resolver: RefCell<FakeAddressResolver>,
     actor_id: ActorID,
     abort_next_send: RefCell<bool>,
@@ -112,7 +112,7 @@ impl FakeMessenger {
         Self {
             actor_id,
             address_resolver: RefCell::new(FakeAddressResolver::new(first_usable_actor_id)),
-            last_hook: Default::default(),
+            last_message: Default::default(),
             abort_next_send: RefCell::new(false),
         }
     }
@@ -130,10 +130,12 @@ impl Messaging for FakeMessenger {
     fn send(
         &self,
         _to: &Address,
-        method: MethodNum,
+        _method: MethodNum,
         params: &RawBytes,
         _value: &TokenAmount,
     ) -> Result<Receipt> {
+        self.last_message.borrow_mut().replace(params.clone());
+
         if *self.abort_next_send.borrow() {
             self.abort_next_send.replace(false);
             return Ok(Receipt {
@@ -141,11 +143,6 @@ impl Messaging for FakeMessenger {
                 gas_used: 0,
                 return_data: Default::default(),
             });
-        }
-
-        if method == RECEIVER_HOOK_METHOD_NUM {
-            let hook_params = params.deserialize().unwrap();
-            self.last_hook.borrow_mut().replace(hook_params);
         }
 
         Ok(Receipt { exit_code: ExitCode::OK, return_data: Default::default(), gas_used: 0 })
@@ -195,7 +192,7 @@ impl FakeAddressResolver {
         // else resolve it if it is an id address
         match address.payload() {
             fvm_shared::address::Payload::ID(id) => Ok(*id),
-            _ => Err(MessagingError::AddressNotInitialized(*address)),
+            _ => Err(MessagingError::AddressNotResolved(*address)),
         }
     }
 
