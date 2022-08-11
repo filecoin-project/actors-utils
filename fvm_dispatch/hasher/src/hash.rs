@@ -1,7 +1,6 @@
-use thiserror::Error;
-
 #[cfg(not(feature = "no_sdk"))]
 use fvm_sdk::crypto;
+use thiserror::Error;
 
 /// Minimal interface for a hashing function
 ///

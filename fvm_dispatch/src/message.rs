@@ -1,13 +1,11 @@
-use thiserror::Error;
-
-use crate::hash::{Hasher, MethodNameErr, MethodResolver};
-
 use fvm_ipld_encoding::RawBytes;
+#[cfg(target_family = "wasm")]
+use fvm_sdk::send;
 use fvm_sdk::sys::ErrorNumber;
 use fvm_shared::{address::Address, econ::TokenAmount, receipt::Receipt};
+use thiserror::Error;
 
-#[cfg(target_family = "wasm")]
-use fvm_sdk::send; // fvm_sdk syscalls only work for WASM targets
+use crate::hash::{Hasher, MethodNameErr, MethodResolver}; // fvm_sdk syscalls only work for WASM targets
 
 /// Utility to invoke standard methods on deployed actors
 #[derive(Default)]

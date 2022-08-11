@@ -13,13 +13,12 @@ use num_traits::Signed;
 use num_traits::Zero;
 use thiserror::Error;
 
+use self::state::StateInvariantError;
+use self::state::{StateError as TokenStateError, TokenState};
 use crate::receiver::types::TokenReceivedParams;
 use crate::runtime::messaging::{Messaging, MessagingError};
 use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
 use crate::token::TokenError::InvalidGranularity;
-
-use self::state::StateInvariantError;
-use self::state::{StateError as TokenStateError, TokenState};
 
 pub mod state;
 pub mod types;
@@ -653,11 +652,12 @@ fn validate_amount<'a>(
 
 #[cfg(test)]
 mod test {
+    use std::ops::Neg;
+
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_shared::address::{Address, BLS_PUB_LEN};
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
-    use std::ops::Neg;
 
     use super::state::StateError;
     use super::Token;
