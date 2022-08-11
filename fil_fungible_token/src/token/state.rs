@@ -101,8 +101,9 @@ pub struct TokenState {
 /// trait. It is assumed that when cloning the blockstore implementation does a "shallow-clone"
 /// of the blockstore and provides access to the same underlying data.
 impl TokenState {
-    /// Create a new token state-tree, without committing it to a blockstore
+    /// Create a new token state-tree, without committing it (the root Cid) to a blockstore
     pub fn new<BS: Blockstore>(store: &BS) -> Result<Self> {
+        // Blockstore is still needed to create valid Cids for the Hamts
         let empty_balance_map = Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH).flush()?;
         let empty_allowances_map =
             Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH).flush()?;
