@@ -25,7 +25,7 @@ mod types;
 
 /// Ratio of integral units to interpretation as standard token units, as given by FRC-XXXX.
 /// Aka "18 decimals".
-pub const TOKEN_PRECISION: i64 = 1_000_000_000_000_000_000;
+pub const TOKEN_PRECISION: u64 = 1_000_000_000_000_000_000;
 
 #[derive(Error, Debug)]
 pub enum TokenError {
