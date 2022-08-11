@@ -18,6 +18,7 @@ use crate::runtime::messaging::{Messaging, MessagingError};
 use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
 use crate::token::TokenError::InvalidGranularity;
 
+use self::state::StateInvariantError;
 use self::state::{StateError as TokenStateError, TokenState};
 
 mod state;
@@ -56,6 +57,8 @@ pub enum TokenError {
     },
     #[error("error during serialization {0}")]
     Serialization(#[from] SerializationError),
+    #[error("error in state invariants {0}")]
+    StateInvariant(#[from] StateInvariantError),
 }
 
 type Result<T> = std::result::Result<T, TokenError>;
@@ -142,6 +145,12 @@ where
     /// if it wasn't found
     fn get_id(&self, address: &Address) -> MessagingResult<ActorID> {
         self.msg.resolve_id(address)
+    }
+
+    /// Checks the state invariants, throwing an error if they are not met
+    pub fn check_invariants(&self) -> Result<()> {
+        self.state.check_invariants(&self.bs)?;
+        Ok(())
     }
 
     /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without
@@ -404,6 +413,7 @@ where
         amount: &TokenAmount,
     ) -> Result<TokenAmount> {
         let amount = validate_amount(amount, "burn", self.granularity)?;
+
         // owner-initiated burn
         if self.same_address(owner, operator) {
             let owner = self.resolve_or_init(owner)?;
@@ -860,6 +870,8 @@ mod test {
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(&bls_address).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(5_000_000));
+
+        token.check_invariants().unwrap();
     }
 
     #[test]
@@ -886,6 +898,7 @@ mod test {
         // state remained unchanged
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
         assert_eq!(token.total_supply(), TokenAmount::zero());
+        token.check_invariants().unwrap();
     }
 
     #[test]
@@ -930,6 +943,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::zero());
         // alice's account unaffected
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
+        token.check_invariants().unwrap();
     }
 
     #[test]
@@ -944,6 +958,7 @@ mod test {
         // balances and supply were unchanged
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(1_000_000));
+        token.check_invariants().unwrap();
     }
 
     #[test]
@@ -1135,7 +1150,8 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::zero());
 
         // actor address was not initialized
-        assert!(token.get_id(actor_address).is_err())
+        assert!(token.get_id(actor_address).is_err());
+        token.check_invariants().unwrap();
     }
 
     #[test]
@@ -1186,6 +1202,7 @@ mod test {
         // balances unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(0));
+        token.check_invariants().unwrap();
     }
 
     #[test]
@@ -1201,6 +1218,7 @@ mod test {
         // balances remained unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(50));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::zero());
+        token.check_invariants().unwrap();
     }
 
     #[test]
@@ -1260,6 +1278,7 @@ mod test {
         token
             .increase_allowance(ALICE, uninitializable_address, &TokenAmount::from(10))
             .unwrap_err();
+        token.check_invariants().unwrap();
     }
 
     #[test]
@@ -1643,6 +1662,7 @@ mod test {
 
         // verify allowance was not spent
         assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::from(40));
+        token.check_invariants().unwrap();
     }
 
     #[test]
@@ -1666,6 +1686,7 @@ mod test {
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(50));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::zero());
         assert_eq!(token.allowance(ALICE, BOB).unwrap(), TokenAmount::from(100));
+        token.check_invariants().unwrap();
     }
 
     #[test]
