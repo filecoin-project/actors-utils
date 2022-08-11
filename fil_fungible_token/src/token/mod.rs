@@ -2,64 +2,28 @@ use std::ops::{Neg, Rem};
 
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore;
-use fvm_ipld_encoding::Error as SerializationError;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
-use fvm_shared::address::Error as AddressError;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::error::ExitCode;
 use fvm_shared::ActorID;
 use num_traits::Signed;
 use num_traits::Zero;
-use thiserror::Error;
 
+use self::state::{StateError as TokenStateError, TokenState};
 use crate::receiver::types::TokenReceivedParams;
 use crate::runtime::messaging::{Messaging, MessagingError};
 use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
 use crate::token::TokenError::InvalidGranularity;
 
-use self::state::StateInvariantError;
-use self::state::{StateError as TokenStateError, TokenState};
-
+mod error;
+pub use error::TokenError;
 pub mod state;
 pub mod types;
 
 /// Ratio of integral units to interpretation as standard token units, as given by FRC-XXXX.
 /// Aka "18 decimals".
 pub const TOKEN_PRECISION: u64 = 1_000_000_000_000_000_000;
-
-#[derive(Error, Debug)]
-pub enum TokenError {
-    #[error("error in underlying state {0}")]
-    TokenState(#[from] TokenStateError),
-    #[error("value {amount:?} for {name:?} must be non-negative")]
-    InvalidNegative { name: &'static str, amount: TokenAmount },
-    #[error("amount {amount:?} for {name:?} must be a multiple of {granularity:?}")]
-    InvalidGranularity { name: &'static str, amount: TokenAmount, granularity: u64 },
-    #[error("error calling receiver hook: {0}")]
-    Messaging(#[from] MessagingError),
-    #[error("receiver hook aborted when {operator:?} sent {amount:?} to {to:?} from {from:?} with exit code {exit_code:?}")]
-    ReceiverHook {
-        /// Whose balance is being debited
-        from: ActorID,
-        /// Whose balance is being credited
-        to: ActorID,
-        /// Who initiated the transfer of funds
-        operator: ActorID,
-        amount: TokenAmount,
-        exit_code: ExitCode,
-    },
-    #[error("expected {address:?} to be a resolvable id address but threw {source:?} when attempting to resolve")]
-    InvalidIdAddress {
-        address: Address,
-        #[source]
-        source: AddressError,
-    },
-    #[error("error during serialization {0}")]
-    Serialization(#[from] SerializationError),
-    #[error("error in state invariants {0}")]
-    StateInvariant(#[from] StateInvariantError),
-}
 
 type Result<T> = std::result::Result<T, TokenError>;
 
@@ -148,92 +112,6 @@ where
         // if closure didn't error, save state
         self.state = mutable_state;
         Ok(res)
-    }
-
-    /// Resolves an address to an ID address, sending a message to initialise an account there if
-    /// it doesn't exist
-    ///
-    /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
-    fn resolve_or_init(&self, address: &Address) -> MessagingResult<ActorID> {
-        let id = match self.msg.resolve_id(address) {
-            Ok(addr) => addr,
-            Err(MessagingError::AddressNotResolved(_e)) => self.msg.initialize_account(address)?,
-            Err(e) => return Err(e),
-        };
-        Ok(id)
-    }
-
-    /// Attempts to resolve an address to an ActorID, returning MessagingError::AddressNotResolved
-    /// if it wasn't found
-    fn get_id(&self, address: &Address) -> MessagingResult<ActorID> {
-        self.msg.resolve_id(address)
-    }
-
-    /// Checks the state invariants, throwing an error if they are not met
-    pub fn check_invariants(&self) -> Result<()> {
-        self.state.check_invariants(&self.bs)?;
-        Ok(())
-    }
-
-    /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without
-    /// actually initiating accounts for them
-    ///
-    /// If a and b are of the same type, simply do an equality check. Otherwise, attempt to resolve
-    /// to an ActorID and compare
-    fn same_address(&self, address_a: &Address, address_b: &Address) -> bool {
-        let protocol_a = address_a.protocol();
-        let protocol_b = address_b.protocol();
-        if protocol_a == protocol_b {
-            address_a == address_b
-        } else {
-            // attempt to resolve both to ActorID
-            let id_a = match self.get_id(address_a) {
-                Ok(id) => id,
-                Err(_) => return false,
-            };
-            let id_b = match self.get_id(address_b) {
-                Ok(id) => id,
-                Err(_) => return false,
-            };
-            id_a == id_b
-        }
-    }
-
-    /// Calls the receiver hook, reverting the state if it aborts or there is a messaging error
-    fn call_receiver_hook_or_revert(
-        &mut self,
-        token_receiver: &Address,
-        params: TokenReceivedParams,
-        old_state: TokenState,
-    ) -> Result<()> {
-        let receipt = match self.msg.send(
-            token_receiver,
-            RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(&params)?,
-            &TokenAmount::zero(),
-        ) {
-            Ok(receipt) => receipt,
-            Err(e) => {
-                self.state = old_state;
-                self.flush()?;
-                return Err(e.into());
-            }
-        };
-
-        match receipt.exit_code {
-            ExitCode::OK => Ok(()),
-            abort_code => {
-                self.state = old_state;
-                self.flush()?;
-                Err(TokenError::ReceiverHook {
-                    from: params.from,
-                    to: params.to,
-                    operator: params.operator,
-                    amount: params.amount,
-                    exit_code: abort_code,
-                })
-            }
-        }
     }
 }
 
@@ -634,6 +512,98 @@ where
     }
 }
 
+impl<BS, MSG> Token<BS, MSG>
+where
+    BS: Blockstore,
+    MSG: Messaging,
+{
+    /// Resolves an address to an ID address, sending a message to initialise an account there if
+    /// it doesn't exist
+    ///
+    /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
+    fn resolve_or_init(&self, address: &Address) -> MessagingResult<ActorID> {
+        let id = match self.msg.resolve_id(address) {
+            Ok(addr) => addr,
+            Err(MessagingError::AddressNotResolved(_e)) => self.msg.initialize_account(address)?,
+            Err(e) => return Err(e),
+        };
+        Ok(id)
+    }
+
+    /// Attempts to resolve an address to an ActorID, returning MessagingError::AddressNotResolved
+    /// if it wasn't found
+    fn get_id(&self, address: &Address) -> MessagingResult<ActorID> {
+        self.msg.resolve_id(address)
+    }
+
+    /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without
+    /// actually initiating accounts for them
+    ///
+    /// If a and b are of the same type, simply do an equality check. Otherwise, attempt to resolve
+    /// to an ActorID and compare
+    fn same_address(&self, address_a: &Address, address_b: &Address) -> bool {
+        let protocol_a = address_a.protocol();
+        let protocol_b = address_b.protocol();
+        if protocol_a == protocol_b {
+            address_a == address_b
+        } else {
+            // attempt to resolve both to ActorID
+            let id_a = match self.get_id(address_a) {
+                Ok(id) => id,
+                Err(_) => return false,
+            };
+            let id_b = match self.get_id(address_b) {
+                Ok(id) => id,
+                Err(_) => return false,
+            };
+            id_a == id_b
+        }
+    }
+
+    /// Calls the receiver hook, reverting the state if it aborts or there is a messaging error
+    fn call_receiver_hook_or_revert(
+        &mut self,
+        token_receiver: &Address,
+        params: TokenReceivedParams,
+        old_state: TokenState,
+    ) -> Result<()> {
+        let receipt = match self.msg.send(
+            token_receiver,
+            RECEIVER_HOOK_METHOD_NUM,
+            &RawBytes::serialize(&params)?,
+            &TokenAmount::zero(),
+        ) {
+            Ok(receipt) => receipt,
+            Err(e) => {
+                self.state = old_state;
+                self.flush()?;
+                return Err(e.into());
+            }
+        };
+
+        match receipt.exit_code {
+            ExitCode::OK => Ok(()),
+            abort_code => {
+                self.state = old_state;
+                self.flush()?;
+                Err(TokenError::ReceiverHook {
+                    from: params.from,
+                    to: params.to,
+                    operator: params.operator,
+                    amount: params.amount,
+                    exit_code: abort_code,
+                })
+            }
+        }
+    }
+
+    /// Checks the state invariants, throwing an error if they are not met
+    pub fn check_invariants(&self) -> Result<()> {
+        self.state.check_invariants(&self.bs)?;
+        Ok(())
+    }
+}
+
 /// Validates that a token amount is non-negative, and an integer multiple of granularity.
 /// Returns the argument, or an error.
 fn validate_amount<'a>(
@@ -653,11 +623,12 @@ fn validate_amount<'a>(
 
 #[cfg(test)]
 mod test {
+    use std::ops::Neg;
+
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_shared::address::{Address, BLS_PUB_LEN};
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
-    use std::ops::Neg;
 
     use super::state::StateError;
     use super::Token;

@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use fvm_dispatch::method_hash;
 use fvm_ipld_encoding::Error as IpldError;
 use fvm_ipld_encoding::RawBytes;
 use fvm_sdk::{actor, message, send, sys::ErrorNumber};
@@ -51,11 +52,9 @@ pub trait Messaging {
     fn initialize_account(&self, address: &Address) -> Result<ActorID>;
 }
 
-// TODO: use fvm_dispatch here (when it supports compile time method resolution)
-// TODO: ^^ necessitates determining conventional method names for receiver hooks
-// currently, the method number comes from taking the name as "TokensReceived" and applying
+// the method number comes from taking the name as "TokensReceived" and applying
 // the transformation described in https://github.com/filecoin-project/FIPs/pull/399
-pub const RECEIVER_HOOK_METHOD_NUM: u64 = 1361519036;
+pub const RECEIVER_HOOK_METHOD_NUM: u64 = method_hash!("TokensReceived");
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FvmMessenger {}
@@ -313,9 +312,8 @@ mod test_fake_messenger {
     }
     use fvm_shared::address::{Address, BLS_PUB_LEN};
 
-    use crate::runtime::messaging::Messaging;
-
     use super::FakeMessenger;
+    use crate::runtime::messaging::Messaging;
 
     /// Simple test checking that the fake messenger uses the address resolver to resolve addresses
     /// The resolution of addresses is tested in the test_address_resolver module
