@@ -11,6 +11,7 @@ use fvm_ipld_encoding::CborStore;
 use fvm_ipld_encoding::DAG_CBOR;
 use fvm_ipld_hamt::Error as HamtError;
 use fvm_ipld_hamt::Hamt;
+use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::bigint::Zero;
@@ -29,14 +30,16 @@ pub enum StateError {
     MissingState(Cid),
     #[error("underlying serialization error: {0}")]
     Serialization(String),
-    #[error("negative balance caused by changing {owner:?}'s balance of {balance:?} by {delta:?}")]
-    NegativeBalance { owner: ActorID, balance: TokenAmount, delta: TokenAmount },
+    #[error(
+        "negative balance caused by decreasing {owner:?}'s balance of {balance:?} by {delta:?}"
+    )]
+    InsufficientBalance { owner: ActorID, balance: TokenAmount, delta: TokenAmount },
     #[error(
         "{operator:?} attempted to utilise {delta:?} of allowance {allowance:?} set by {owner:?}"
     )]
-    InsufficentAllowance {
-        owner: ActorID,
-        operator: ActorID,
+    InsufficientAllowance {
+        owner: Address,
+        operator: Address,
         allowance: TokenAmount,
         delta: TokenAmount,
     },
@@ -164,19 +167,16 @@ impl TokenState {
 
         let mut balance_map = self.get_balance_map(bs)?;
         let balance = balance_map.get(&owner)?;
-
-        let new_balance = match balance {
-            Some(existing_amount) => existing_amount.0.clone() + delta,
-            None => (*delta).clone(),
+        let balance = match balance {
+            Some(amount) => amount.0.clone(),
+            None => TokenAmount::zero(),
         };
+
+        let new_balance = balance.clone() + delta;
 
         // if the new_balance is negative, return an error
         if new_balance.is_negative() {
-            return Err(StateError::NegativeBalance {
-                balance: new_balance,
-                delta: delta.clone(),
-                owner,
-            });
+            return Err(StateError::InsufficientBalance { balance, delta: delta.clone(), owner });
         }
 
         if new_balance.is_zero() {
@@ -332,14 +332,24 @@ impl TokenState {
     ) -> Result<TokenAmount> {
         let current_allowance = self.get_allowance_between(bs, owner, operator)?;
 
+        // defensive check for operator != owner, really allowance should never be checked here
+        if current_allowance.is_zero() && operator != owner {
+            return Err(StateError::InsufficientAllowance {
+                owner: Address::new_id(owner),
+                operator: Address::new_id(operator),
+                allowance: current_allowance,
+                delta: amount.clone(),
+            });
+        }
+
         if amount.is_zero() {
             return Ok(current_allowance);
         }
 
         if current_allowance.lt(amount) {
-            return Err(StateError::InsufficentAllowance {
-                owner,
-                operator,
+            return Err(StateError::InsufficientAllowance {
+                owner: Address::new_id(owner),
+                operator: Address::new_id(operator),
                 allowance: current_allowance,
                 delta: amount.clone(),
             });
