@@ -39,7 +39,7 @@ where
     bs: BS,
     /// Minimal interface to call methods on other actors (i.e. receiver hooks)
     msg: MSG,
-    /// In-memory cache of the state tree
+    /// Reference to token state that will be inspected/mutated
     state: &'st mut TokenState,
     /// Minimum granularity of token amounts.
     /// All balances and amounts must be a multiple of this granularity.
