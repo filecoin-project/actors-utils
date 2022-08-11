@@ -131,43 +131,19 @@ where
 
         // Update state so re-entrant calls see the changes
         self.flush()?;
+
         // Call receiver hook
-        let hook_params = TokenReceivedParams {
-            data: data.clone(),
-            from: self.msg.actor_id(),
-            to: owner_id,
-            operator: operator_id,
-            amount: amount.clone(),
-        };
-        match self.msg.send(
+        self.call_receiver_hook_or_revert(
             initial_owner,
-            RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(hook_params)?,
-            &TokenAmount::zero(),
-        ) {
-            Ok(receipt) => {
-                // hook returned true, so we can continue
-                if receipt.exit_code.is_success() {
-                    Ok(())
-                } else {
-                    *self.state = old_state;
-                    self.flush()?;
-                    Err(TokenError::ReceiverHook {
-                        operator: operator_id,
-                        from: self.msg.actor_id(),
-                        to: owner_id,
-                        amount: amount.clone(),
-                        exit_code: receipt.exit_code,
-                    })
-                }
-            }
-            Err(e) => {
-                // error calling receiver hook, revert state
-                *self.state = old_state;
-                self.flush()?;
-                Err(e.into())
-            }
-        }
+            TokenReceivedParams {
+                data: data.clone(),
+                from: self.msg.actor_id(),
+                to: owner_id,
+                operator: operator_id,
+                amount: amount.clone(),
+            },
+            old_state,
+        )
     }
 
     /// Gets the total number of tokens in existence
@@ -646,13 +622,6 @@ mod test {
     use crate::token::Token;
     use crate::token::TokenError;
 
-    fn new_token(
-        bs: MemoryBlockstore,
-        state: &mut TokenState,
-    ) -> Token<MemoryBlockstore, FakeMessenger> {
-        Token::wrap(bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), 1, state)
-    }
-
     /// Returns a static secp256k1 address
     fn secp_address() -> Address {
         let key = vec![0; 65];
@@ -675,6 +644,13 @@ mod test {
     const ALICE: &Address = &Address::new_id(3);
     const BOB: &Address = &Address::new_id(4);
     const CAROL: &Address = &Address::new_id(5);
+
+    fn new_token(
+        bs: MemoryBlockstore,
+        state: &mut TokenState,
+    ) -> Token<MemoryBlockstore, FakeMessenger> {
+        Token::wrap(bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), 1, state)
+    }
 
     fn assert_last_hook_call_eq(messenger: &FakeMessenger, expected: TokenReceivedParams) {
         let last_called = messenger.last_message.borrow().clone().unwrap();
