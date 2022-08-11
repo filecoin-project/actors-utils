@@ -148,92 +148,6 @@ where
         self.state = mutable_state;
         Ok(res)
     }
-
-    /// Resolves an address to an ID address, sending a message to initialise an account there if
-    /// it doesn't exist
-    ///
-    /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
-    fn resolve_or_init(&self, address: &Address) -> MessagingResult<ActorID> {
-        let id = match self.msg.resolve_id(address) {
-            Ok(addr) => addr,
-            Err(MessagingError::AddressNotResolved(_e)) => self.msg.initialize_account(address)?,
-            Err(e) => return Err(e),
-        };
-        Ok(id)
-    }
-
-    /// Attempts to resolve an address to an ActorID, returning MessagingError::AddressNotResolved
-    /// if it wasn't found
-    fn get_id(&self, address: &Address) -> MessagingResult<ActorID> {
-        self.msg.resolve_id(address)
-    }
-
-    /// Checks the state invariants, throwing an error if they are not met
-    pub fn check_invariants(&self) -> Result<()> {
-        self.state.check_invariants(&self.bs)?;
-        Ok(())
-    }
-
-    /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without
-    /// actually initiating accounts for them
-    ///
-    /// If a and b are of the same type, simply do an equality check. Otherwise, attempt to resolve
-    /// to an ActorID and compare
-    fn same_address(&self, address_a: &Address, address_b: &Address) -> bool {
-        let protocol_a = address_a.protocol();
-        let protocol_b = address_b.protocol();
-        if protocol_a == protocol_b {
-            address_a == address_b
-        } else {
-            // attempt to resolve both to ActorID
-            let id_a = match self.get_id(address_a) {
-                Ok(id) => id,
-                Err(_) => return false,
-            };
-            let id_b = match self.get_id(address_b) {
-                Ok(id) => id,
-                Err(_) => return false,
-            };
-            id_a == id_b
-        }
-    }
-
-    /// Calls the receiver hook, reverting the state if it aborts or there is a messaging error
-    fn call_receiver_hook_or_revert(
-        &mut self,
-        token_receiver: &Address,
-        params: TokenReceivedParams,
-        old_state: TokenState,
-    ) -> Result<()> {
-        let receipt = match self.msg.send(
-            token_receiver,
-            RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(&params)?,
-            &TokenAmount::zero(),
-        ) {
-            Ok(receipt) => receipt,
-            Err(e) => {
-                self.state = old_state;
-                self.flush()?;
-                return Err(e.into());
-            }
-        };
-
-        match receipt.exit_code {
-            ExitCode::OK => Ok(()),
-            abort_code => {
-                self.state = old_state;
-                self.flush()?;
-                Err(TokenError::ReceiverHook {
-                    from: params.from,
-                    to: params.to,
-                    operator: params.operator,
-                    amount: params.amount,
-                    exit_code: abort_code,
-                })
-            }
-        }
-    }
 }
 
 impl<BS, MSG> Token<BS, MSG>
@@ -630,6 +544,98 @@ where
             },
             old_state,
         )
+    }
+}
+
+impl<BS, MSG> Token<BS, MSG>
+where
+    BS: Blockstore,
+    MSG: Messaging,
+{
+    /// Resolves an address to an ID address, sending a message to initialise an account there if
+    /// it doesn't exist
+    ///
+    /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
+    fn resolve_or_init(&self, address: &Address) -> MessagingResult<ActorID> {
+        let id = match self.msg.resolve_id(address) {
+            Ok(addr) => addr,
+            Err(MessagingError::AddressNotResolved(_e)) => self.msg.initialize_account(address)?,
+            Err(e) => return Err(e),
+        };
+        Ok(id)
+    }
+
+    /// Attempts to resolve an address to an ActorID, returning MessagingError::AddressNotResolved
+    /// if it wasn't found
+    fn get_id(&self, address: &Address) -> MessagingResult<ActorID> {
+        self.msg.resolve_id(address)
+    }
+
+    /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without
+    /// actually initiating accounts for them
+    ///
+    /// If a and b are of the same type, simply do an equality check. Otherwise, attempt to resolve
+    /// to an ActorID and compare
+    fn same_address(&self, address_a: &Address, address_b: &Address) -> bool {
+        let protocol_a = address_a.protocol();
+        let protocol_b = address_b.protocol();
+        if protocol_a == protocol_b {
+            address_a == address_b
+        } else {
+            // attempt to resolve both to ActorID
+            let id_a = match self.get_id(address_a) {
+                Ok(id) => id,
+                Err(_) => return false,
+            };
+            let id_b = match self.get_id(address_b) {
+                Ok(id) => id,
+                Err(_) => return false,
+            };
+            id_a == id_b
+        }
+    }
+
+    /// Calls the receiver hook, reverting the state if it aborts or there is a messaging error
+    fn call_receiver_hook_or_revert(
+        &mut self,
+        token_receiver: &Address,
+        params: TokenReceivedParams,
+        old_state: TokenState,
+    ) -> Result<()> {
+        let receipt = match self.msg.send(
+            token_receiver,
+            RECEIVER_HOOK_METHOD_NUM,
+            &RawBytes::serialize(&params)?,
+            &TokenAmount::zero(),
+        ) {
+            Ok(receipt) => receipt,
+            Err(e) => {
+                self.state = old_state;
+                self.flush()?;
+                return Err(e.into());
+            }
+        };
+
+        match receipt.exit_code {
+            ExitCode::OK => Ok(()),
+            abort_code => {
+                self.state = old_state;
+                self.flush()?;
+                Err(TokenError::ReceiverHook {
+                    from: params.from,
+                    to: params.to,
+                    operator: params.operator,
+                    amount: params.amount,
+                    exit_code: abort_code,
+                })
+            }
+        }
+    }
+
+    /// Checks the state invariants, throwing an error if they are not met
+    pub fn check_invariants(&self) -> Result<()> {
+        self.state.check_invariants(&self.bs)?;
+        Ok(())
     }
 }
 
