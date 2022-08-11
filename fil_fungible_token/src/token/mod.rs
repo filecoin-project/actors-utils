@@ -86,7 +86,7 @@ where
     ///
     /// If the closure returns an error, the transaction is dropped atomically and no change is
     /// observed on token state.
-    pub fn transaction<F, Res>(&mut self, f: F) -> Result<Res>
+    fn transaction<F, Res>(&mut self, f: F) -> Result<Res>
     where
         F: FnOnce(&mut TokenState, &BS) -> Result<Res>,
     {
