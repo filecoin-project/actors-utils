@@ -5,7 +5,7 @@ use fvm_sdk::sys::ErrorNumber;
 use fvm_shared::{address::Address, econ::TokenAmount, receipt::Receipt};
 use thiserror::Error;
 
-use crate::hash::{Hasher, MethodNameErr, MethodResolver}; // fvm_sdk syscalls only work for WASM targets
+use crate::hash::{Hasher, MethodNameErr, MethodResolver};
 
 /// Utility to invoke standard methods on deployed actors
 #[derive(Default)]

@@ -8,13 +8,24 @@ build: install-toolchain
 
 check: install-toolchain
 	cargo fmt --check
-	cargo clippy --workspace --all-targets --all-features -- -D warnings
+	cargo clippy --workspace -- -D warnings
 
 check-build: check
-	cargo build --workspace --all-targets --all-features
+	cargo build --workspace
 
+# run all tests, this will not work if using RUSTFLAGS="-Zprofile" to generate profile info or coverage reports
+# as any WASM targets will fail to build
 test: install-toolchain
 	cargo test
+
+# tests excluding actors so we can generate coverage reports during CI build
+# WASM targets such as actors do not support this so are excluded
+test-coverage: install-toolchain
+	cargo test --workspace --exclude greeter
+
+# separate actor testing stage to run from CI without coverage support
+test-actors:
+	cargo test --package greeter
 
 clean:
 	cargo clean

@@ -10,3 +10,4 @@ fvm_shared = { version = "0.8.0" }
 hasher = { path = "hasher" }
 macros = { path = "macros" }
 thiserror = { version = "1.0.31" }
+
