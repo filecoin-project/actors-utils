@@ -24,7 +24,7 @@ test-coverage: install-toolchain
 	cargo test --workspace --exclude greeter
 
 # separate actor testing stage to run from CI without coverage support
-test-actors:
+test-actors: install-toolchain
 	cargo test --package greeter
 
 clean:
