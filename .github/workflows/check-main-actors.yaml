@@ -1,0 +1,16 @@
+name: Check Main Actors
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  code-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Test Actors
+        run: make test-actors

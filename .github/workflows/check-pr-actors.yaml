@@ -1,0 +1,21 @@
+name: Rust PR Actor Tests
+
+on:
+  pull_request:
+    # Default types for PR are opened, synchronize, reopened. Need
+    # ready_for_review to catch a PR that is moving from draft to not-draft
+    types: [opened, synchronize, reopened, ready_for_review]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-code:
+    if: github.event.pull_request.draft == false 
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Test Actors
+        run: make test-actors
