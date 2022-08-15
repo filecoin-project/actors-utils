@@ -10,7 +10,25 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check-code:
+  check-build:
+    if: github.event.pull_request.draft == false 
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build
+        run: make check-build
+  check-actors:
+    if: github.event.pull_request.draft == false 
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Test Actors
+        run: make test-actors
+  check-coverage:
     if: github.event.pull_request.draft == false 
     runs-on: ubuntu-latest
     steps:
