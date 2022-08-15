@@ -1,4 +1,4 @@
-name: Check Main Test Coverage
+name: Main Checks
 
 on:
   push:
@@ -6,6 +6,22 @@ on:
       - main
 
 jobs:
+  check-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build
+        run: make check-build
+  actor-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Test Actors
+        run: make test-actors
   code-coverage:
     runs-on: ubuntu-latest
     steps:
