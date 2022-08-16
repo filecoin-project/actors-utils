@@ -18,15 +18,15 @@ use serde::ser;
 use thiserror::Error;
 use util::{caller_address, deserialize_params, RuntimeError};
 
-struct BasicToken {
+struct BasicToken<'state> {
     /// Default token helper impl
-    util: Token<Blockstore, FvmMessenger>,
+    util: Token<'state, Blockstore, FvmMessenger>,
 }
 
 /// Implementation of the token API in a FVM actor
 ///
 /// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
-impl FrcXXXToken<RuntimeError> for BasicToken {
+impl FrcXXXToken<RuntimeError> for BasicToken<'_> {
     fn name(&self) -> String {
         String::from("FRC XXX Token")
     }
@@ -137,10 +137,12 @@ pub fn invoke(params: u32) -> u32 {
         // Standard token interface
         rest => {
             let root_cid = sdk::sself::root().unwrap();
-            let mut token_actor = BasicToken {
-                util: Token::load(Blockstore::default(), FvmMessenger::default(), root_cid)
-                    .unwrap(),
-            };
+
+            let bs = Blockstore::default();
+            let mut token_state = Token::<_, FvmMessenger>::load_state(&bs, &root_cid).unwrap();
+
+            let mut token_actor =
+                BasicToken { util: Token::wrap(bs, FvmMessenger::default(), 1, &mut token_state) };
 
             // Method numbers calculated via fvm_dispatch_tools using CamelCase names derived from
             // the corresponding FRCXXXToken trait methods.
@@ -233,7 +235,10 @@ pub fn invoke(params: u32) -> u32 {
 }
 
 fn constructor() -> u32 {
-    let (_token, cid) = Token::new(Blockstore::default(), FvmMessenger::default()).unwrap();
+    let bs = Blockstore::default();
+    let mut token_state = Token::<_, FvmMessenger>::create_state(&bs).unwrap();
+    let mut token = Token::wrap(bs, FvmMessenger::default(), 1, &mut token_state);
+    let cid = token.flush().unwrap();
     sdk::sself::set_root(&cid).unwrap();
     NO_DATA_BLOCK_ID
 }
