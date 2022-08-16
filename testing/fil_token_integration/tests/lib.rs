@@ -55,7 +55,7 @@ fn mint_tokens() {
         .execute_message(message, ApplyKind::Explicit, 100)
         .unwrap();
 
-    println!("constructor return data {:?}", &ret_val);
+    println!("constructor return data {:#?}", &ret_val);
 
     let message = Message {
         from: minter[0].1,
@@ -73,7 +73,7 @@ fn mint_tokens() {
         .execute_message(message, ApplyKind::Explicit, 100)
         .unwrap();
 
-    println!("mint return data {:?}", &ret_val);
+    println!("mint return data {:#?}", &ret_val);
 
     let params = RawBytes::serialize(minter[0].1).unwrap();
 
@@ -94,9 +94,9 @@ fn mint_tokens() {
         .execute_message(message, ApplyKind::Explicit, 100)
         .unwrap();
 
-    println!("balance return data {:?}", &ret_val);
+    println!("balance return data {:#?}", &ret_val);
 
     let return_data = ret_val.msg_receipt.return_data;
     let balance: BigIntDe = return_data.deserialize().unwrap();
-    println!("balance: {:?}", balance);
+    println!("balance: {:#?}", balance);
 }
