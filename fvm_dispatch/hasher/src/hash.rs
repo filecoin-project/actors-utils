@@ -58,7 +58,7 @@ pub enum IllegalNameErr {
 impl<T: Hasher> MethodResolver<T> {
     const CONSTRUCTOR_METHOD_NAME: &'static str = "Constructor";
     const CONSTRUCTOR_METHOD_NUMBER: u64 = 1_u64;
-    const RESERVED_METHOD_NUMBER: u64 = 0_u64;
+    const FIRST_METHOD_NUMBER: u64 = 256_u64;
     const DIGEST_CHUNK_LENGTH: usize = 4;
 
     /// Creates a MethodResolver with an instance of a hasher (blake2b by convention)
@@ -87,9 +87,8 @@ impl<T: Hasher> MethodResolver<T> {
             }
 
             let method_id = as_u32(chunk) as u64;
-            if method_id != Self::CONSTRUCTOR_METHOD_NUMBER
-                && method_id != Self::RESERVED_METHOD_NUMBER
-            {
+            // Method numbers below 256 are reserved for other use
+            if method_id >= Self::FIRST_METHOD_NUMBER {
                 return Ok(method_id);
             }
         }
