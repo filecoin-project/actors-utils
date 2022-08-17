@@ -66,7 +66,7 @@ impl<T: Hasher> MethodResolver<T> {
         Self { hasher }
     }
 
-    /// Generates a standard FRC-XXX compliant method number
+    /// Generates a standard FRC-0042 compliant method number
     ///
     /// The method number is calculated as the first four bytes of `hash(method-name)`.
     /// The name `Constructor` is always hashed to 1 and other method names that hash to
@@ -97,7 +97,7 @@ impl<T: Hasher> MethodResolver<T> {
     }
 }
 
-/// Checks that a method name is valid and compliant with the FRC-XXX standard recommendations
+/// Checks that a method name is valid and compliant with the FRC-0042 standard recommendations
 ///
 /// - Only ASCII characters in `[a-zA-Z0-9_]` are allowed
 /// - Starts with a character in `[A-Z_]`
