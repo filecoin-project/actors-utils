@@ -4,7 +4,8 @@ use fil_fungible_token::runtime::blockstore::Blockstore;
 use fil_fungible_token::runtime::messaging::FvmMessenger;
 use fil_fungible_token::token::types::{
     AllowanceReturn, BurnParams, BurnReturn, ChangeAllowanceParams, FrcXXXToken,
-    GetAllowanceParams, Result, RevokeAllowanceParams, TransferParams, TransferReturn,
+    GetAllowanceParams, MintParams, MintReturn, Result, RevokeAllowanceParams, TransferParams,
+    TransferReturn,
 };
 use fil_fungible_token::token::Token;
 use fvm_ipld_encoding::DAG_CBOR;
@@ -105,6 +106,22 @@ impl FrcXXXToken<RuntimeError> for BasicToken<'_> {
             to: params.to,
             by: spender,
             amount: params.amount.clone(),
+        })
+    }
+}
+
+impl BasicToken<'_> {
+    fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
+        self.util.mint(
+            &caller_address(),
+            &params.initial_owner,
+            &params.amount,
+            &Default::default(),
+        )?;
+        Ok(MintReturn {
+            successful: true,
+            newly_minted: params.amount.clone(),
+            total_supply: self.total_supply(),
         })
     }
 }
@@ -214,14 +231,12 @@ pub fn invoke(params: u32) -> u32 {
                 // FRCXXX Token standard
                 3839021839 => {
                     // Mint
-                    // This is an exmaple mint function which simply gives the caller 100 tokens
-                    let minter = caller_address();
-                    token_actor
-                        .util
-                        .mint(&minter, &minter, &TokenAmount::from(100), &Default::default())
-                        .unwrap();
-                    token_actor.util.flush().unwrap();
-                    NO_DATA_BLOCK_ID
+                    let params = deserialize_params(params);
+                    let res = token_actor.mint(params).unwrap();
+
+                    let cid = token_actor.util.flush().unwrap();
+                    sdk::sself::set_root(&cid).unwrap();
+                    return_ipld(&res).unwrap()
                 }
                 _ => {
                     sdk::vm::abort(
