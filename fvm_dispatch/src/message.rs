@@ -1,8 +1,7 @@
 use fvm_ipld_encoding::RawBytes;
-#[cfg(target_family = "wasm")]
+#[cfg(not(feature = "no_sdk"))]
 use fvm_sdk::send;
-use fvm_sdk::sys::ErrorNumber;
-use fvm_shared::{address::Address, econ::TokenAmount, receipt::Receipt};
+use fvm_shared::{address::Address, econ::TokenAmount, error::ErrorNumber, receipt::Receipt};
 use thiserror::Error;
 
 use crate::hash::{Hasher, MethodNameErr, MethodResolver};
@@ -29,7 +28,7 @@ impl<T: Hasher> MethodMessenger<T> {
 
     /// Calls a method (by name) on a specified actor by constructing and publishing the underlying
     /// on-chain Message
-    #[cfg(target_family = "wasm")]
+    #[cfg(not(feature = "no_sdk"))]
     pub fn call_method(
         &self,
         to: &Address,
@@ -41,7 +40,7 @@ impl<T: Hasher> MethodMessenger<T> {
         send::send(to, method, params, value).map_err(MethodMessengerError::from)
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(feature = "no_sdk")]
     #[allow(unused_variables)]
     pub fn call_method(
         &self,

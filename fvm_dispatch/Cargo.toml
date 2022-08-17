@@ -5,9 +5,12 @@ edition = "2021"
 
 [dependencies]
 fvm_ipld_encoding = { version = "0.2.2" }
-fvm_sdk = { version = "1.0.0" }
+fvm_sdk = { version = "1.0.0", optional = true }
 fvm_shared = { version = "0.8.0" }
 hasher = { path = "hasher" }
 macros = { path = "macros" }
 thiserror = { version = "1.0.31" }
 
+[features]
+default = ["dep:fvm_sdk"]
+no_sdk = [] # avoid dependence on fvm_sdk (for proc macro and similar purposes)

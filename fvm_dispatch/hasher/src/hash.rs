@@ -22,7 +22,7 @@ impl Hasher for Blake2bSyscall {
         crypto::hash_blake2b(bytes).try_into().unwrap()
     }
 
-    // stub version for non-wasm targets (eg: proc macros running on x86_64)
+    // stub version that avoids fvm_sdk syscalls (eg: for proc macro, or built-in actor use)
     #[cfg(feature = "no_sdk")]
     #[allow(unused_variables)]
     fn hash(&self, bytes: &[u8]) -> Vec<u8> {
