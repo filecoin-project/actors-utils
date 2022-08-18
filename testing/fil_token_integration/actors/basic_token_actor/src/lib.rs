@@ -3,13 +3,16 @@ mod util;
 use fil_fungible_token::runtime::blockstore::Blockstore;
 use fil_fungible_token::runtime::messaging::FvmMessenger;
 use fil_fungible_token::token::types::{
-    AllowanceReturn, BurnParams, BurnReturn, ChangeAllowanceParams, FrcXXXToken,
-    GetAllowanceParams, MintParams, MintReturn, Result, RevokeAllowanceParams, TransferParams,
-    TransferReturn,
+    AllowanceReturn, BurnFromReturn, BurnParams, BurnReturn, DecreaseAllowanceParams, FrcXXXToken,
+    GetAllowanceParams, IncreaseAllowanceParams, Result, RevokeAllowanceParams, TransferFromReturn,
+    TransferParams, TransferReturn,
 };
 use fil_fungible_token::token::Token;
-use fvm_ipld_encoding::DAG_CBOR;
+use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
+use fvm_ipld_encoding::{Cbor, DAG_CBOR};
 use fvm_sdk as sdk;
+use fvm_shared::address::Address;
+use fvm_shared::bigint::bigint_ser;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::econ::TokenAmount;
 use num_traits::Zero;
@@ -47,23 +50,46 @@ impl FrcXXXToken<RuntimeError> for BasicToken<'_> {
         Ok(self.util.balance_of(&params)?)
     }
 
+    fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
+        let spender = caller_address();
+        self.util.transfer(&spender, &spender, &params.to, &params.amount, &params.data)?;
+
+        // FIXME: populate with real values
+        Ok(TransferReturn { from_balance: TokenAmount::zero(), to_balance: TokenAmount::zero() })
+    }
+
+    fn transfer_from(
+        &mut self,
+        params: fil_fungible_token::token::types::TransferFromParams,
+    ) -> Result<TransferFromReturn, RuntimeError> {
+        let spender = caller_address();
+        self.util.transfer(&spender, &params.from, &params.to, &params.amount, &params.data)?;
+
+        // FIXME: populate with real values
+        Ok(TransferFromReturn {
+            from_balance: TokenAmount::zero(),
+            to_balance: TokenAmount::zero(),
+            remaining_allowance: TokenAmount::zero(),
+        })
+    }
+
     fn increase_allowance(
         &mut self,
-        params: ChangeAllowanceParams,
+        params: IncreaseAllowanceParams,
     ) -> Result<AllowanceReturn, RuntimeError> {
         let owner = caller_address();
         let new_allowance =
-            self.util.increase_allowance(&owner, &params.operator, &params.amount)?;
+            self.util.increase_allowance(&owner, &params.operator, &params.increase)?;
         Ok(AllowanceReturn { owner, operator: params.operator, amount: new_allowance })
     }
 
     fn decrease_allowance(
         &mut self,
-        params: ChangeAllowanceParams,
+        params: DecreaseAllowanceParams,
     ) -> Result<AllowanceReturn, RuntimeError> {
         let owner = caller_address();
         let new_allowance =
-            self.util.decrease_allowance(&owner, &params.operator, &params.amount)?;
+            self.util.decrease_allowance(&owner, &params.operator, &params.decrease)?;
         Ok(AllowanceReturn { owner, operator: params.operator, amount: new_allowance })
     }
 
@@ -82,33 +108,41 @@ impl FrcXXXToken<RuntimeError> for BasicToken<'_> {
     }
 
     fn burn(&mut self, params: BurnParams) -> Result<BurnReturn, RuntimeError> {
-        let spender = caller_address();
-        let remaining = self.util.burn(&spender, &params.owner, &params.amount)?;
-        Ok(BurnReturn {
-            by: spender,
-            remaining_balance: remaining,
-            burnt: params.amount.clone(),
-            owner: params.owner,
-        })
+        let caller = caller_address();
+        let remaining = self.util.burn(&caller, &caller, &params.amount)?;
+        Ok(BurnReturn { remaining_balance: remaining })
     }
 
-    fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
-        let spender = caller_address();
-        self.util.transfer(
-            &caller_address(),
-            &params.from,
-            &params.to,
-            &params.amount,
-            &params.data,
-        )?;
-        Ok(TransferReturn {
-            from: params.from,
-            to: params.to,
-            by: spender,
-            amount: params.amount.clone(),
+    fn burn_from(
+        &mut self,
+        params: fil_fungible_token::token::types::BurnFromParams,
+    ) -> Result<BurnFromReturn, RuntimeError> {
+        let caller = caller_address();
+        let remaining = self.util.burn(&caller, &params.owner, &params.amount)?;
+
+        // FIXME: populate remaining allowance with real data
+        Ok(BurnFromReturn {
+            remaining_balance: remaining,
+            remaining_allowance: TokenAmount::zero(),
         })
     }
 }
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct MintParams {
+    pub initial_owner: Address,
+    #[serde(with = "bigint_ser")]
+    pub amount: TokenAmount,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct MintReturn {
+    #[serde(with = "bigint_ser")]
+    pub total_supply: TokenAmount,
+}
+
+impl Cbor for MintParams {}
+impl Cbor for MintReturn {}
 
 impl BasicToken<'_> {
     fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
@@ -118,11 +152,7 @@ impl BasicToken<'_> {
             &params.amount,
             &Default::default(),
         )?;
-        Ok(MintReturn {
-            successful: true,
-            newly_minted: params.amount.clone(),
-            total_supply: self.total_supply(),
-        })
+        Ok(MintReturn { total_supply: self.total_supply() })
     }
 }
 
