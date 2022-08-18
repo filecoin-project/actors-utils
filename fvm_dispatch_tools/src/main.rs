@@ -5,7 +5,7 @@ use std::process::exit;
 
 use blake2b::Blake2bHasher;
 use clap::Parser;
-use fvm_dispatch::hash::MethodResolver;
+use frc42_dispatch::hash::MethodResolver;
 
 const LONG_ABOUT: &str =
     "Pass a single method name as a command line argument or a list of method names, separated by \

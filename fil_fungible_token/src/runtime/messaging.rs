@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use fvm_dispatch::method_hash;
+use frc42_dispatch::method_hash;
 use fvm_ipld_encoding::Error as IpldError;
 use fvm_ipld_encoding::RawBytes;
 use fvm_sdk::{actor, message, send, sys::ErrorNumber};

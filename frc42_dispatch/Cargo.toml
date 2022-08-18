@@ -1,7 +1,12 @@
 [package]
-name = "fvm_dispatch"
-version = "0.1.0"
+name = "frc42_dispatch"
+description = "Filecoin FRC-0042 calling convention/dispatch support library"
+version = "0.2.0"
+license = "MIT OR Apache-2.0"
+keywords = ["filecoin", "dispatch", "frc-0042"]
+repository = "https://github.com/helix-onchain/filecoin/"
 edition = "2021"
+
 
 [dependencies]
 fvm_ipld_encoding = { version = "0.2.2" }
