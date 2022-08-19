@@ -1,4 +1,4 @@
-use hasher::hash::MethodResolver;
+use frc42_hasher::hash::MethodResolver;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};

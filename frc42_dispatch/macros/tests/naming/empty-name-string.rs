@@ -1,4 +1,4 @@
-use macros::method_hash;
+use frc42_macros::method_hash;
 
 fn main() {
 	// this should panic due to empty string
