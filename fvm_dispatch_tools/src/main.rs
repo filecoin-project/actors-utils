@@ -5,13 +5,13 @@ use std::process::exit;
 
 use blake2b::Blake2bHasher;
 use clap::Parser;
-use fvm_dispatch::hash::MethodResolver;
+use frc42_dispatch::hash::MethodResolver;
 
 const LONG_ABOUT: &str =
     "Pass a single method name as a command line argument or a list of method names, separated by \
 new-lines to stdin. The output is a list of hashes, one per method name.";
 
-/// Takes a method name and converts it to an FRC-XXX compliant method number
+/// Takes a method name and converts it to an FRC-0042 compliant method number
 ///
 /// Can be used by actor authors to precompute the method number for a given exported method to
 /// avoid runtime hasing during dispatch.

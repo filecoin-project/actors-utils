@@ -1,4 +1,4 @@
-use hasher::hash::MethodResolver;
+use frc42_hasher::hash::MethodResolver;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
@@ -39,7 +39,7 @@ pub fn method_hash(input: TokenStream) -> TokenStream {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn string_and_ident_match() {
+    fn it_works() {
         let t = trybuild::TestCases::new();
         t.pass("tests/build-success.rs");
     }

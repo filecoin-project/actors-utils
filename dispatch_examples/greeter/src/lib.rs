@@ -1,4 +1,4 @@
-use fvm_dispatch::match_method;
+use frc42_dispatch::match_method;
 use fvm_ipld_encoding::{RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
 use fvm_shared::error::ExitCode;

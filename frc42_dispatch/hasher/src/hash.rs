@@ -22,7 +22,7 @@ impl Hasher for Blake2bSyscall {
         crypto::hash_blake2b(bytes).try_into().unwrap()
     }
 
-    // stub version for non-wasm targets (eg: proc macros running on x86_64)
+    // stub version that avoids fvm_sdk syscalls (eg: for proc macro, or built-in actor use)
     #[cfg(feature = "no_sdk")]
     #[allow(unused_variables)]
     fn hash(&self, bytes: &[u8]) -> Vec<u8> {
@@ -58,7 +58,7 @@ pub enum IllegalNameErr {
 impl<T: Hasher> MethodResolver<T> {
     const CONSTRUCTOR_METHOD_NAME: &'static str = "Constructor";
     const CONSTRUCTOR_METHOD_NUMBER: u64 = 1_u64;
-    const RESERVED_METHOD_NUMBER: u64 = 0_u64;
+    const FIRST_METHOD_NUMBER: u64 = 256_u64;
     const DIGEST_CHUNK_LENGTH: usize = 4;
 
     /// Creates a MethodResolver with an instance of a hasher (blake2b by convention)
@@ -66,7 +66,7 @@ impl<T: Hasher> MethodResolver<T> {
         Self { hasher }
     }
 
-    /// Generates a standard FRC-XXX compliant method number
+    /// Generates a standard FRC-0042 compliant method number
     ///
     /// The method number is calculated as the first four bytes of `hash(method-name)`.
     /// The name `Constructor` is always hashed to 1 and other method names that hash to
@@ -87,9 +87,8 @@ impl<T: Hasher> MethodResolver<T> {
             }
 
             let method_id = as_u32(chunk) as u64;
-            if method_id != Self::CONSTRUCTOR_METHOD_NUMBER
-                && method_id != Self::RESERVED_METHOD_NUMBER
-            {
+            // Method numbers below 256 are reserved for other use
+            if method_id >= Self::FIRST_METHOD_NUMBER {
                 return Ok(method_id);
             }
         }
@@ -98,7 +97,7 @@ impl<T: Hasher> MethodResolver<T> {
     }
 }
 
-/// Checks that a method name is valid and compliant with the FRC-XXX standard recommendations
+/// Checks that a method name is valid and compliant with the FRC-0042 standard recommendations
 ///
 /// - Only ASCII characters in `[a-zA-Z0-9_]` are allowed
 /// - Starts with a character in `[A-Z_]`
