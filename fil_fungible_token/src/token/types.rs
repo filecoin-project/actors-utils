@@ -18,11 +18,11 @@ pub enum ActorError<Err> {
 pub type Result<T, E> = std::result::Result<T, ActorError<E>>;
 
 /// A standard fungible token interface allowing for on-chain transactions that implements the
-/// FRC-XXX standard. This represents the external interface exposed to other on-chain actors
+/// FRC-0046 standard. This represents the external interface exposed to other on-chain actors
 ///
 /// Token authors must implement this trait and link the methods to standard dispatch numbers (as
 /// defined by [FRC-0042](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0042.md)).
-pub trait FrcXXXToken<E> {
+pub trait Frc46Token<E> {
     /// Returns the name of the token
     ///
     /// Must not be empty
@@ -36,7 +36,7 @@ pub trait FrcXXXToken<E> {
     /// Returns the total amount of the token in existence
     ///
     /// Must be non-negative. The total supply must equal the balances of all addresses. The total
-    /// supply must equal the sum of all minted tokens less the sum of all burnt tokens.ß
+    /// supply should equal the sum of all minted tokens less the sum of all burnt tokens.
     fn total_supply(&self) -> TokenAmount;
 
     /// Returns the balance of an address
@@ -62,8 +62,7 @@ pub trait FrcXXXToken<E> {
     ///
     /// The increase must be non-negative. Returns the new total allowance approved for that
     /// owner-operator pair.
-    fn increase_allowance(&mut self, params: IncreaseAllowanceParams)
-        -> Result<AllowanceReturn, E>;
+    fn increase_allowance(&mut self, params: IncreaseAllowanceParams) -> Result<TokenAmount, E>;
 
     /// Atomically decreases the approved balance that a operator can transfer/burn from the caller's
     /// balance
@@ -71,16 +70,15 @@ pub trait FrcXXXToken<E> {
     /// The decrease must be non-negative. Sets the allowance to zero if the decrease is greater
     /// than the currently approved allowance. Returns the new total allowance approved for that
     /// owner-operator pair.
-    fn decrease_allowance(&mut self, params: DecreaseAllowanceParams)
-        -> Result<AllowanceReturn, E>;
+    fn decrease_allowance(&mut self, params: DecreaseAllowanceParams) -> Result<TokenAmount, E>;
 
     /// Sets the allowance a operator has on the owner's account to zero
-    fn revoke_allowance(&mut self, params: RevokeAllowanceParams) -> Result<AllowanceReturn, E>;
+    fn revoke_allowance(&mut self, params: RevokeAllowanceParams) -> Result<(), E>;
 
     /// Returns the allowance approved for an operator on a spender's balance
     ///
     /// The operator can burn or transfer the allowance amount out of the owner's address.
-    fn allowance(&mut self, params: GetAllowanceParams) -> Result<AllowanceReturn, E>;
+    fn allowance(&mut self, params: GetAllowanceParams) -> Result<TokenAmount, E>;
 
     /// Burns tokens from the caller's balance, decreasing the total supply
     fn burn(&mut self, params: BurnParams) -> Result<BurnReturn, E>;
@@ -92,7 +90,7 @@ pub trait FrcXXXToken<E> {
 }
 
 /// Instruction to transfer tokens to another address
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct TransferParams {
     pub to: Address,
     /// A non-negative amount to transfer
@@ -103,7 +101,7 @@ pub struct TransferParams {
 }
 
 /// Instruction to transfer tokens between two addresses as an operator
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct TransferFromParams {
     pub from: Address,
     pub to: Address,
@@ -115,7 +113,7 @@ pub struct TransferFromParams {
 }
 
 /// Return value after a successful transfer
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct TransferReturn {
     /// The new balance of the `to` address
     #[serde(with = "bigint_ser")]
@@ -126,7 +124,7 @@ pub struct TransferReturn {
 }
 
 /// Return value after a successful delegated transfer
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct TransferFromReturn {
     /// The new balance of the `to` address
     #[serde(with = "bigint_ser")]
@@ -136,7 +134,7 @@ pub struct TransferFromReturn {
     pub from_balance: TokenAmount,
     /// The new remaining allowance between `owner` and `operator` (caller)
     #[serde(with = "bigint_ser")]
-    pub remaining_allowance: TokenAmount,
+    pub allowance: TokenAmount,
 }
 
 impl Cbor for TransferParams {}
@@ -145,7 +143,7 @@ impl Cbor for TransferReturn {}
 impl Cbor for TransferFromReturn {}
 
 /// Instruction to increase an allowance between two addresses
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct IncreaseAllowanceParams {
     pub owner: Address,
     pub operator: Address,
@@ -155,7 +153,7 @@ pub struct IncreaseAllowanceParams {
 }
 
 /// Instruction to decrease an allowance between two addresses
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct DecreaseAllowanceParams {
     pub owner: Address,
     pub operator: Address,
@@ -165,36 +163,26 @@ pub struct DecreaseAllowanceParams {
 }
 
 /// Instruction to revoke (set to 0) an allowance
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct RevokeAllowanceParams {
     pub owner: Address,
     pub operator: Address,
 }
 
 /// Params to get allowance between to addresses
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct GetAllowanceParams {
     pub owner: Address,
     pub operator: Address,
-}
-
-/// The updated value after allowance is changed
-#[derive(Serialize_tuple, Deserialize_tuple)]
-pub struct AllowanceReturn {
-    pub owner: Address,
-    pub operator: Address,
-    #[serde(with = "bigint_ser")]
-    pub amount: TokenAmount,
 }
 
 impl Cbor for IncreaseAllowanceParams {}
 impl Cbor for DecreaseAllowanceParams {}
 impl Cbor for RevokeAllowanceParams {}
 impl Cbor for GetAllowanceParams {}
-impl Cbor for AllowanceReturn {}
 
 /// Instruction to burn an amount of tokens
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct BurnParams {
     /// A non-negative amount to burn
     #[serde(with = "bigint_ser")]
@@ -202,7 +190,7 @@ pub struct BurnParams {
 }
 
 /// Instruction to burn an amount of tokens from another address
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct BurnFromParams {
     pub owner: Address,
     /// A non-negative amount to burn
@@ -211,22 +199,22 @@ pub struct BurnFromParams {
 }
 
 /// The updated value after burning
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct BurnReturn {
     /// New balance in the account after the successful burn
     #[serde(with = "bigint_ser")]
-    pub remaining_balance: TokenAmount,
+    pub balance: TokenAmount,
 }
 
 /// The updated value after a delegated burn
-#[derive(Serialize_tuple, Deserialize_tuple)]
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct BurnFromReturn {
     /// New balance in the account after the successful burn
     #[serde(with = "bigint_ser")]
-    pub remaining_balance: TokenAmount,
+    pub balance: TokenAmount,
     /// New remaining allowance between the owner and operator (caller)
     #[serde(with = "bigint_ser")]
-    pub remaining_allowance: TokenAmount,
+    pub allowance: TokenAmount,
 }
 
 impl Cbor for BurnParams {}
