@@ -37,6 +37,8 @@ pub enum TokenError {
         #[source]
         source: AddressError,
     },
+    #[error("operator cannot be the same as the debited address {0}")]
+    InvalidOperator(Address),
     #[error("error during serialization {0}")]
     Serialization(#[from] SerializationError),
     #[error("error in state invariants {0}")]
@@ -53,7 +55,8 @@ impl From<TokenError> for ExitCode {
             }
             TokenError::InvalidIdAddress { address: _, source: _ } => ExitCode::USR_NOT_FOUND,
             TokenError::Serialization(_) => ExitCode::USR_SERIALIZATION,
-            TokenError::InvalidGranularity { name: _, amount: _, granularity: _ }
+            TokenError::InvalidOperator(_)
+            | TokenError::InvalidGranularity { name: _, amount: _, granularity: _ }
             | TokenError::InvalidNegative { name: _, amount: _ } => ExitCode::USR_ILLEGAL_ARGUMENT,
             TokenError::StateInvariant(_) => ExitCode::USR_ILLEGAL_STATE,
             TokenError::TokenState(state_error) => match state_error {

@@ -12,6 +12,7 @@ fvm_shared = { version = "0.8.0" }
 fil_fungible_token = { version = "0.1.0", path = "../../../../fil_fungible_token" }
 num-traits = { version = "0.2.15" }
 serde = { version = "1.0.136", features = ["derive"] }
+serde_tuple = { version = "0.5.0" }
 thiserror = { version = "1.0.31" }
 
 [build-dependencies]
