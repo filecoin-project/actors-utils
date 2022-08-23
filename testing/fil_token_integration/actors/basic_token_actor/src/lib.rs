@@ -3,16 +3,18 @@ mod util;
 use fil_fungible_token::runtime::blockstore::Blockstore;
 use fil_fungible_token::runtime::messaging::FvmMessenger;
 use fil_fungible_token::token::types::{
-    AllowanceReturn, BurnParams, BurnReturn, ChangeAllowanceParams, FrcXXXToken,
-    GetAllowanceParams, MintParams, MintReturn, Result, RevokeAllowanceParams, TransferParams,
-    TransferReturn,
+    BurnFromReturn, BurnParams, BurnReturn, DecreaseAllowanceParams, FRC46Token,
+    GetAllowanceParams, IncreaseAllowanceParams, Result, RevokeAllowanceParams, TransferFromReturn,
+    TransferParams, TransferReturn,
 };
 use fil_fungible_token::token::Token;
-use fvm_ipld_encoding::DAG_CBOR;
+use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
+use fvm_ipld_encoding::{Cbor, RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
+use fvm_shared::address::Address;
+use fvm_shared::bigint::bigint_ser;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::econ::TokenAmount;
-use num_traits::Zero;
 use sdk::sys::ErrorNumber;
 use sdk::NO_DATA_BLOCK_ID;
 use serde::ser;
@@ -27,13 +29,13 @@ struct BasicToken<'state> {
 /// Implementation of the token API in a FVM actor
 ///
 /// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
-impl FrcXXXToken<RuntimeError> for BasicToken<'_> {
+impl FRC46Token<RuntimeError> for BasicToken<'_> {
     fn name(&self) -> String {
-        String::from("FRC XXX Token")
+        String::from("FRC-0046 Token")
     }
 
     fn symbol(&self) -> String {
-        String::from("FRCXXX")
+        String::from("FRC46")
     }
 
     fn total_supply(&self) -> TokenAmount {
@@ -47,68 +49,98 @@ impl FrcXXXToken<RuntimeError> for BasicToken<'_> {
         Ok(self.util.balance_of(&params)?)
     }
 
+    fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
+        let operator = caller_address();
+        let res = self.util.transfer(
+            &operator,
+            &params.to,
+            &params.amount,
+            params.operator_data,
+            RawBytes::default(),
+        )?;
+
+        Ok(res)
+    }
+
+    fn transfer_from(
+        &mut self,
+        params: fil_fungible_token::token::types::TransferFromParams,
+    ) -> Result<TransferFromReturn, RuntimeError> {
+        let operator = caller_address();
+        let res = self.util.transfer_from(
+            &operator,
+            &params.from,
+            &params.to,
+            &params.amount,
+            params.operator_data,
+            RawBytes::default(),
+        )?;
+
+        Ok(res)
+    }
+
     fn increase_allowance(
         &mut self,
-        params: ChangeAllowanceParams,
-    ) -> Result<AllowanceReturn, RuntimeError> {
+        params: IncreaseAllowanceParams,
+    ) -> Result<TokenAmount, RuntimeError> {
         let owner = caller_address();
         let new_allowance =
-            self.util.increase_allowance(&owner, &params.operator, &params.amount)?;
-        Ok(AllowanceReturn { owner, operator: params.operator, amount: new_allowance })
+            self.util.increase_allowance(&owner, &params.operator, &params.increase)?;
+        Ok(new_allowance)
     }
 
     fn decrease_allowance(
         &mut self,
-        params: ChangeAllowanceParams,
-    ) -> Result<AllowanceReturn, RuntimeError> {
+        params: DecreaseAllowanceParams,
+    ) -> Result<TokenAmount, RuntimeError> {
         let owner = caller_address();
         let new_allowance =
-            self.util.decrease_allowance(&owner, &params.operator, &params.amount)?;
-        Ok(AllowanceReturn { owner, operator: params.operator, amount: new_allowance })
+            self.util.decrease_allowance(&owner, &params.operator, &params.decrease)?;
+        Ok(new_allowance)
     }
 
-    fn revoke_allowance(
-        &mut self,
-        params: RevokeAllowanceParams,
-    ) -> Result<AllowanceReturn, RuntimeError> {
+    fn revoke_allowance(&mut self, params: RevokeAllowanceParams) -> Result<(), RuntimeError> {
         let owner = caller_address();
         self.util.revoke_allowance(&owner, &params.operator)?;
-        Ok(AllowanceReturn { owner, operator: params.operator, amount: TokenAmount::zero() })
+        Ok(())
     }
 
-    fn allowance(&mut self, params: GetAllowanceParams) -> Result<AllowanceReturn, RuntimeError> {
+    fn allowance(&mut self, params: GetAllowanceParams) -> Result<TokenAmount, RuntimeError> {
         let allowance = self.util.allowance(&params.owner, &params.operator)?;
-        Ok(AllowanceReturn { owner: params.owner, operator: params.operator, amount: allowance })
+        Ok(allowance)
     }
 
     fn burn(&mut self, params: BurnParams) -> Result<BurnReturn, RuntimeError> {
-        let spender = caller_address();
-        let remaining = self.util.burn(&spender, &params.owner, &params.amount)?;
-        Ok(BurnReturn {
-            by: spender,
-            remaining_balance: remaining,
-            burnt: params.amount.clone(),
-            owner: params.owner,
-        })
+        let caller = caller_address();
+        let res = self.util.burn(&caller, &params.amount)?;
+        Ok(res)
     }
 
-    fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
-        let spender = caller_address();
-        self.util.transfer(
-            &caller_address(),
-            &params.from,
-            &params.to,
-            &params.amount,
-            &params.data,
-        )?;
-        Ok(TransferReturn {
-            from: params.from,
-            to: params.to,
-            by: spender,
-            amount: params.amount.clone(),
-        })
+    fn burn_from(
+        &mut self,
+        params: fil_fungible_token::token::types::BurnFromParams,
+    ) -> Result<BurnFromReturn, RuntimeError> {
+        let caller = caller_address();
+        let res = self.util.burn_from(&caller, &params.owner, &params.amount)?;
+        Ok(res)
     }
 }
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct MintParams {
+    pub initial_owner: Address,
+    #[serde(with = "bigint_ser")]
+    pub amount: TokenAmount,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct MintReturn {
+    #[serde(with = "bigint_ser")]
+    pub total_supply: TokenAmount,
+}
+
+impl Cbor for MintParams {}
+impl Cbor for MintReturn {}
 
 impl BasicToken<'_> {
     fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
@@ -116,13 +148,10 @@ impl BasicToken<'_> {
             &caller_address(),
             &params.initial_owner,
             &params.amount,
-            &Default::default(),
+            Default::default(),
+            Default::default(),
         )?;
-        Ok(MintReturn {
-            successful: true,
-            newly_minted: params.amount.clone(),
-            total_supply: self.total_supply(),
-        })
+        Ok(MintReturn { total_supply: self.total_supply() })
     }
 }
 
@@ -189,28 +218,28 @@ pub fn invoke(params: u32) -> u32 {
                     // Allowance
                     let params = deserialize_params(params);
                     let res = token_actor.allowance(params).unwrap();
-                    return_ipld(&res).unwrap()
+                    return_ipld(&BigIntDe(res)).unwrap()
                 }
                 991449938 => {
                     // IncreaseAllowance
                     let params = deserialize_params(params);
                     let res = token_actor.increase_allowance(params).unwrap();
                     token_actor.util.flush().unwrap();
-                    return_ipld(&res).unwrap()
+                    return_ipld(&BigIntDe(res)).unwrap()
                 }
                 4218751446 => {
                     // DecreaseAllowance
                     let params = deserialize_params(params);
                     let res = token_actor.decrease_allowance(params).unwrap();
                     token_actor.util.flush().unwrap();
-                    return_ipld(&res).unwrap()
+                    return_ipld(&BigIntDe(res)).unwrap()
                 }
                 1691518633 => {
                     // RevokeAllowance
                     let params = deserialize_params(params);
-                    let res = token_actor.revoke_allowance(params).unwrap();
+                    token_actor.revoke_allowance(params).unwrap();
                     token_actor.util.flush().unwrap();
-                    return_ipld(&res).unwrap()
+                    NO_DATA_BLOCK_ID
                 }
                 1924391931 => {
                     // Burn

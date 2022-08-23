@@ -1,10 +1,8 @@
 use std::env;
 
+use basic_token_actor::{MintParams, MintReturn};
 use cid::Cid;
-use fil_fungible_token::token::{
-    state::TokenState,
-    types::{MintParams, MintReturn},
-};
+use fil_fungible_token::token::state::TokenState;
 use fvm::executor::{ApplyKind, Executor};
 use fvm_dispatch::method_hash;
 use fvm_integration_tests::tester::{Account, Tester};
@@ -82,17 +80,13 @@ fn mint_tokens() {
     println!("receiving actor constructor return data: {:#?}", &ret_val);
 
     // Mint some tokens
-    let mint_params =
-        MintParams { initial_owner: receive_address.clone(), amount: TokenAmount::from(100) };
+    let mint_params = MintParams { initial_owner: receive_address, amount: TokenAmount::from(100) };
     let params = RawBytes::serialize(mint_params).unwrap();
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(params));
     println!("mint return data {:#?}", &ret_val);
     let return_data = ret_val.msg_receipt.return_data;
     let mint_result: MintReturn = return_data.deserialize().unwrap();
-    println!(
-        "minted {:?} with total supply of {:?}",
-        &mint_result.newly_minted, &mint_result.total_supply
-    );
+    println!("new total supply of {:?}", &mint_result.total_supply);
 
     // Check balance
     //let params = RawBytes::serialize(minter[0].1).unwrap();

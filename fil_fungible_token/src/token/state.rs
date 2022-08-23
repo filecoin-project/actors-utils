@@ -154,7 +154,7 @@ impl TokenState {
     /// Changes the balance of the specified account by the delta
     ///
     /// Caller must ensure that the sign of of the delta is consistent with token rules (i.e.
-    /// negative transfers, burns etc. are not allowed)
+    /// negative transfers, burns etc. are not allowed). Returns the new balance of the account.
     pub fn change_balance_by<BS: Blockstore>(
         &mut self,
         bs: &BS,

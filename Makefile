@@ -21,11 +21,15 @@ test: install-toolchain
 # tests excluding actors so we can generate coverage reports during CI build
 # WASM targets such as actors do not support this so are excluded
 test-coverage: install-toolchain
-	cargo test --workspace --exclude greeter --exclude fil_integration_tests
+	cargo test --workspace \
+		--exclude greeter \
+		--exclude fil_token_integration_tests \
+		--exclude basic_token_actor \
+		--exclude basic_receiving_actor
 
 # separate actor testing stage to run from CI without coverage support
 test-actors: install-toolchain
-	cargo test --package greeter --package fil_integration_tests
+	cargo test --package greeter --package fil_token_integration_tests
 
 clean:
 	cargo clean
