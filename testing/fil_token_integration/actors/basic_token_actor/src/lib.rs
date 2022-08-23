@@ -144,13 +144,37 @@ impl Cbor for MintReturn {}
 
 impl BasicToken<'_> {
     fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
-        self.util.mint(
+        // mint shouldn't save state at all
+        let old_cid = sdk::sself::root().unwrap();
+        let receiver_params = self.util.mint(
             &caller_address(),
             &params.initial_owner,
             &params.amount,
             Default::default(),
             Default::default(),
         )?;
+        
+        let cid = self.util.flush()?;
+        sdk::sself::set_root(&cid).unwrap();
+
+        /*
+        let param_bytes = fvm_ipld_encoding::to_vec(&receiver_params);
+        let message = format!("receiver hook params: {:?}", param_bytes);
+        sdk::vm::abort(fvm_shared::error::ExitCode::USR_ILLEGAL_ARGUMENT.value(),
+                        Some(message.as_str()));
+        */
+
+        if let Err(e) = self.util.call_receiver_hook(&params.initial_owner, receiver_params) {
+            // revert to previous on-chain state
+            sdk::sself::set_root(&old_cid).unwrap();
+            // need some way to revert the in-memory state
+            // maybe a separate Token function would do it
+            // so we'd have like Token.replace(cloned_data)
+            return Err(e.into());
+        }
+        // save state and set root here
+        // then call the receiver hook
+        // return ok or err based on that result
         Ok(MintReturn { total_supply: self.total_supply() })
     }
 }
