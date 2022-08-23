@@ -17,12 +17,12 @@ pub trait FRC46TokenReceiver {
 
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
 pub struct TokensReceivedParams {
-    /// Address of the operator that initiated the transfer/mint
-    pub operator: ActorID,
     /// The account that the tokens are being pulled from (the token actor address itself for mint)
     pub from: ActorID,
     /// The account that the tokens are being sent to (the receiver address)
     pub to: ActorID,
+    /// Address of the operator that initiated the transfer/mint
+    pub operator: ActorID,
     #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
     /// Data specified by the operator during transfer/mint
