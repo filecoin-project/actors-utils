@@ -690,6 +690,7 @@ mod test {
     use std::ops::Neg;
 
     use fvm_ipld_blockstore::MemoryBlockstore;
+    use fvm_ipld_encoding::RawBytes;
     use fvm_shared::address::{Address, BLS_PUB_LEN};
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
@@ -761,8 +762,8 @@ mod test {
                 TOKEN_ACTOR,
                 TREASURY,
                 &TokenAmount::from(1),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -795,8 +796,8 @@ mod test {
                 TOKEN_ACTOR,
                 TREASURY,
                 &TokenAmount::from(100),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         assert_eq!(token.total_supply(), TokenAmount::from(100));
@@ -824,8 +825,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(100),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -882,8 +883,8 @@ mod test {
                 TOKEN_ACTOR,
                 TREASURY,
                 &TokenAmount::from(1_000_000),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -897,8 +898,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(-1),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -934,8 +935,8 @@ mod test {
                 TOKEN_ACTOR,
                 TREASURY,
                 &TokenAmount::from(1_000_000),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
@@ -961,8 +962,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(1_000_000),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
@@ -995,8 +996,8 @@ mod test {
                 TOKEN_ACTOR,
                 &secp_address,
                 &TokenAmount::from(1_000_000),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -1023,8 +1024,8 @@ mod test {
                 TOKEN_ACTOR,
                 &bls_address,
                 &TokenAmount::from(1_000_000),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
@@ -1053,8 +1054,8 @@ mod test {
                 TOKEN_ACTOR,
                 &actor_address,
                 &TokenAmount::from(1_000_000),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
@@ -1079,8 +1080,8 @@ mod test {
                 TOKEN_ACTOR,
                 TREASURY,
                 &TokenAmount::from(1_000_000),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -1181,8 +1182,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(100),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         // transfer 60 from owner -> receiver
@@ -1192,8 +1193,8 @@ mod test {
                 ALICE,
                 BOB,
                 &TokenAmount::from(60),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -1224,8 +1225,8 @@ mod test {
                 ALICE,
                 BOB,
                 &TokenAmount::from(-1),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
         // balances are unchanged
@@ -1241,8 +1242,8 @@ mod test {
                 ALICE,
                 BOB,
                 &TokenAmount::zero(),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         // balances are unchanged
@@ -1277,8 +1278,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(100),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         // transfer zero to self
@@ -1288,8 +1289,8 @@ mod test {
                 ALICE,
                 ALICE,
                 &TokenAmount::zero(),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -1318,8 +1319,8 @@ mod test {
                 ALICE,
                 ALICE,
                 &TokenAmount::from(10),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         // balances are unchanged
@@ -1352,8 +1353,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(100),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -1366,8 +1367,8 @@ mod test {
                 ALICE,
                 secp_address,
                 &TokenAmount::from(10),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -1423,8 +1424,8 @@ mod test {
                 secp_address,
                 ALICE,
                 &TokenAmount::zero(),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         // balances unchanged
@@ -1444,8 +1445,8 @@ mod test {
                 actor_address,
                 ALICE,
                 &TokenAmount::zero(),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -1478,8 +1479,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(100),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -1491,8 +1492,8 @@ mod test {
                 ALICE,
                 BOB,
                 &TokenAmount::from(60),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -1519,8 +1520,8 @@ mod test {
                 ALICE,
                 ALICE,
                 &TokenAmount::from(60),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -1553,8 +1554,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(50),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -1565,8 +1566,8 @@ mod test {
                 ALICE,
                 BOB,
                 &TokenAmount::from(51),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -1656,8 +1657,8 @@ mod test {
                 ALICE,
                 ALICE,
                 &TokenAmount::zero(),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -1670,8 +1671,8 @@ mod test {
                 ALICE,
                 BOB,
                 &TokenAmount::from(60),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -1704,8 +1705,8 @@ mod test {
                 ALICE,
                 CAROL,
                 &TokenAmount::from(40),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -1743,8 +1744,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(100),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -1758,8 +1759,8 @@ mod test {
                 ALICE,
                 initialised_address,
                 &TokenAmount::zero(),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -1776,8 +1777,8 @@ mod test {
                 ALICE,
                 initialised_address,
                 &TokenAmount::from(1),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
         // balances remained same
@@ -1794,8 +1795,8 @@ mod test {
                 ALICE,
                 initialised_address,
                 &TokenAmount::from(1),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         // balances and allowance changed
@@ -1818,8 +1819,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(100),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -1831,8 +1832,8 @@ mod test {
                 ALICE,
                 ALICE,
                 &TokenAmount::from(10),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -1866,8 +1867,8 @@ mod test {
                 ALICE,
                 ALICE,
                 &TokenAmount::zero(),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -2094,8 +2095,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(100),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         // approve only 40 spending allowance for operator
@@ -2108,8 +2109,8 @@ mod test {
                 ALICE,
                 BOB,
                 &TokenAmount::from(60),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -2135,8 +2136,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(50),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -2151,8 +2152,8 @@ mod test {
                 ALICE,
                 BOB,
                 &TokenAmount::from(51),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap_err();
 
@@ -2182,8 +2183,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(10),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .expect_err("minted below granularity");
         token
@@ -2191,8 +2192,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(99),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .expect_err("minted below granularity");
         token
@@ -2200,8 +2201,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(101),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .expect_err("minted below granularity");
         token
@@ -2212,8 +2213,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(100),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         token
@@ -2221,8 +2222,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(200),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         token
@@ -2230,8 +2231,8 @@ mod test {
                 TOKEN_ACTOR,
                 ALICE,
                 &TokenAmount::from(1000),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
 
@@ -2260,8 +2261,8 @@ mod test {
                 ALICE,
                 BOB,
                 &TokenAmount::from(1),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .expect_err("transfer delta below granularity");
         token
@@ -2270,8 +2271,8 @@ mod test {
                 ALICE,
                 BOB,
                 &TokenAmount::from(0),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
         token
@@ -2280,8 +2281,8 @@ mod test {
                 ALICE,
                 BOB,
                 &TokenAmount::from(100),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             )
             .unwrap();
     }
@@ -2386,8 +2387,8 @@ mod test {
                 from,
                 operator,
                 &TokenAmount::from(transfer),
-                Default::default(),
-                Default::default(),
+                RawBytes::default(),
+                RawBytes::default(),
             );
 
             match behaviour {
