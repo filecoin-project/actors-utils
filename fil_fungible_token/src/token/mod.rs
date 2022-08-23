@@ -277,7 +277,6 @@ where
 
     /// Burns an amount of token from the specified address, decreasing total token supply
     ///
-    /// ## For all burn operations
     /// - The requested value MUST be non-negative
     /// - The requested value MUST NOT exceed the target's balance
     /// - If the burn operation would result in a negative balance for the owner, the burn is
@@ -286,42 +285,49 @@ where
     /// Upon successful burn
     /// - The target's balance decreases by the requested value
     /// - The total_supply decreases by the requested value
+    pub fn burn(&mut self, owner: &Address, amount: &TokenAmount) -> Result<BurnReturn> {
+        let amount = validate_amount(amount, "burn", self.granularity)?;
+
+        let owner = self.resolve_or_init(owner)?;
+        self.transaction(|state, bs| {
+            // attempt to burn the requested amount
+            let new_amount = state.change_balance_by(&bs, owner, &amount.clone().neg())?;
+            // decrease total_supply
+            state.change_supply_by(&amount.neg())?;
+            Ok(BurnReturn { balance: new_amount })
+        })
+    }
+
+    /// Burns an amount of token from the specified address, decreasing total token supply
     ///
-    /// ## Operator is the owner address
-    /// If the operator is the targeted address, they are implicitly approved to burn an unlimited
-    /// amount of tokens (up to their balance)
+    /// If operator and owner are the same address, this method returns an InvalidOperator error.
     ///
-    /// ## Operator burning on behalf of another address
-    /// If the operator is burning on behalf of the owner, then additionally, the operator MUST have
-    /// an allowance not less than the requested value
+    /// - The requested value MUST be non-negative
+    /// - The requested value MUST NOT exceed the target's balance
+    /// - If the burn operation would result in a negative balance for the owner, the burn is
+    /// discarded and this method returns an error
+    /// - The operator MUST have an allowance not less than the requested value
     ///
     /// Upon successful burn
+    /// - The target's balance decreases by the requested value
     /// - The total_supply decreases by the requested value
-    pub fn burn(
+    /// - The operator's allowance is decreased by the requested value
+    pub fn burn_from(
         &mut self,
         operator: &Address,
         owner: &Address,
         amount: &TokenAmount,
-    ) -> Result<BurnResult> {
+    ) -> Result<BurnFromReturn> {
         let amount = validate_amount(amount, "burn", self.granularity)?;
-
-        // owner-initiated burn
-        if self.same_address(owner, operator) {
-            let owner = self.resolve_or_init(owner)?;
-            return self.transaction(|state, bs| {
-                // attempt to burn the requested amount
-                let new_amount = state.change_balance_by(&bs, owner, &amount.clone().neg())?;
-                // decrease total_supply
-                state.change_supply_by(&amount.neg())?;
-                Ok(BurnResult::Burn(BurnReturn { balance: new_amount }))
-            });
+        if self.same_address(operator, owner) {
+            return Err(TokenError::InvalidOperator(*operator));
         }
 
-        // operator must be existing to have a non-zero allowance
+        // operator must exist to have a non-zero allowance
         let operator = match self.get_id(operator) {
             Ok(operator) => operator,
             Err(MessagingError::AddressNotResolved(addr)) => {
-                // if not resolved, implicit allowance zero is not permitted to burn, so return an
+                // if not resolved, implicit zero allowance is not permitted to burn, so return an
                 // insufficient allowance error
                 return Err(TokenStateError::InsufficientAllowance {
                     owner: *owner,
@@ -334,7 +340,7 @@ where
             Err(e) => return Err(e.into()),
         };
 
-        // owner must be existing to have set a non-zero allowance
+        // owner must exist to have set a non-zero allowance
         let owner = match self.get_id(owner) {
             Ok(owner) => owner,
             Err(MessagingError::AddressNotResolved(addr)) => {
@@ -355,16 +361,11 @@ where
             let new_balance = state.change_balance_by(&bs, owner, &amount.clone().neg())?;
             // decrease total_supply
             state.change_supply_by(&amount.neg())?;
-            Ok(BurnResult::BurnFrom(BurnFromReturn {
-                balance: new_balance,
-                allowance: new_allowance,
-            }))
+            Ok(BurnFromReturn { balance: new_balance, allowance: new_allowance })
         })
     }
 
-    /// Transfers an amount from one actor to another
-    ///
-    /// ## For all transfer operations
+    /// Transfers an amount from the caller to another address
     ///
     /// - The requested value MUST be non-negative
     /// - The requested value MUST NOT exceed the sender's balance
@@ -373,20 +374,76 @@ where
     /// the transfer is discarded and this method returns an error
     ///
     /// Upon successful transfer:
-    /// - The senders's balance decreases by the requested value
-    /// - The receiver's balance increases by the requested value
+    /// - The from balance decreases by the requested value
+    /// - The to balance increases by the requested value
+    pub fn transfer(
+        &mut self,
+        from: &Address,
+        to: &Address,
+        amount: &TokenAmount,
+        operator_data: RawBytes,
+        token_data: RawBytes,
+    ) -> Result<TransferReturn> {
+        let amount = validate_amount(amount, "transfer", self.granularity)?;
+
+        let old_state = self.state.clone();
+
+        // owner-initiated transfer
+        let from = self.resolve_or_init(from)?;
+        let to_id = self.resolve_or_init(to)?;
+        // skip allowance check for self-managed transfers
+        let res = self.transaction(|state, bs| {
+            // don't change balance if to == from, but must check that the transfer doesn't exceed balance
+            if to_id == from {
+                let balance = state.get_balance(&bs, from)?;
+                if balance.lt(amount) {
+                    return Err(TokenStateError::InsufficientBalance {
+                        owner: from,
+                        balance,
+                        delta: amount.clone().neg(),
+                    }
+                    .into());
+                }
+                Ok(TransferReturn { from_balance: balance.clone(), to_balance: balance })
+            } else {
+                let to_balance = state.change_balance_by(&bs, to_id, amount)?;
+                let from_balance = state.change_balance_by(&bs, from, &amount.neg())?;
+                Ok(TransferReturn { from_balance, to_balance })
+            }
+        })?;
+
+        // call receiver hook
+        self.flush()?;
+        self.call_receiver_hook_or_revert(
+            to,
+            TokensReceivedParams {
+                operator: from,
+                from,
+                to: to_id,
+                amount: amount.clone(),
+                operator_data,
+                token_data,
+            },
+            old_state,
+        )?;
+
+        Ok(res)
+    }
+
+    /// Transfers an amount from one address to another
     ///
-    /// ## Operator equals owner address
-    /// If the operator is the owner address, they are implicitly approved to transfer an unlimited
-    /// amount of tokens (up to their balance)
-    ///
-    /// ## Operator transferring on behalf of owner address
-    /// If the operator is transferring on behalf of the target token owner, then additionally, the
-    /// operator MUST be initialised AND have an allowance not less than the requested value
+    /// - The requested value MUST be non-negative
+    /// - The requested value MUST NOT exceed the sender's balance
+    /// - The receiving actor MUST implement a method called `tokens_received`, corresponding to the
+    /// interface specified for FRC-XXX token receiver. If the receiving hook aborts, when called,
+    /// the transfer is discarded and this method returns an error
+    ///  - The operator MUST be initialised AND have an allowance not less than the requested value
     ///
     /// Upon successful transfer:
+    /// - The from balance decreases by the requested value
+    /// - The to balance increases by the requested value
     /// - The owner-operator allowance decreases by the requested value
-    pub fn transfer(
+    pub fn transfer_from(
         &mut self,
         operator: &Address,
         from: &Address,
@@ -394,52 +451,13 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<TransferResult> {
+    ) -> Result<TransferFromReturn> {
         let amount = validate_amount(amount, "transfer", self.granularity)?;
-        let old_state = self.state.clone();
-
-        // owner-initiated transfer
         if self.same_address(operator, from) {
-            let from = self.resolve_or_init(from)?;
-            let to_id = self.resolve_or_init(to)?;
-            // skip allowance check for self-managed transfers
-            let res = self.transaction(|state, bs| {
-                // don't change balance if to == from, but must check that the transfer doesn't exceed balance
-                if to_id == from {
-                    let balance = state.get_balance(&bs, from)?;
-                    if balance.lt(amount) {
-                        return Err(TokenStateError::InsufficientBalance {
-                            owner: from,
-                            balance,
-                            delta: amount.clone().neg(),
-                        }
-                        .into());
-                    }
-                    Ok(TransferReturn { from_balance: balance.clone(), to_balance: balance })
-                } else {
-                    let to_balance = state.change_balance_by(&bs, to_id, amount)?;
-                    let from_balance = state.change_balance_by(&bs, from, &amount.neg())?;
-                    Ok(TransferReturn { from_balance, to_balance })
-                }
-            })?;
-
-            // call receiver hook
-            self.flush()?;
-            self.call_receiver_hook_or_revert(
-                to,
-                TokensReceivedParams {
-                    operator: from,
-                    from,
-                    to: to_id,
-                    amount: amount.clone(),
-                    operator_data,
-                    token_data,
-                },
-                old_state,
-            )?;
-
-            return Ok(TransferResult::Transfer(res));
+            return Err(TokenError::InvalidOperator(*operator));
         }
+
+        let old_state = self.state.clone();
 
         // operator-initiated transfer must have a resolvable operator
         let operator_id = match self.get_id(operator) {
@@ -516,7 +534,7 @@ where
             old_state,
         )?;
 
-        Ok(TransferResult::TransferFrom(ret))
+        Ok(ret)
     }
 }
 
@@ -627,62 +645,6 @@ fn validate_amount<'a>(
         return Err(InvalidGranularity { name, amount: a.clone(), granularity });
     }
     Ok(a)
-}
-
-#[derive(Debug)]
-pub enum TransferResult {
-    Transfer(TransferReturn),
-    TransferFrom(TransferFromReturn),
-}
-
-impl TryFrom<TransferResult> for TransferFromReturn {
-    type Error = TokenError;
-
-    fn try_from(value: TransferResult) -> Result<TransferFromReturn> {
-        match value {
-            TransferResult::TransferFrom(ret) => Ok(ret),
-            TransferResult::Transfer(_) => Err(TokenError::TransferReturn { result: value }),
-        }
-    }
-}
-
-impl TryFrom<TransferResult> for TransferReturn {
-    type Error = TokenError;
-
-    fn try_from(value: TransferResult) -> Result<TransferReturn> {
-        match value {
-            TransferResult::TransferFrom(_) => Err(TokenError::TransferReturn { result: value }),
-            TransferResult::Transfer(ret) => Ok(ret),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum BurnResult {
-    Burn(BurnReturn),
-    BurnFrom(BurnFromReturn),
-}
-
-impl TryFrom<BurnResult> for BurnReturn {
-    type Error = TokenError;
-
-    fn try_from(value: BurnResult) -> Result<Self> {
-        match value {
-            BurnResult::Burn(ret) => Ok(ret),
-            BurnResult::BurnFrom(_) => Err(TokenError::BurnReturn { result: value }),
-        }
-    }
-}
-
-impl TryFrom<BurnResult> for BurnFromReturn {
-    type Error = TokenError;
-
-    fn try_from(value: BurnResult) -> Result<Self> {
-        match value {
-            BurnResult::BurnFrom(ret) => Ok(ret),
-            BurnResult::Burn(_) => Err(TokenError::BurnReturn { result: value }),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -1113,7 +1075,7 @@ mod test {
         token
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
-        token.burn(TREASURY, TREASURY, &burn_amount).unwrap();
+        token.burn(TREASURY, &burn_amount).unwrap();
 
         // total supply decreased
         let total_supply = token.total_supply();
@@ -1124,7 +1086,7 @@ mod test {
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
 
         // cannot burn a negative amount
-        token.burn(TREASURY, TREASURY, &TokenAmount::from(-1)).unwrap_err();
+        token.burn(TREASURY, &TokenAmount::from(-1)).unwrap_err();
 
         // balances and supply were unchanged
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(400_000));
@@ -1133,7 +1095,7 @@ mod test {
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
 
         // burn zero
-        token.burn(TREASURY, TREASURY, &TokenAmount::zero()).unwrap();
+        token.burn(TREASURY, &TokenAmount::zero()).unwrap();
 
         // balances and supply were unchanged
         let remaining_balance = token.balance_of(TREASURY).unwrap();
@@ -1143,7 +1105,7 @@ mod test {
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
 
         // burn exact amount left
-        token.burn(TREASURY, TREASURY, &remaining_balance).unwrap();
+        token.burn(TREASURY, &remaining_balance).unwrap();
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
         assert_eq!(token.total_supply(), TokenAmount::zero());
         // alice's account unaffected
@@ -1162,7 +1124,7 @@ mod test {
         token
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
-        token.burn(TREASURY, TREASURY, &burn_amount).unwrap_err();
+        token.burn(TREASURY, &burn_amount).unwrap_err();
 
         // balances and supply were unchanged
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
@@ -1188,14 +1150,7 @@ mod test {
             .unwrap();
         // transfer 60 from owner -> receiver
         token
-            .transfer(
-                ALICE,
-                ALICE,
-                BOB,
-                &TokenAmount::from(60),
-                RawBytes::default(),
-                RawBytes::default(),
-            )
+            .transfer(ALICE, BOB, &TokenAmount::from(60), RawBytes::default(), RawBytes::default())
             .unwrap();
 
         // owner has 100 - 60 = 40
@@ -1220,14 +1175,7 @@ mod test {
 
         // cannot transfer a negative value
         token
-            .transfer(
-                ALICE,
-                ALICE,
-                BOB,
-                &TokenAmount::from(-1),
-                RawBytes::default(),
-                RawBytes::default(),
-            )
+            .transfer(ALICE, BOB, &TokenAmount::from(-1), RawBytes::default(), RawBytes::default())
             .unwrap_err();
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
@@ -1237,14 +1185,7 @@ mod test {
 
         // transfer zero value
         token
-            .transfer(
-                ALICE,
-                ALICE,
-                BOB,
-                &TokenAmount::zero(),
-                RawBytes::default(),
-                RawBytes::default(),
-            )
+            .transfer(ALICE, BOB, &TokenAmount::zero(), RawBytes::default(), RawBytes::default())
             .unwrap();
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
@@ -1284,14 +1225,7 @@ mod test {
             .unwrap();
         // transfer zero to self
         token
-            .transfer(
-                ALICE,
-                ALICE,
-                ALICE,
-                &TokenAmount::zero(),
-                RawBytes::default(),
-                RawBytes::default(),
-            )
+            .transfer(ALICE, ALICE, &TokenAmount::zero(), RawBytes::default(), RawBytes::default())
             .unwrap();
 
         // balances are unchanged
@@ -1315,7 +1249,6 @@ mod test {
         // transfer value to self
         token
             .transfer(
-                ALICE,
                 ALICE,
                 ALICE,
                 &TokenAmount::from(10),
@@ -1364,7 +1297,6 @@ mod test {
         token
             .transfer(
                 ALICE,
-                ALICE,
                 secp_address,
                 &TokenAmount::from(10),
                 RawBytes::default(),
@@ -1404,7 +1336,6 @@ mod test {
         assert!(token
             .transfer(
                 secp_address,
-                secp_address,
                 ALICE,
                 &TokenAmount::from(1),
                 Default::default(),
@@ -1420,7 +1351,6 @@ mod test {
         // zero-transfer should succeed
         token
             .transfer(
-                secp_address,
                 secp_address,
                 ALICE,
                 &TokenAmount::zero(),
@@ -1441,7 +1371,6 @@ mod test {
         // transfers from actors fail with uninitializable
         let err = token
             .transfer(
-                actor_address,
                 actor_address,
                 ALICE,
                 &TokenAmount::zero(),
@@ -1487,14 +1416,7 @@ mod test {
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
         token.msg.abort_next_send();
         let err = token
-            .transfer(
-                ALICE,
-                ALICE,
-                BOB,
-                &TokenAmount::from(60),
-                RawBytes::default(),
-                RawBytes::default(),
-            )
+            .transfer(ALICE, BOB, &TokenAmount::from(60), RawBytes::default(), RawBytes::default())
             .unwrap_err();
 
         // check error shape
@@ -1516,7 +1438,6 @@ mod test {
         token.msg.abort_next_send();
         let err = token
             .transfer(
-                ALICE,
                 ALICE,
                 ALICE,
                 &TokenAmount::from(60),
@@ -1561,14 +1482,7 @@ mod test {
 
         // attempt transfer 51 from owner -> receiver
         token
-            .transfer(
-                ALICE,
-                ALICE,
-                BOB,
-                &TokenAmount::from(51),
-                RawBytes::default(),
-                RawBytes::default(),
-            )
+            .transfer(ALICE, BOB, &TokenAmount::from(51), RawBytes::default(), RawBytes::default())
             .unwrap_err();
 
         // balances remained unchanged
@@ -1652,7 +1566,7 @@ mod test {
 
         // operator can't transfer without allowance, even if amount is zero
         token
-            .transfer(
+            .transfer_from(
                 CAROL,
                 ALICE,
                 ALICE,
@@ -1666,7 +1580,7 @@ mod test {
         token.increase_allowance(ALICE, CAROL, &TokenAmount::from(100)).unwrap();
         // operator makes transfer of 60 from owner -> receiver
         token
-            .transfer(
+            .transfer_from(
                 CAROL,
                 ALICE,
                 BOB,
@@ -1700,7 +1614,7 @@ mod test {
 
         // operator makes another transfer of 40 from owner -> self
         token
-            .transfer(
+            .transfer_from(
                 CAROL,
                 ALICE,
                 CAROL,
@@ -1754,7 +1668,7 @@ mod test {
 
         // an initialised pubkey cannot transfer zero out of Alice balance without an allowance
         token
-            .transfer(
+            .transfer_from(
                 initialised_address,
                 ALICE,
                 initialised_address,
@@ -1772,7 +1686,7 @@ mod test {
 
         // initialised pubkey can has zero-allowance, so cannot transfer non-zero amount
         token
-            .transfer(
+            .transfer_from(
                 initialised_address,
                 ALICE,
                 initialised_address,
@@ -1790,7 +1704,7 @@ mod test {
         // the pubkey can be given an allowance which it can use to transfer tokens
         token.increase_allowance(ALICE, initialised_address, &TokenAmount::from(100)).unwrap();
         token
-            .transfer(
+            .transfer_from(
                 initialised_address,
                 ALICE,
                 initialised_address,
@@ -1827,7 +1741,7 @@ mod test {
         // non-zero transfer by an uninitialized pubkey
         let secp_address = &secp_address();
         let err = token
-            .transfer(
+            .transfer_from(
                 secp_address,
                 ALICE,
                 ALICE,
@@ -1862,7 +1776,7 @@ mod test {
 
         // zero transfer by an uninitialized pubkey
         let err = token
-            .transfer(
+            .transfer_from(
                 secp_address,
                 ALICE,
                 ALICE,
@@ -1913,7 +1827,7 @@ mod test {
         // approve the burner to spend the allowance
         token.increase_allowance(TREASURY, ALICE, &approval_amount).unwrap();
         // burn the approved amount
-        token.burn(ALICE, TREASURY, &burn_amount).unwrap();
+        token.burn_from(ALICE, TREASURY, &burn_amount).unwrap();
 
         // total supply decreased
         assert_eq!(token.total_supply(), TokenAmount::from(400_000));
@@ -1924,7 +1838,7 @@ mod test {
 
         // disallows another delegated burn as approval is now zero
         // burn the approved amount
-        token.burn(ALICE, TREASURY, &burn_amount).unwrap_err();
+        token.burn_from(ALICE, TREASURY, &burn_amount).unwrap_err();
 
         // balances didn't change
         assert_eq!(token.total_supply(), TokenAmount::from(400_000));
@@ -1932,7 +1846,7 @@ mod test {
         assert_eq!(token.allowance(TREASURY, ALICE).unwrap(), TokenAmount::zero());
 
         // cannot burn again due to insufficient balance
-        let err = token.burn(ALICE, TREASURY, &burn_amount).unwrap_err();
+        let err = token.burn_from(ALICE, TREASURY, &burn_amount).unwrap_err();
 
         // gets an allowance error
         match err {
@@ -1977,7 +1891,7 @@ mod test {
         // approve the burner to spend the allowance
         token.increase_allowance(TREASURY, secp_address, &approval_amount).unwrap();
         // burn the approved amount
-        token.burn(secp_address, TREASURY, &burn_amount).unwrap();
+        token.burn_from(secp_address, TREASURY, &burn_amount).unwrap();
 
         // total supply decreased
         assert_eq!(token.total_supply(), TokenAmount::from(400_000));
@@ -1987,7 +1901,7 @@ mod test {
         assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
 
         // cannot burn non-zero again
-        let err = token.burn(secp_address, TREASURY, &burn_amount).unwrap_err();
+        let err = token.burn_from(secp_address, TREASURY, &burn_amount).unwrap_err();
         // gets an allowance error
         match err {
             TokenError::TokenState(StateError::InsufficientAllowance {
@@ -2009,7 +1923,7 @@ mod test {
         assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
 
         // cannot burn zero now that allowance is zero
-        let res = token.burn(secp_address, TREASURY, &TokenAmount::zero());
+        let res = token.burn_from(secp_address, TREASURY, &TokenAmount::zero());
 
         // balances unchanged
         assert!(res.is_err());
@@ -2036,7 +1950,7 @@ mod test {
             .unwrap();
 
         // cannot burn non-zero
-        let err = token.burn(secp_address, TREASURY, &burn_amount).unwrap_err();
+        let err = token.burn_from(secp_address, TREASURY, &burn_amount).unwrap_err();
         // gets an allowance error
         match err {
             TokenError::TokenState(StateError::InsufficientAllowance {
@@ -2058,7 +1972,7 @@ mod test {
         assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
 
         // also cannot burn zero
-        let err = token.burn(secp_address, TREASURY, &TokenAmount::zero()).unwrap_err();
+        let err = token.burn_from(secp_address, TREASURY, &TokenAmount::zero()).unwrap_err();
         // gets an allowance error
         match err {
             TokenError::TokenState(StateError::InsufficientAllowance {
@@ -2104,7 +2018,7 @@ mod test {
         // operator attempts makes transfer of 60 from owner -> receiver
         // this is within the owner's balance but not within the operator's allowance
         token
-            .transfer(
+            .transfer_from(
                 CAROL,
                 ALICE,
                 BOB,
@@ -2147,7 +2061,7 @@ mod test {
         // operator attempts transfer 51 from owner -> operator
         // they have enough allowance, but not enough balance
         token
-            .transfer(
+            .transfer_from(
                 BOB,
                 ALICE,
                 BOB,
@@ -2158,7 +2072,7 @@ mod test {
             .unwrap_err();
 
         // attempt burn 51 by operator
-        token.burn(BOB, ALICE, &TokenAmount::from(51)).unwrap_err();
+        token.burn_from(BOB, ALICE, &TokenAmount::from(51)).unwrap_err();
 
         // balances remained unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(50));
@@ -2237,9 +2151,9 @@ mod test {
             .unwrap();
 
         // Burn
-        token.burn(ALICE, ALICE, &TokenAmount::from(1)).expect_err("burned below granularity");
-        token.burn(ALICE, ALICE, &TokenAmount::from(0)).unwrap();
-        token.burn(ALICE, ALICE, &TokenAmount::from(100)).unwrap();
+        token.burn(ALICE, &TokenAmount::from(1)).expect_err("burned below granularity");
+        token.burn(ALICE, &TokenAmount::from(0)).unwrap();
+        token.burn(ALICE, &TokenAmount::from(100)).unwrap();
 
         // Allowance
         token
@@ -2256,34 +2170,13 @@ mod test {
 
         // Transfer
         token
-            .transfer(
-                ALICE,
-                ALICE,
-                BOB,
-                &TokenAmount::from(1),
-                RawBytes::default(),
-                RawBytes::default(),
-            )
+            .transfer(ALICE, BOB, &TokenAmount::from(1), RawBytes::default(), RawBytes::default())
             .expect_err("transfer delta below granularity");
         token
-            .transfer(
-                ALICE,
-                ALICE,
-                BOB,
-                &TokenAmount::from(0),
-                RawBytes::default(),
-                RawBytes::default(),
-            )
+            .transfer(ALICE, BOB, &TokenAmount::from(0), RawBytes::default(), RawBytes::default())
             .unwrap();
         token
-            .transfer(
-                ALICE,
-                ALICE,
-                BOB,
-                &TokenAmount::from(100),
-                RawBytes::default(),
-                RawBytes::default(),
-            )
+            .transfer(ALICE, BOB, &TokenAmount::from(100), RawBytes::default(), RawBytes::default())
             .unwrap();
     }
 
@@ -2382,60 +2275,80 @@ mod test {
                 bs,
                 &mut token_state,
             );
-            let res = token.transfer(
-                operator,
-                from,
-                operator,
-                &TokenAmount::from(transfer),
-                RawBytes::default(),
-                RawBytes::default(),
-            );
 
-            match behaviour {
-                "OK" => {
-                    res.expect("expected transfer to succeed");
-                }
-                "ALLOWANCE_ERR" => {
-                    let err = res.unwrap_err();
-                    if let TokenError::TokenState(StateError::InsufficientAllowance {
-                        // can't match addresses as may be pubkey or ID (though they would resolve to the same)
-                        owner: _,
-                        operator: _,
-                        allowance: a,
-                        delta,
-                    }) = err
-                    {
-                        assert_eq!(a, TokenAmount::from(allowance));
-                        assert_eq!(delta, TokenAmount::from(transfer));
-                    } else {
-                        panic!("unexpected error {:?}", err);
+            let assert_error = |err: TokenError, token: Token<MemoryBlockstore, FakeMessenger>| {
+                match behaviour {
+                    "ALLOWANCE_ERR" => {
+                        if let TokenError::TokenState(StateError::InsufficientAllowance {
+                            // can't match addresses as may be pubkey or ID (though they would resolve to the same)
+                            owner: _,
+                            operator: _,
+                            allowance: a,
+                            delta,
+                        }) = err
+                        {
+                            assert_eq!(a, TokenAmount::from(allowance));
+                            assert_eq!(delta, TokenAmount::from(transfer));
+                        } else {
+                            panic!("unexpected error {:?}", err);
+                        }
                     }
-                }
-                "BALANCE_ERR" => {
-                    let err = res.unwrap_err();
-                    if let TokenError::TokenState(StateError::InsufficientBalance {
-                        owner,
-                        balance: b,
-                        delta,
-                    }) = err
-                    {
-                        assert_eq!(owner, token.msg.resolve_id(from).unwrap());
-                        assert_eq!(delta, TokenAmount::from(transfer).neg());
-                        assert_eq!(b, TokenAmount::from(balance));
-                    } else {
-                        panic!("unexpected error {:?}", err);
+                    "BALANCE_ERR" => {
+                        if let TokenError::TokenState(StateError::InsufficientBalance {
+                            owner,
+                            balance: b,
+                            delta,
+                        }) = err
+                        {
+                            assert_eq!(owner, token.msg.resolve_id(from).unwrap());
+                            assert_eq!(delta, TokenAmount::from(transfer).neg());
+                            assert_eq!(b, TokenAmount::from(balance));
+                        } else {
+                            panic!("unexpected error {:?}", err);
+                        }
                     }
-                }
-                "ADDRESS_ERR" => {
-                    let err = res.unwrap_err();
-                    if let TokenError::Messaging(MessagingError::AddressNotInitialized(addr)) = err
-                    {
-                        assert!((addr == *operator) || (addr == *from));
-                    } else {
-                        panic!("unexpected error {:?}", err);
+                    "ADDRESS_ERR" => {
+                        if let TokenError::Messaging(MessagingError::AddressNotInitialized(addr)) =
+                            err
+                        {
+                            assert!((addr == *operator) || (addr == *from));
+                        } else {
+                            panic!("unexpected error {:?}", err);
+                        }
                     }
+                    _ => panic!("test case not implemented"),
                 }
-                _ => panic!("test case not implemented"),
+            };
+
+            if token.same_address(operator, from) {
+                let res = token.transfer(
+                    from,
+                    operator,
+                    &TokenAmount::from(transfer),
+                    RawBytes::default(),
+                    RawBytes::default(),
+                );
+
+                if behaviour != "OK" {
+                    assert_error(res.unwrap_err(), token);
+                } else {
+                    res.expect("expect transfer to succeed");
+                }
+            } else {
+                let res = token.transfer_from(
+                    operator,
+                    from,
+                    operator,
+                    &TokenAmount::from(transfer),
+                    RawBytes::default(),
+                    RawBytes::default(),
+                );
+
+                if behaviour != "OK" {
+                    assert_error(res.unwrap_err(), token);
+                } else {
+                    res.expect("expect transfer to succeed");
+                }
             }
         }
 

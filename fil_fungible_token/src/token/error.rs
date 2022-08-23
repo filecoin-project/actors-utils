@@ -6,7 +6,6 @@ use fvm_shared::error::ExitCode;
 use fvm_shared::ActorID;
 use thiserror::Error;
 
-use super::{BurnResult, TransferResult};
 use crate::runtime::messaging::MessagingError;
 use crate::token::state::StateError as TokenStateError;
 use crate::token::state::StateInvariantError;
@@ -38,14 +37,12 @@ pub enum TokenError {
         #[source]
         source: AddressError,
     },
+    #[error("operator cannot be the same as the debited address {0}")]
+    InvalidOperator(Address),
     #[error("error during serialization {0}")]
     Serialization(#[from] SerializationError),
     #[error("error in state invariants {0}")]
     StateInvariant(#[from] StateInvariantError),
-    #[error("unexpected transfer result type {result:?}")]
-    TransferReturn { result: TransferResult },
-    #[error("unexpected burn result type {result:?}")]
-    BurnReturn { result: BurnResult },
 }
 
 impl From<TokenError> for ExitCode {
@@ -58,11 +55,10 @@ impl From<TokenError> for ExitCode {
             }
             TokenError::InvalidIdAddress { address: _, source: _ } => ExitCode::USR_NOT_FOUND,
             TokenError::Serialization(_) => ExitCode::USR_SERIALIZATION,
-            TokenError::InvalidGranularity { name: _, amount: _, granularity: _ }
+            TokenError::InvalidOperator(_)
+            | TokenError::InvalidGranularity { name: _, amount: _, granularity: _ }
             | TokenError::InvalidNegative { name: _, amount: _ } => ExitCode::USR_ILLEGAL_ARGUMENT,
-            TokenError::TransferReturn { result: _ }
-            | TokenError::BurnReturn { result: _ }
-            | TokenError::StateInvariant(_) => ExitCode::USR_ILLEGAL_STATE,
+            TokenError::StateInvariant(_) => ExitCode::USR_ILLEGAL_STATE,
             TokenError::TokenState(state_error) => match state_error {
                 TokenStateError::IpldHamt(_) | TokenStateError::Serialization(_) => {
                     ExitCode::USR_SERIALIZATION

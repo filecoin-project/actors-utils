@@ -9,7 +9,7 @@ use fil_fungible_token::token::types::{
 };
 use fil_fungible_token::token::Token;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
-use fvm_ipld_encoding::{Cbor, DAG_CBOR};
+use fvm_ipld_encoding::{Cbor, RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
 use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser;
@@ -50,34 +50,33 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
     }
 
     fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
-        let spender = caller_address();
+        let operator = caller_address();
         let res = self.util.transfer(
-            &spender,
-            &spender,
+            &operator,
             &params.to,
             &params.amount,
             params.operator_data,
-            Default::default(),
+            RawBytes::default(),
         )?;
 
-        Ok(res.try_into()?)
+        Ok(res)
     }
 
     fn transfer_from(
         &mut self,
         params: fil_fungible_token::token::types::TransferFromParams,
     ) -> Result<TransferFromReturn, RuntimeError> {
-        let spender = caller_address();
-        let res = self.util.transfer(
-            &spender,
+        let operator = caller_address();
+        let res = self.util.transfer_from(
+            &operator,
             &params.from,
             &params.to,
             &params.amount,
             params.operator_data,
-            Default::default(),
+            RawBytes::default(),
         )?;
 
-        Ok(res.try_into()?)
+        Ok(res)
     }
 
     fn increase_allowance(
@@ -113,8 +112,8 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
     fn burn(&mut self, params: BurnParams) -> Result<BurnReturn, RuntimeError> {
         let caller = caller_address();
-        let res = self.util.burn(&caller, &caller, &params.amount)?;
-        Ok(res.try_into()?)
+        let res = self.util.burn(&caller, &params.amount)?;
+        Ok(res)
     }
 
     fn burn_from(
@@ -122,8 +121,8 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         params: fil_fungible_token::token::types::BurnFromParams,
     ) -> Result<BurnFromReturn, RuntimeError> {
         let caller = caller_address();
-        let res = self.util.burn(&caller, &params.owner, &params.amount)?;
-        Ok(res.try_into()?)
+        let res = self.util.burn_from(&caller, &params.owner, &params.amount)?;
+        Ok(res)
     }
 }
 
