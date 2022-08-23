@@ -5,7 +5,7 @@ use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 
 /// Standard interface for an actor that wishes to receive FRC-XXX tokens
-pub trait Frc46TokenReceiver {
+pub trait FRC46TokenReceiver {
     /// Invoked by a token actor during pending transfer or mint to the receiver's address
     ///
     /// Within this hook, the token actor has optimistically persisted the new balance so

@@ -22,7 +22,7 @@ pub type Result<T, E> = std::result::Result<T, ActorError<E>>;
 ///
 /// Token authors must implement this trait and link the methods to standard dispatch numbers (as
 /// defined by [FRC-0042](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0042.md)).
-pub trait Frc46Token<E> {
+pub trait FRC46Token<E> {
     /// Returns the name of the token
     ///
     /// Must not be empty
@@ -97,8 +97,22 @@ pub struct TransferParams {
     #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
     /// Arbitrary data to pass on via the receiver hook
-    pub data: RawBytes,
+    pub operator_data: RawBytes,
 }
+
+/// Return value after a successful transfer
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct TransferReturn {
+    /// The new balance of the `from` address
+    #[serde(with = "bigint_ser")]
+    pub from_balance: TokenAmount,
+    /// The new balance of the `to` address
+    #[serde(with = "bigint_ser")]
+    pub to_balance: TokenAmount,
+}
+
+impl Cbor for TransferParams {}
+impl Cbor for TransferReturn {}
 
 /// Instruction to transfer tokens between two addresses as an operator
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
@@ -109,43 +123,29 @@ pub struct TransferFromParams {
     #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
     /// Arbitrary data to pass on via the receiver hook
-    pub data: RawBytes,
-}
-
-/// Return value after a successful transfer
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
-pub struct TransferReturn {
-    /// The new balance of the `to` address
-    #[serde(with = "bigint_ser")]
-    pub to_balance: TokenAmount,
-    /// The new balance of the `from` address
-    #[serde(with = "bigint_ser")]
-    pub from_balance: TokenAmount,
+    pub operator_data: RawBytes,
 }
 
 /// Return value after a successful delegated transfer
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct TransferFromReturn {
-    /// The new balance of the `to` address
-    #[serde(with = "bigint_ser")]
-    pub to_balance: TokenAmount,
     /// The new balance of the `from` address
     #[serde(with = "bigint_ser")]
     pub from_balance: TokenAmount,
+    /// The new balance of the `to` address
+    #[serde(with = "bigint_ser")]
+    pub to_balance: TokenAmount,
     /// The new remaining allowance between `owner` and `operator` (caller)
     #[serde(with = "bigint_ser")]
     pub allowance: TokenAmount,
 }
 
-impl Cbor for TransferParams {}
 impl Cbor for TransferFromParams {}
-impl Cbor for TransferReturn {}
 impl Cbor for TransferFromReturn {}
 
 /// Instruction to increase an allowance between two addresses
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct IncreaseAllowanceParams {
-    pub owner: Address,
     pub operator: Address,
     /// A non-negative amount to increase the allowance by
     #[serde(with = "bigint_ser")]
@@ -155,7 +155,6 @@ pub struct IncreaseAllowanceParams {
 /// Instruction to decrease an allowance between two addresses
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct DecreaseAllowanceParams {
-    pub owner: Address,
     pub operator: Address,
     /// A non-negative amount to decrease the allowance by
     #[serde(with = "bigint_ser")]
@@ -165,7 +164,6 @@ pub struct DecreaseAllowanceParams {
 /// Instruction to revoke (set to 0) an allowance
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct RevokeAllowanceParams {
-    pub owner: Address,
     pub operator: Address,
 }
 
@@ -189,6 +187,17 @@ pub struct BurnParams {
     pub amount: TokenAmount,
 }
 
+/// The updated value after burning
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct BurnReturn {
+    /// New balance in the account after the successful burn
+    #[serde(with = "bigint_ser")]
+    pub balance: TokenAmount,
+}
+
+impl Cbor for BurnParams {}
+impl Cbor for BurnReturn {}
+
 /// Instruction to burn an amount of tokens from another address
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct BurnFromParams {
@@ -196,14 +205,6 @@ pub struct BurnFromParams {
     /// A non-negative amount to burn
     #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
-}
-
-/// The updated value after burning
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
-pub struct BurnReturn {
-    /// New balance in the account after the successful burn
-    #[serde(with = "bigint_ser")]
-    pub balance: TokenAmount,
 }
 
 /// The updated value after a delegated burn
@@ -217,5 +218,5 @@ pub struct BurnFromReturn {
     pub allowance: TokenAmount,
 }
 
-impl Cbor for BurnParams {}
-impl Cbor for BurnReturn {}
+impl Cbor for BurnFromParams {}
+impl Cbor for BurnFromReturn {}

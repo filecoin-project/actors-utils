@@ -3,7 +3,7 @@ mod util;
 use fil_fungible_token::runtime::blockstore::Blockstore;
 use fil_fungible_token::runtime::messaging::FvmMessenger;
 use fil_fungible_token::token::types::{
-    BurnFromReturn, BurnParams, BurnReturn, DecreaseAllowanceParams, Frc46Token,
+    BurnFromReturn, BurnParams, BurnReturn, DecreaseAllowanceParams, FRC46Token,
     GetAllowanceParams, IncreaseAllowanceParams, Result, RevokeAllowanceParams, TransferFromReturn,
     TransferParams, TransferReturn,
 };
@@ -29,7 +29,7 @@ struct BasicToken<'state> {
 /// Implementation of the token API in a FVM actor
 ///
 /// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
-impl Frc46Token<RuntimeError> for BasicToken<'_> {
+impl FRC46Token<RuntimeError> for BasicToken<'_> {
     fn name(&self) -> String {
         String::from("FRC-0046 Token")
     }
@@ -56,7 +56,7 @@ impl Frc46Token<RuntimeError> for BasicToken<'_> {
             &spender,
             &params.to,
             &params.amount,
-            params.data,
+            params.operator_data,
             Default::default(),
         )?;
 
@@ -73,7 +73,7 @@ impl Frc46Token<RuntimeError> for BasicToken<'_> {
             &params.from,
             &params.to,
             &params.amount,
-            params.data,
+            params.operator_data,
             Default::default(),
         )?;
 
