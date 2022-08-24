@@ -374,10 +374,8 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<TransferReturn> {
+    ) -> Result<(TokensReceivedParams, TransferReturn)> {
         let amount = validate_amount(amount, "transfer", self.granularity)?;
-
-        let old_state = self.state.clone();
 
         // owner-initiated transfer
         let from = self.resolve_or_init(from)?;
@@ -403,10 +401,7 @@ where
             }
         })?;
 
-        // call receiver hook
-        self.flush()?;
-        self.call_receiver_hook_or_revert(
-            to,
+        Ok((
             TokensReceivedParams {
                 operator: from,
                 from,
@@ -415,10 +410,8 @@ where
                 operator_data,
                 token_data,
             },
-            old_state,
-        )?;
-
-        Ok(res)
+            res,
+        ))
     }
 
     /// Transfers an amount from one address to another
@@ -442,13 +435,11 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<TransferFromReturn> {
+    ) -> Result<(TokensReceivedParams, TransferFromReturn)> {
         let amount = validate_amount(amount, "transfer", self.granularity)?;
         if self.same_address(operator, from) {
             return Err(TokenError::InvalidOperator(*operator));
         }
-
-        let old_state = self.state.clone();
 
         // operator-initiated transfer must have a resolvable operator
         let operator_id = match self.get_id(operator) {
@@ -510,10 +501,7 @@ where
             }
         })?;
 
-        // flush state as receiver hook needs to see new balances
-        self.flush()?;
-        self.call_receiver_hook_or_revert(
-            to,
+        Ok((
             TokensReceivedParams {
                 operator: operator_id,
                 from,
@@ -522,10 +510,8 @@ where
                 operator_data,
                 token_data,
             },
-            old_state,
-        )?;
-
-        Ok(ret)
+            ret,
+        ))
     }
 }
 

@@ -52,7 +52,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
     fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
         let operator = caller_address();
-        let res = self.util.transfer(
+        let (receiver_params, transfer_return) = self.util.transfer(
             &operator,
             &params.to,
             &params.amount,
@@ -60,7 +60,12 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
             RawBytes::default(),
         )?;
 
-        Ok(res)
+        let cid = self.util.flush()?;
+        sdk::sself::set_root(&cid).unwrap();
+
+        self.util.call_receiver_hook(&params.to, receiver_params)?;
+
+        Ok(transfer_return)
     }
 
     fn transfer_from(
@@ -68,7 +73,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         params: fil_fungible_token::token::types::TransferFromParams,
     ) -> Result<TransferFromReturn, RuntimeError> {
         let operator = caller_address();
-        let res = self.util.transfer_from(
+        let (receiver_params, transfer_return) = self.util.transfer_from(
             &operator,
             &params.from,
             &params.to,
@@ -77,7 +82,12 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
             RawBytes::default(),
         )?;
 
-        Ok(res)
+        let cid = self.util.flush()?;
+        sdk::sself::set_root(&cid).unwrap();
+
+        self.util.call_receiver_hook(&params.to, receiver_params)?;
+
+        Ok(transfer_return)
     }
 
     fn increase_allowance(
