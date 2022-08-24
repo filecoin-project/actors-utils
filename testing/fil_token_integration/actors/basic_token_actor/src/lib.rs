@@ -280,7 +280,7 @@ pub fn invoke(params: u32) -> u32 {
                 }
                 _ => {
                     sdk::vm::abort(
-                        ExitCode::USR_ILLEGAL_ARGUMENT.value(),
+                        ExitCode::USR_UNHANDLED_MESSAGE.value(),
                         Some("Unknown method number"),
                     );
                 }
