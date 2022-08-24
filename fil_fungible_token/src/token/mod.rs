@@ -118,19 +118,14 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    //) -> Result<()> {
-        ) -> Result<TokensReceivedParams> {
+    ) -> Result<TokensReceivedParams> {
         let amount = validate_amount(amount, "mint", self.granularity)?;
         // init the operator account so that its actor ID can be referenced in the receiver hook
         let operator_id = self.resolve_or_init(operator)?;
         // init the owner account as allowance and balance checks are not performed for minting
         let owner_id = self.resolve_or_init(initial_owner)?;
 
-        // state save/revert will be managed outside of this function
-        //let old_state = self.state.clone();
-
         // Increase the balance of the actor and increase total supply
-        // todo: probably don't need transaction thing here, the entire minting+receiver hook operation belongs in one
         self.transaction(|state, bs| {
             state.change_balance_by(&bs, owner_id, amount)?;
             state.change_supply_by(amount)?;
@@ -144,25 +139,8 @@ where
             to: owner_id,
             amount: amount.clone(),
             operator_data,
-            token_data
+            token_data,
         })
-
-        // Update state so re-entrant calls see the changes
-        //self.flush()?;
-
-        // Call receiver hook
-        /*self.call_receiver_hook_or_revert(
-            initial_owner,
-            TokensReceivedParams {
-                from: self.msg.actor_id(),
-                to: owner_id,
-                operator: operator_id,
-                amount: amount.clone(),
-                operator_data,
-                token_data,
-            },
-            old_state,
-        )*/
     }
 
     /// Gets the total number of tokens in existence
@@ -652,15 +630,13 @@ where
 
         match receipt.exit_code {
             ExitCode::OK => Ok(()),
-            abort_code => {
-                Err(TokenError::ReceiverHook {
-                    from: params.from,
-                    to: params.to,
-                    operator: params.operator,
-                    amount: params.amount,
-                    exit_code: abort_code,
-                })
-            }
+            abort_code => Err(TokenError::ReceiverHook {
+                from: params.from,
+                to: params.to,
+                operator: params.operator,
+                amount: params.amount,
+                exit_code: abort_code,
+            }),
         }
     }
 
