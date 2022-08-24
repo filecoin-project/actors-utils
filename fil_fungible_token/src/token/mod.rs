@@ -563,43 +563,6 @@ where
         }
     }
 
-    /// Calls the receiver hook, reverting the state if it aborts or there is a messaging error
-    fn call_receiver_hook_or_revert(
-        &mut self,
-        token_receiver: &Address,
-        params: TokensReceivedParams,
-        old_state: TokenState,
-    ) -> Result<()> {
-        let receipt = match self.msg.send(
-            token_receiver,
-            RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(&params)?,
-            &TokenAmount::zero(),
-        ) {
-            Ok(receipt) => receipt,
-            Err(e) => {
-                *self.state = old_state;
-                self.flush()?;
-                return Err(e.into());
-            }
-        };
-
-        match receipt.exit_code {
-            ExitCode::OK => Ok(()),
-            abort_code => {
-                *self.state = old_state;
-                self.flush()?;
-                Err(TokenError::ReceiverHook {
-                    from: params.from,
-                    to: params.to,
-                    operator: params.operator,
-                    amount: params.amount,
-                    exit_code: abort_code,
-                })
-            }
-        }
-    }
-
     /// Calls the receiver hook, returning the result
     pub fn call_receiver_hook(
         &mut self,
