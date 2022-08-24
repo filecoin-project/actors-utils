@@ -643,17 +643,12 @@ where
         token_receiver: &Address,
         params: TokensReceivedParams,
     ) -> Result<()> {
-        let receipt = match self.msg.send(
+        let receipt = self.msg.send(
             token_receiver,
             RECEIVER_HOOK_METHOD_NUM,
             &RawBytes::serialize(&params)?,
             &TokenAmount::zero(),
-        ) {
-            Ok(receipt) => receipt,
-            Err(e) => {
-                return Err(e.into());
-            }
-        };
+        )?;
 
         match receipt.exit_code {
             ExitCode::OK => Ok(()),
