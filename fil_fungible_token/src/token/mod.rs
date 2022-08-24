@@ -614,8 +614,7 @@ where
         }
     }
 
-    /// Calls the receiver hook, do not revert on error
-    /// Error results from this should be handled upstream
+    /// Calls the receiver hook, returning the result
     pub fn call_receiver_hook(
         &mut self,
         token_receiver: &Address,
