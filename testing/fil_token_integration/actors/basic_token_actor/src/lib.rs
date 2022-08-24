@@ -15,6 +15,7 @@ use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::econ::TokenAmount;
+use fvm_shared::error::ExitCode;
 use sdk::sys::ErrorNumber;
 use sdk::NO_DATA_BLOCK_ID;
 use serde::ser;
@@ -191,6 +192,10 @@ where
 /// Conduct method dispatch. Handle input parameters and return data.
 #[no_mangle]
 pub fn invoke(params: u32) -> u32 {
+    std::panic::set_hook(Box::new(|info| {
+        sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{}", info)))
+    }));
+
     let method_num = sdk::message::method_number();
 
     match method_num {
@@ -286,7 +291,7 @@ pub fn invoke(params: u32) -> u32 {
                 }
                 _ => {
                     sdk::vm::abort(
-                        fvm_shared::error::ExitCode::USR_ILLEGAL_ARGUMENT.value(),
+                        ExitCode::USR_ILLEGAL_ARGUMENT.value(),
                         Some("Unknown method number"),
                     );
                 }
