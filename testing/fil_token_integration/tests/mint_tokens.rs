@@ -93,7 +93,6 @@ fn mint_tokens() {
     }
 
     // Check balance
-    //let params = RawBytes::serialize(minter[0].1).unwrap();
     let params = RawBytes::serialize(receive_address).unwrap();
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("BalanceOf"), Some(params));
     println!("balance return data {:#?}", &ret_val);

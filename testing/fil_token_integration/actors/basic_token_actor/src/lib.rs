@@ -212,7 +212,7 @@ pub fn invoke(params: u32) -> u32 {
                 BasicToken { util: Token::wrap(bs, FvmMessenger::default(), 1, &mut token_state) };
 
             // Method numbers calculated via fvm_dispatch_tools using CamelCase names derived from
-            // the corresponding FRCXXXToken trait methods.
+            // the corresponding FRC46Token trait methods.
             match rest {
                 4244593718 => {
                     // Name
@@ -278,7 +278,7 @@ pub fn invoke(params: u32) -> u32 {
                 }
 
                 // Custom actor interface, these are author-defined methods that extend beyond the
-                // FRCXXX Token standard
+                // FRC46 Token standard
                 3839021839 => {
                     // Mint
                     let params = deserialize_params(params);
