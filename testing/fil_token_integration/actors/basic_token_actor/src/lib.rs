@@ -245,35 +245,40 @@ pub fn invoke(params: u32) -> u32 {
                     // IncreaseAllowance
                     let params = deserialize_params(params);
                     let res = token_actor.increase_allowance(params).unwrap();
-                    token_actor.util.flush().unwrap();
+                    let cid = token_actor.util.flush().unwrap();
+                    sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&BigIntDe(res)).unwrap()
                 }
                 4218751446 => {
                     // DecreaseAllowance
                     let params = deserialize_params(params);
                     let res = token_actor.decrease_allowance(params).unwrap();
-                    token_actor.util.flush().unwrap();
+                    let cid = token_actor.util.flush().unwrap();
+                    sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&BigIntDe(res)).unwrap()
                 }
                 1691518633 => {
                     // RevokeAllowance
                     let params = deserialize_params(params);
                     token_actor.revoke_allowance(params).unwrap();
-                    token_actor.util.flush().unwrap();
+                    let cid = token_actor.util.flush().unwrap();
+                    sdk::sself::set_root(&cid).unwrap();
                     NO_DATA_BLOCK_ID
                 }
                 1924391931 => {
                     // Burn
                     let params = deserialize_params(params);
                     let res = token_actor.burn(params).unwrap();
-                    token_actor.util.flush().unwrap();
+                    let cid = token_actor.util.flush().unwrap();
+                    sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&res).unwrap()
                 }
                 401872942 => {
                     // TransferFrom
                     let params = deserialize_params(params);
                     let res = token_actor.transfer(params).unwrap();
-                    token_actor.util.flush().unwrap();
+                    let cid = token_actor.util.flush().unwrap();
+                    sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&res).unwrap()
                 }
 
