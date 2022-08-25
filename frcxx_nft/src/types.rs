@@ -4,10 +4,9 @@ use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::address::Address;
 use fvm_shared::ActorID;
 
-type TokenAmount = u128;
-type TokenID = u128;
+type TokenID = u64;
 
-pub trait FRCXXNft {
+pub trait FRCXXXNFT {
     /// A descriptive name for the collection of NFTs in this actor
     fn name(&self) -> String;
 
@@ -17,12 +16,19 @@ pub trait FRCXXNft {
     /// Gets a link to associated metadata for a given NFT
     fn metadata(&self, params: TokenID) -> Cid;
 
+    /// Gets the total number of NFTs in this actor
+    fn total_supply(&self) -> u64;
+
+    /// Burns a given NFT, removing it from the total supply and preventing new NFTs from being
+    /// minted with the same ID
+    fn burn(&self, params: TokenID);
+
     /// Gets a list of all the tokens in the collection
     /// FIXME: make this paginated
     fn list_tokens(&self) -> Vec<TokenID>;
 
     /// Gets the number of tokens held by a particular address (if it exists)
-    fn balance_of(&self, params: Address) -> TokenAmount;
+    fn balance_of(&self, params: Address) -> u64;
 
     /// Returns the owner of the NFT specified by `token_id`
     fn owner_of(&self, params: TokenID) -> ActorID;
