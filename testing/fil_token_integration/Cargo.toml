@@ -1,0 +1,20 @@
+[package]
+name = "fil_token_integration_tests"
+version = "0.1.0"
+repository = "https://github.com/helix-collective/filecoin"
+edition = "2021"
+
+[dependencies]
+basic_token_actor = { version = "0.1.0", path = "../../testing/fil_token_integration/actors/basic_token_actor" }
+cid = { version = "0.8.5", default-features = false }
+fvm = { version = "~1.1.0", default-features = false }
+frc42_dispatch = { path = "../../frc42_dispatch" }
+fil_fungible_token = { version = "0.1.0", path = "../../fil_fungible_token" }
+fvm_integration_tests = "0.1.0"
+fvm_ipld_blockstore = "0.1.1"
+fvm_ipld_encoding = "0.2.2"
+fvm_shared = { version = "0.8.0" }
+
+[dev-dependencies]
+basic_token_actor = {path = "actors/basic_token_actor"}
+basic_receiving_actor = {path = "actors/basic_receiving_actor"}
