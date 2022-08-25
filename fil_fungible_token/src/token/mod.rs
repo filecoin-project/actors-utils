@@ -113,14 +113,12 @@ where
         initial_owner: &Address,
         amount: &TokenAmount,
         data: &RawBytes,
-    ) -> Result<()> {
+    ) -> Result<TokenReceivedParams> {
         let amount = validate_amount(amount, "mint", self.granularity)?;
         // init the operator account so that its actor ID can be referenced in the receiver hook
         let operator_id = self.resolve_or_init(operator)?;
         // init the owner account as allowance and balance checks are not performed for minting
         let owner_id = self.resolve_or_init(initial_owner)?;
-
-        let old_state = self.state.clone();
 
         // Increase the balance of the actor and increase total supply
         self.transaction(|state, bs| {
@@ -129,21 +127,13 @@ where
             Ok(())
         })?;
 
-        // Update state so re-entrant calls see the changes
-        self.flush()?;
-
-        // Call receiver hook
-        self.call_receiver_hook_or_revert(
-            initial_owner,
-            TokenReceivedParams {
-                data: data.clone(),
-                from: self.msg.actor_id(),
-                to: owner_id,
-                operator: operator_id,
-                amount: amount.clone(),
-            },
-            old_state,
-        )
+        Ok(TokenReceivedParams {
+            data: data.clone(),
+            from: self.msg.actor_id(),
+            to: owner_id,
+            operator: operator_id,
+            amount: amount.clone(),
+        })
     }
 
     /// Gets the total number of tokens in existence
@@ -384,9 +374,8 @@ where
         to: &Address,
         amount: &TokenAmount,
         data: &RawBytes,
-    ) -> Result<()> {
+    ) -> Result<TokenReceivedParams> {
         let amount = validate_amount(amount, "transfer", self.granularity)?;
-        let old_state = self.state.clone();
 
         // owner-initiated transfer
         if self.same_address(operator, from) {
@@ -412,19 +401,14 @@ where
                 Ok(())
             })?;
 
-            // call receiver hook
-            self.flush()?;
-            return self.call_receiver_hook_or_revert(
-                to,
-                TokenReceivedParams {
-                    operator: from,
-                    from,
-                    to: to_id,
-                    amount: amount.clone(),
-                    data: data.clone(),
-                },
-                old_state,
-            );
+            // return params for calling receiver hook
+            return Ok(TokenReceivedParams {
+                operator: from,
+                from,
+                to: to_id,
+                amount: amount.clone(),
+                data: data.clone(),
+            });
         }
 
         // operator-initiated transfer must have a resolvable operator
@@ -481,19 +465,14 @@ where
             Ok(())
         })?;
 
-        // flush state as receiver hook needs to see new balances
-        self.flush()?;
-        self.call_receiver_hook_or_revert(
-            to,
-            TokenReceivedParams {
-                operator: operator_id,
-                from,
-                to: to_id,
-                amount: amount.clone(),
-                data: data.clone(),
-            },
-            old_state,
-        )
+        // return params for calling receiver hook
+        Ok(TokenReceivedParams {
+            operator: operator_id,
+            from,
+            to: to_id,
+            amount: amount.clone(),
+            data: data.clone(),
+        })
     }
 }
 
@@ -546,7 +525,7 @@ where
     }
 
     /// Calls the receiver hook, reverting the state if it aborts or there is a messaging error
-    fn call_receiver_hook_or_revert(
+    pub fn call_receiver_hook_or_revert(
         &mut self,
         token_receiver: &Address,
         params: TokenReceivedParams,
@@ -579,6 +558,31 @@ where
                     exit_code: abort_code,
                 })
             }
+        }
+    }
+
+    /// Calls the receiver hook
+    pub fn call_receiver_hook(
+        &mut self,
+        token_receiver: &Address,
+        params: TokenReceivedParams,
+    ) -> Result<()> {
+        let receipt = self.msg.send(
+            token_receiver,
+            RECEIVER_HOOK_METHOD_NUM,
+            &RawBytes::serialize(&params)?,
+            &TokenAmount::zero(),
+        )?;
+
+        match receipt.exit_code {
+            ExitCode::OK => Ok(()),
+            abort_code => Err(TokenError::ReceiverHook {
+                from: params.from,
+                to: params.to,
+                operator: params.operator,
+                amount: params.amount,
+                exit_code: abort_code,
+            }),
         }
     }
 
@@ -774,9 +778,12 @@ mod test {
         let mut token = new_token(bs, &mut token_state);
 
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
-        token
+        let old_state = token.state().clone();
+        let params = token
             .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), &Default::default())
             .unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
 
         // balance and total supply both went up
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(1_000_000));
@@ -790,7 +797,10 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
 
         // mint zero
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::zero(), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::zero(), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
@@ -809,9 +819,13 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
 
         // mint again to same address
-        token
+        let old_state = token.state().clone();
+        let params = token
             .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), &Default::default())
             .unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(TREASURY, params, old_state).unwrap();
+
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(2_000_000));
@@ -829,7 +843,10 @@ mod test {
         );
 
         // mint to a different address
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(1_000_000), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(1_000_000), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(3_000_000));
@@ -854,9 +871,12 @@ mod test {
         // initially zero
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::zero());
         // self-mint to secp address
-        token
+        let old_state = token.state().clone();
+        let params = token
             .mint(TOKEN_ACTOR, &secp_address, &TokenAmount::from(1_000_000), &Default::default())
             .unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(&secp_address, params, old_state).unwrap();
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
@@ -875,9 +895,13 @@ mod test {
         // initially zero
         assert_eq!(token.balance_of(&bls_address).unwrap(), TokenAmount::zero());
         // minting creates the account
-        token
+        let old_state = token.state().clone();
+        let params = token
             .mint(TOKEN_ACTOR, &bls_address, &TokenAmount::from(1_000_000), &Default::default())
             .unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(&bls_address, params, old_state).unwrap();
+
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::from(1_000_000));
@@ -918,9 +942,12 @@ mod test {
 
         // force hook to abort
         token.msg.abort_next_send();
-        let err = token
+        let old_state = token.state().clone();
+        let params = token
             .mint(TOKEN_ACTOR, TREASURY, &TokenAmount::from(1_000_000), &Default::default())
-            .unwrap_err();
+            .unwrap();
+        token.flush().unwrap();
+        let err = token.call_receiver_hook_or_revert(TREASURY, params, old_state).unwrap_err();
 
         // check error shape
         match err {
@@ -1010,9 +1037,16 @@ mod test {
         let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
+
         // transfer 60 from owner -> receiver
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
 
         // owner has 100 - 60 = 40
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
@@ -1035,6 +1069,7 @@ mod test {
 
         // cannot transfer a negative value
         token.transfer(ALICE, ALICE, BOB, &TokenAmount::from(-1), &Default::default()).unwrap_err();
+
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
@@ -1042,7 +1077,11 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // transfer zero value
-        token.transfer(ALICE, ALICE, BOB, &TokenAmount::zero(), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.transfer(ALICE, ALICE, BOB, &TokenAmount::zero(), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
+
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
@@ -1069,9 +1108,15 @@ mod test {
         let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
         // transfer zero to self
-        token.transfer(ALICE, ALICE, ALICE, &TokenAmount::zero(), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.transfer(ALICE, ALICE, ALICE, &TokenAmount::zero(), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
 
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
@@ -1091,7 +1136,11 @@ mod test {
         );
 
         // transfer value to self
-        token.transfer(ALICE, ALICE, ALICE, &TokenAmount::from(10), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.transfer(ALICE, ALICE, ALICE, &TokenAmount::from(10), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
+
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
         // total supply is unchanged
@@ -1116,14 +1165,21 @@ mod test {
         let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
         let mut token = new_token(bs, &mut token_state);
 
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
 
         // transfer to an uninitialized pubkey
         let secp_address = &secp_address();
         assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
-        token
+
+        let old_state = token.state().clone();
+        let params = token
             .transfer(ALICE, ALICE, secp_address, &TokenAmount::from(10), &Default::default())
             .unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
 
         // balances changed
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(90));
@@ -1211,13 +1267,19 @@ mod test {
         let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
-        token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(100), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap();
 
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
         token.msg.abort_next_send();
-        let err = token
+        let old_state = token.state().clone();
+        let params = token
             .transfer(ALICE, ALICE, BOB, &TokenAmount::from(60), &Default::default())
-            .unwrap_err();
+            .unwrap();
+        token.flush().unwrap();
+        let err = token.call_receiver_hook_or_revert(BOB, params, old_state).unwrap_err();
 
         // check error shape
         match err {
@@ -1236,9 +1298,12 @@ mod test {
 
         // transfer 60 from owner -> self, simulate receiver aborting the hook
         token.msg.abort_next_send();
-        let err = token
+        let old_state = token.state().clone();
+        let params = token
             .transfer(ALICE, ALICE, ALICE, &TokenAmount::from(60), &Default::default())
-            .unwrap_err();
+            .unwrap();
+        token.flush().unwrap();
+        let err = token.call_receiver_hook_or_revert(ALICE, params, old_state).unwrap_err();
 
         // check error shape
         match err {
@@ -1352,7 +1417,10 @@ mod test {
         // approve 100 spending allowance for operator
         token.increase_allowance(ALICE, CAROL, &TokenAmount::from(100)).unwrap();
         // operator makes transfer of 60 from owner -> receiver
-        token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.transfer(CAROL, ALICE, BOB, &TokenAmount::from(60), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(BOB, params, old_state).unwrap();
 
         // verify all balances are correct
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
@@ -1376,7 +1444,10 @@ mod test {
         assert_eq!(operator_allowance, TokenAmount::from(40));
 
         // operator makes another transfer of 40 from owner -> self
-        token.transfer(CAROL, ALICE, CAROL, &TokenAmount::from(40), &Default::default()).unwrap();
+        let old_state = token.state().clone();
+        let params = token.transfer(CAROL, ALICE, CAROL, &TokenAmount::from(40), &Default::default()).unwrap();
+        token.flush().unwrap();
+        token.call_receiver_hook_or_revert(CAROL, params, old_state).unwrap();
 
         // verify all balances are correct
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
@@ -1916,7 +1987,9 @@ mod test {
             );
 
             match behaviour {
-                "OK" => res.expect("expected transfer to succeed"),
+                "OK" => {
+                    res.expect("expected transfer to succeed");
+                }
                 "ALLOWANCE_ERR" => {
                     let err = res.unwrap_err();
                     if let TokenError::TokenState(StateError::InsufficientAllowance {
