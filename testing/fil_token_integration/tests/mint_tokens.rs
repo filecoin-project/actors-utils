@@ -85,8 +85,12 @@ fn mint_tokens() {
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(params));
     println!("mint return data {:#?}", &ret_val);
     let return_data = ret_val.msg_receipt.return_data;
-    let mint_result: MintReturn = return_data.deserialize().unwrap();
-    println!("new total supply of {:?}", &mint_result.total_supply);
+    if return_data.is_empty() {
+        println!("return data was empty");
+    } else {
+        let mint_result: MintReturn = return_data.deserialize().unwrap();
+        println!("new total supply: {:?}", &mint_result.total_supply);
+    }
 
     // Check balance
     //let params = RawBytes::serialize(minter[0].1).unwrap();

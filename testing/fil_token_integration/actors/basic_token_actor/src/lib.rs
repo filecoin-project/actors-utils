@@ -15,6 +15,7 @@ use fvm_shared::address::Address;
 use fvm_shared::bigint::bigint_ser;
 use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::econ::TokenAmount;
+use fvm_shared::error::ExitCode;
 use sdk::sys::ErrorNumber;
 use sdk::NO_DATA_BLOCK_ID;
 use serde::ser;
@@ -51,7 +52,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
     fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
         let operator = caller_address();
-        let res = self.util.transfer(
+        let (receiver_params, transfer_return) = self.util.transfer(
             &operator,
             &params.to,
             &params.amount,
@@ -59,7 +60,12 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
             RawBytes::default(),
         )?;
 
-        Ok(res)
+        let cid = self.util.flush()?;
+        sdk::sself::set_root(&cid).unwrap();
+
+        self.util.call_receiver_hook(&params.to, receiver_params)?;
+
+        Ok(transfer_return)
     }
 
     fn transfer_from(
@@ -67,7 +73,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         params: fil_fungible_token::token::types::TransferFromParams,
     ) -> Result<TransferFromReturn, RuntimeError> {
         let operator = caller_address();
-        let res = self.util.transfer_from(
+        let (receiver_params, transfer_return) = self.util.transfer_from(
             &operator,
             &params.from,
             &params.to,
@@ -76,7 +82,12 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
             RawBytes::default(),
         )?;
 
-        Ok(res)
+        let cid = self.util.flush()?;
+        sdk::sself::set_root(&cid).unwrap();
+
+        self.util.call_receiver_hook(&params.to, receiver_params)?;
+
+        Ok(transfer_return)
     }
 
     fn increase_allowance(
@@ -144,13 +155,19 @@ impl Cbor for MintReturn {}
 
 impl BasicToken<'_> {
     fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
-        self.util.mint(
+        let receiver_params = self.util.mint(
             &caller_address(),
             &params.initial_owner,
             &params.amount,
             Default::default(),
             Default::default(),
         )?;
+
+        let cid = self.util.flush()?;
+        sdk::sself::set_root(&cid).unwrap();
+
+        self.util.call_receiver_hook(&params.initial_owner, receiver_params)?;
+
         Ok(MintReturn { total_supply: self.total_supply() })
     }
 }
@@ -174,6 +191,10 @@ where
 /// Conduct method dispatch. Handle input parameters and return data.
 #[no_mangle]
 pub fn invoke(params: u32) -> u32 {
+    std::panic::set_hook(Box::new(|info| {
+        sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{}", info)))
+    }));
+
     let method_num = sdk::message::method_number();
 
     match method_num {
@@ -269,7 +290,7 @@ pub fn invoke(params: u32) -> u32 {
                 }
                 _ => {
                     sdk::vm::abort(
-                        fvm_shared::error::ExitCode::USR_ILLEGAL_ARGUMENT.value(),
+                        ExitCode::USR_UNHANDLED_MESSAGE.value(),
                         Some("Unknown method number"),
                     );
                 }
