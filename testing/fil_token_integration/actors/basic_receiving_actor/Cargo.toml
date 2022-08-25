@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 fil_fungible_token = { version = "0.1.0", path = "../../../../fil_fungible_token" }
-fvm_dispatch = { path = "../../../../fvm_dispatch" }
+frc42_dispatch = { path = "../../../../frc42_dispatch" }
 fvm_ipld_blockstore = "0.1.1"
 fvm_ipld_encoding = "0.2.2"
 fvm_sdk = { version = "1.0.0" }

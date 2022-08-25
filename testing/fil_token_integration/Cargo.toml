@@ -8,7 +8,7 @@ edition = "2021"
 basic_token_actor = { version = "0.1.0", path = "../../testing/fil_token_integration/actors/basic_token_actor" }
 cid = { version = "0.8.5", default-features = false }
 fvm = { version = "~1.1.0", default-features = false }
-fvm_dispatch = { path = "../../fvm_dispatch" }
+frc42_dispatch = { path = "../../frc42_dispatch" }
 fil_fungible_token = { version = "0.1.0", path = "../../fil_fungible_token" }
 fvm_integration_tests = "0.1.0"
 fvm_ipld_blockstore = "0.1.1"
