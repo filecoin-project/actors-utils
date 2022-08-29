@@ -384,7 +384,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<(TokensReceivedParams, TransferReturn)> {
+    ) -> Result<ReceiverHookGuard<TransferReturn>> {
         let amount = validate_amount(amount, "transfer", self.granularity)?;
 
         // owner-initiated transfer
@@ -411,17 +411,16 @@ where
             }
         })?;
 
-        Ok((
-            TokensReceivedParams {
-                operator: from,
-                from,
-                to: to_id,
-                amount: amount.clone(),
-                operator_data,
-                token_data,
-            },
-            res,
-        ))
+        let params = TokensReceivedParams {
+            operator: from,
+            from,
+            to: to_id,
+            amount: amount.clone(),
+            operator_data,
+            token_data,
+        };
+
+        Ok(ReceiverHookGuard::new(*to, params, res))
     }
 
     /// Transfers an amount from one address to another
@@ -445,7 +444,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<(TokensReceivedParams, TransferFromReturn)> {
+    ) -> Result<ReceiverHookGuard<TransferFromReturn>> {
         let amount = validate_amount(amount, "transfer", self.granularity)?;
         if self.same_address(operator, from) {
             return Err(TokenError::InvalidOperator(*operator));
@@ -511,17 +510,16 @@ where
             }
         })?;
 
-        Ok((
-            TokensReceivedParams {
-                operator: operator_id,
-                from,
-                to: to_id,
-                amount: amount.clone(),
-                operator_data,
-                token_data,
-            },
-            ret,
-        ))
+        let params = TokensReceivedParams {
+            operator: operator_id,
+            from,
+            to: to_id,
+            amount: amount.clone(),
+            operator_data,
+            token_data,
+        };
+
+        Ok(ReceiverHookGuard::new(*to, params, ret))
     }
 }
 

@@ -3,7 +3,7 @@ mod util;
 use fil_fungible_token::runtime::blockstore::Blockstore;
 use fil_fungible_token::runtime::messaging::FvmMessenger;
 use fil_fungible_token::token::types::{
-    BurnFromReturn, BurnParams, BurnReturn, DecreaseAllowanceParams, FRC46Token,
+    ActorError, BurnFromReturn, BurnParams, BurnReturn, DecreaseAllowanceParams, FRC46Token,
     GetAllowanceParams, IncreaseAllowanceParams, MintReturn, Result, RevokeAllowanceParams,
     TransferFromReturn, TransferParams, TransferReturn,
 };
@@ -49,7 +49,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
     fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
         let operator = caller_address();
-        let (receiver_params, transfer_return) = self.util.transfer(
+        let mut receiver_hook = self.util.transfer(
             &operator,
             &params.to,
             &params.amount,
@@ -60,9 +60,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        self.util.call_receiver_hook(&params.to, receiver_params)?;
-
-        Ok(transfer_return)
+        receiver_hook.call(self.util.msg()).map_err(ActorError::from)
     }
 
     fn transfer_from(
@@ -70,7 +68,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         params: fil_fungible_token::token::types::TransferFromParams,
     ) -> Result<TransferFromReturn, RuntimeError> {
         let operator = caller_address();
-        let (receiver_params, transfer_return) = self.util.transfer_from(
+        let mut receiver_hook = self.util.transfer_from(
             &operator,
             &params.from,
             &params.to,
@@ -82,9 +80,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        self.util.call_receiver_hook(&params.to, receiver_params)?;
-
-        Ok(transfer_return)
+        receiver_hook.call(self.util.msg()).map_err(ActorError::from)
     }
 
     fn increase_allowance(
@@ -156,9 +152,7 @@ impl BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let ret = receiver.call(self.util.msg())?;
-
-        Ok(ret)
+        receiver.call(self.util.msg()).map_err(ActorError::from)
     }
 }
 
