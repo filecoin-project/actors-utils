@@ -16,7 +16,7 @@ use self::types::BurnFromReturn;
 use self::types::BurnReturn;
 use self::types::TransferFromReturn;
 use self::types::TransferReturn;
-use crate::receiver::types::TokensReceivedParams;
+use crate::receiver::{types::TokensReceivedParams, ReceiverHookGuard};
 use crate::runtime::messaging::{Messaging, MessagingError};
 use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
 use crate::token::types::MintReturn;
@@ -86,6 +86,11 @@ where
         self.state
     }
 
+    /// Get a reference to the Messaging struct we're using
+    pub fn msg(&self) -> &MSG {
+        &self.msg
+    }
+
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
     /// modifications to the state tree.
     ///
@@ -121,7 +126,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<(TokensReceivedParams, MintReturn)> {
+    ) -> Result<ReceiverHookGuard<MintReturn>> {
         let amount = validate_amount(amount, "mint", self.granularity)?;
         // init the operator account so that its actor ID can be referenced in the receiver hook
         let operator_id = self.resolve_or_init(operator)?;
@@ -136,17 +141,16 @@ where
         })?;
 
         // return the params we'll send to the receiver hook
-        Ok((
-            TokensReceivedParams {
-                operator: operator_id,
-                from: self.msg.actor_id(),
-                to: owner_id,
-                amount: amount.clone(),
-                operator_data,
-                token_data,
-            },
-            result,
-        ))
+        let params = TokensReceivedParams {
+            operator: operator_id,
+            from: self.msg.actor_id(),
+            to: owner_id,
+            amount: amount.clone(),
+            operator_data,
+            token_data,
+        };
+
+        Ok(ReceiverHookGuard::new(*initial_owner, params, result))
     }
 
     /// Gets the total number of tokens in existence
@@ -812,7 +816,7 @@ mod test {
         let mut token = new_token(bs, &mut token_state);
 
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
-        let (_hook, result) = token
+        let mut hook = token
             .mint(
                 TOKEN_ACTOR,
                 TREASURY,
@@ -821,6 +825,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        let result = hook.call(token.msg()).unwrap();
         assert_eq!(TokenAmount::from(1_000_000), result.balance);
         assert_eq!(TokenAmount::from(1_000_000), result.supply);
 
@@ -866,7 +872,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
 
         // mint again to same address
-        let (_hook, result) = token
+        let mut hook = token
             .mint(
                 TOKEN_ACTOR,
                 TREASURY,
@@ -875,6 +881,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
         assert_eq!(TokenAmount::from(2_000_000), result.balance);
         assert_eq!(TokenAmount::from(2_000_000), result.supply);
 
@@ -896,7 +904,7 @@ mod test {
         );
 
         // mint to a different address
-        let (_hook, result) = token
+        let mut hook = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -905,6 +913,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
         assert_eq!(TokenAmount::from(1_000_000), result.balance);
         assert_eq!(TokenAmount::from(3_000_000), result.supply);
 
@@ -1018,7 +1028,7 @@ mod test {
 
         // force hook to abort
         token.msg.abort_next_send();
-        let (params, _result) = token
+        let mut hook = token
             .mint(
                 TOKEN_ACTOR,
                 TREASURY,
@@ -1027,9 +1037,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
-        // TODO: receiver hook call
-        //token.flush().unwrap();
-        let err = token.call_receiver_hook(TOKEN_ACTOR, params).unwrap_err();
+        token.flush().unwrap();
+        let err = hook.call(token.msg()).unwrap_err();
 
         // check error shape
         match err {
