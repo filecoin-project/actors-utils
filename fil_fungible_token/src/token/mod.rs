@@ -16,7 +16,7 @@ use self::types::BurnFromReturn;
 use self::types::BurnReturn;
 use self::types::TransferFromReturn;
 use self::types::TransferReturn;
-use crate::receiver::{types::TokensReceivedParams, ReceiverHookGuard};
+use crate::receiver::{types::TokensReceivedParams, ReceiverHook};
 use crate::runtime::messaging::{Messaging, MessagingError};
 use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
 use crate::token::types::MintReturn;
@@ -126,7 +126,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<(ReceiverHookGuard, MintReturn)> {
+    ) -> Result<(ReceiverHook, MintReturn)> {
         let amount = validate_amount(amount, "mint", self.granularity)?;
         // init the operator account so that its actor ID can be referenced in the receiver hook
         let operator_id = self.resolve_or_init(operator)?;
@@ -150,7 +150,7 @@ where
             token_data,
         };
 
-        Ok((ReceiverHookGuard::new(*initial_owner, params), result))
+        Ok((ReceiverHook::new(*initial_owner, params), result))
     }
 
     /// Gets the total number of tokens in existence
@@ -384,7 +384,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<(ReceiverHookGuard, TransferReturn)> {
+    ) -> Result<(ReceiverHook, TransferReturn)> {
         let amount = validate_amount(amount, "transfer", self.granularity)?;
 
         // owner-initiated transfer
@@ -420,7 +420,7 @@ where
             token_data,
         };
 
-        Ok((ReceiverHookGuard::new(*to, params), res))
+        Ok((ReceiverHook::new(*to, params), res))
     }
 
     /// Transfers an amount from one address to another
@@ -444,7 +444,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<(ReceiverHookGuard, TransferFromReturn)> {
+    ) -> Result<(ReceiverHook, TransferFromReturn)> {
         let amount = validate_amount(amount, "transfer", self.granularity)?;
         if self.same_address(operator, from) {
             return Err(TokenError::InvalidOperator(*operator));
@@ -519,7 +519,7 @@ where
             token_data,
         };
 
-        Ok((ReceiverHookGuard::new(*to, params), ret))
+        Ok((ReceiverHook::new(*to, params), ret))
     }
 }
 

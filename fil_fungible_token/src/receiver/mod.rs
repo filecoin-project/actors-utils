@@ -9,19 +9,19 @@ use crate::token::TokenError;
 pub mod types;
 
 #[derive(Debug)]
-pub struct ReceiverHookGuard {
+pub struct ReceiverHook {
     address: Address,
     params: TokensReceivedParams,
     called: bool,
 }
 
-impl ReceiverHookGuard {
+impl ReceiverHook {
     pub fn new(address: Address, params: TokensReceivedParams) -> Self {
-        ReceiverHookGuard { address, params, called: false }
+        ReceiverHook { address, params, called: false }
     }
     pub fn call(&mut self, msg: &dyn Messaging) -> std::result::Result<(), TokenError> {
         if self.called {
-            return Err(TokenError::ReceiverHookGuardAlreadyCalled);
+            return Err(TokenError::ReceiverHookAlreadyCalled);
         }
 
         self.called = true;

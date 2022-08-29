@@ -32,7 +32,7 @@ pub enum TokenError {
         exit_code: ExitCode,
     },
     #[error("receiver hook was called already")]
-    ReceiverHookGuardAlreadyCalled,
+    ReceiverHookAlreadyCalled,
     #[error("expected {address:?} to be a resolvable id address but threw {source:?} when attempting to resolve")]
     InvalidIdAddress {
         address: Address,
@@ -55,7 +55,7 @@ impl From<&TokenError> for ExitCode {
                 // distinguish it if needed (e.g. 0x0100 | exit_code)
                 *exit_code
             }
-            TokenError::ReceiverHookGuardAlreadyCalled => ExitCode::USR_ASSERTION_FAILED,
+            TokenError::ReceiverHookAlreadyCalled => ExitCode::USR_ASSERTION_FAILED,
             TokenError::InvalidIdAddress { address: _, source: _ } => ExitCode::USR_NOT_FOUND,
             TokenError::Serialization(_) => ExitCode::USR_SERIALIZATION,
             TokenError::InvalidOperator(_)
