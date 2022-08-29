@@ -1,6 +1,7 @@
 use std::ops::{Neg, Rem};
 
 use cid::Cid;
+pub use error::TokenError;
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
@@ -18,10 +19,10 @@ use self::types::TransferReturn;
 use crate::receiver::types::TokensReceivedParams;
 use crate::runtime::messaging::{Messaging, MessagingError};
 use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
+use crate::token::types::MintReturn;
 use crate::token::TokenError::InvalidGranularity;
 
 mod error;
-pub use error::TokenError;
 pub mod state;
 pub mod types;
 
@@ -111,6 +112,8 @@ where
     ///
     /// The minter is implicitly defined as the caller of the actor, and must be an ID address.
     /// The mint amount must be non-negative or the method returns an error.
+    /// Returns parameters to be passed to the owner's token receiver hook,
+    /// and the owner's new balance.
     pub fn mint(
         &mut self,
         operator: &Address,
@@ -118,7 +121,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<TokensReceivedParams> {
+    ) -> Result<(TokensReceivedParams, MintReturn)> {
         let amount = validate_amount(amount, "mint", self.granularity)?;
         // init the operator account so that its actor ID can be referenced in the receiver hook
         let operator_id = self.resolve_or_init(operator)?;
@@ -126,21 +129,24 @@ where
         let owner_id = self.resolve_or_init(initial_owner)?;
 
         // Increase the balance of the actor and increase total supply
-        self.transaction(|state, bs| {
-            state.change_balance_by(&bs, owner_id, amount)?;
-            state.change_supply_by(amount)?;
-            Ok(())
+        let result = self.transaction(|state, bs| {
+            let balance = state.change_balance_by(&bs, owner_id, amount)?;
+            let supply = state.change_supply_by(amount)?;
+            Ok(MintReturn { balance, supply: supply.clone() })
         })?;
 
         // return the params we'll send to the receiver hook
-        Ok(TokensReceivedParams {
-            operator: operator_id,
-            from: self.msg.actor_id(),
-            to: owner_id,
-            amount: amount.clone(),
-            operator_data,
-            token_data,
-        })
+        Ok((
+            TokensReceivedParams {
+                operator: operator_id,
+                from: self.msg.actor_id(),
+                to: owner_id,
+                amount: amount.clone(),
+                operator_data,
+                token_data,
+            },
+            result,
+        ))
     }
 
     /// Gets the total number of tokens in existence
@@ -806,7 +812,7 @@ mod test {
         let mut token = new_token(bs, &mut token_state);
 
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
-        token
+        let (_hook, result) = token
             .mint(
                 TOKEN_ACTOR,
                 TREASURY,
@@ -815,6 +821,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        assert_eq!(TokenAmount::from(1_000_000), result.balance);
+        assert_eq!(TokenAmount::from(1_000_000), result.supply);
 
         // balance and total supply both went up
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(1_000_000));
@@ -858,7 +866,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
 
         // mint again to same address
-        token
+        let (_hook, result) = token
             .mint(
                 TOKEN_ACTOR,
                 TREASURY,
@@ -867,6 +875,9 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        assert_eq!(TokenAmount::from(2_000_000), result.balance);
+        assert_eq!(TokenAmount::from(2_000_000), result.supply);
+
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(2_000_000));
@@ -885,7 +896,7 @@ mod test {
         );
 
         // mint to a different address
-        token
+        let (_hook, result) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -894,6 +905,9 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        assert_eq!(TokenAmount::from(1_000_000), result.balance);
+        assert_eq!(TokenAmount::from(3_000_000), result.supply);
+
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from(3_000_000));
@@ -1004,7 +1018,7 @@ mod test {
 
         // force hook to abort
         token.msg.abort_next_send();
-        let params = token
+        let (params, _result) = token
             .mint(
                 TOKEN_ACTOR,
                 TREASURY,

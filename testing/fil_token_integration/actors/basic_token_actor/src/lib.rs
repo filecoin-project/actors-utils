@@ -43,10 +43,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         self.util.total_supply()
     }
 
-    fn balance_of(
-        &self,
-        params: fvm_shared::address::Address,
-    ) -> Result<TokenAmount, RuntimeError> {
+    fn balance_of(&self, params: Address) -> Result<TokenAmount, RuntimeError> {
         Ok(self.util.balance_of(&params)?)
     }
 
@@ -155,7 +152,7 @@ impl Cbor for MintReturn {}
 
 impl BasicToken<'_> {
     fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
-        let receiver_params = self.util.mint(
+        let (receiver_params, _balance) = self.util.mint(
             &caller_address(),
             &params.initial_owner,
             &params.amount,
