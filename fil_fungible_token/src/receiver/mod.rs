@@ -11,35 +11,35 @@ pub mod types;
 #[derive(Debug)]
 pub struct ReceiverHookGuard {
     address: Address,
-    params: Option<TokensReceivedParams>,
+    params: TokensReceivedParams,
+    called: bool,
 }
 
 impl ReceiverHookGuard {
     pub fn new(address: Address, params: TokensReceivedParams) -> Self {
-        ReceiverHookGuard { address, params: Some(params) }
+        ReceiverHookGuard { address, params, called: false }
     }
     pub fn call(&mut self, msg: &dyn Messaging) -> std::result::Result<(), TokenError> {
-        if self.params.is_none() {
+        if self.called {
             return Err(TokenError::ReceiverHookGuardAlreadyCalled);
         }
 
-        // this will leave self.params set to None, so a further attempt to call() will fail
-        let params = self.params.take().unwrap();
+        self.called = true;
 
         let receipt = msg.send(
             &self.address,
             RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(&params)?,
+            &RawBytes::serialize(&self.params)?,
             &TokenAmount::zero(),
         )?;
 
         match receipt.exit_code {
             ExitCode::OK => Ok(()),
             abort_code => Err(TokenError::ReceiverHook {
-                from: params.from,
-                to: params.to,
-                operator: params.operator,
-                amount: params.amount,
+                from: self.params.from,
+                to: self.params.to,
+                operator: self.params.operator,
+                amount: self.params.amount.clone(),
                 exit_code: abort_code,
             }),
         }
@@ -48,7 +48,7 @@ impl ReceiverHookGuard {
 
 impl std::ops::Drop for ReceiverHookGuard {
     fn drop(&mut self) {
-        if self.params.is_some() {
+        if !self.called {
             panic!("dropped before receiver hook was called");
         }
     }
