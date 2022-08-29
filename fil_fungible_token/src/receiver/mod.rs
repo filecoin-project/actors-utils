@@ -46,10 +46,13 @@ impl ReceiverHookGuard {
     }
 }
 
-impl std::ops::Drop for ReceiverHookGuard {
+impl std::ops::Drop for ReceiverHook {
     fn drop(&mut self) {
         if !self.called {
-            panic!("dropped before receiver hook was called");
+            panic!(
+                "dropped before receiver hook was called on {:?} with {:?}",
+                self.address, self.params
+            );
         }
     }
 }
