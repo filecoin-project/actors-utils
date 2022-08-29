@@ -3,7 +3,7 @@ mod util;
 use fil_fungible_token::runtime::blockstore::Blockstore;
 use fil_fungible_token::runtime::messaging::FvmMessenger;
 use fil_fungible_token::token::types::{
-    ActorError, BurnFromReturn, BurnParams, BurnReturn, DecreaseAllowanceParams, FRC46Token,
+    BurnFromReturn, BurnParams, BurnReturn, DecreaseAllowanceParams, FRC46Token,
     GetAllowanceParams, IncreaseAllowanceParams, MintReturn, Result, RevokeAllowanceParams,
     TransferFromReturn, TransferParams, TransferReturn,
 };
@@ -49,7 +49,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
     fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
         let operator = caller_address();
-        let mut receiver_hook = self.util.transfer(
+        let (mut hook, ret) = self.util.transfer(
             &operator,
             &params.to,
             &params.amount,
@@ -60,7 +60,8 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        receiver_hook.call(self.util.msg()).map_err(ActorError::from)
+        hook.call(self.util.msg())?;
+        Ok(ret)
     }
 
     fn transfer_from(
@@ -68,7 +69,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         params: fil_fungible_token::token::types::TransferFromParams,
     ) -> Result<TransferFromReturn, RuntimeError> {
         let operator = caller_address();
-        let mut receiver_hook = self.util.transfer_from(
+        let (mut hook, ret) = self.util.transfer_from(
             &operator,
             &params.from,
             &params.to,
@@ -80,7 +81,8 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        receiver_hook.call(self.util.msg()).map_err(ActorError::from)
+        hook.call(self.util.msg())?;
+        Ok(ret)
     }
 
     fn increase_allowance(
@@ -141,7 +143,7 @@ impl Cbor for MintParams {}
 
 impl BasicToken<'_> {
     fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
-        let mut receiver = self.util.mint(
+        let (mut hook, ret) = self.util.mint(
             &caller_address(),
             &params.initial_owner,
             &params.amount,
@@ -152,7 +154,9 @@ impl BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        receiver.call(self.util.msg()).map_err(ActorError::from)
+        hook.call(self.util.msg())?;
+
+        Ok(ret)
     }
 }
 

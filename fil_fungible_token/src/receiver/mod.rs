@@ -9,17 +9,16 @@ use crate::token::TokenError;
 pub mod types;
 
 #[derive(Debug)]
-pub struct ReceiverHookGuard<T> {
+pub struct ReceiverHookGuard {
     address: Address,
     params: Option<TokensReceivedParams>,
-    return_value: Option<T>,
 }
 
-impl<T> ReceiverHookGuard<T> {
-    pub fn new(address: Address, params: TokensReceivedParams, return_value: T) -> Self {
-        ReceiverHookGuard { address, params: Some(params), return_value: Some(return_value) }
+impl ReceiverHookGuard {
+    pub fn new(address: Address, params: TokensReceivedParams) -> Self {
+        ReceiverHookGuard { address, params: Some(params) }
     }
-    pub fn call(&mut self, msg: &dyn Messaging) -> std::result::Result<T, TokenError> {
+    pub fn call(&mut self, msg: &dyn Messaging) -> std::result::Result<(), TokenError> {
         if self.params.is_none() {
             return Err(TokenError::ReceiverHookGuardAlreadyCalled);
         }
@@ -35,7 +34,7 @@ impl<T> ReceiverHookGuard<T> {
         )?;
 
         match receipt.exit_code {
-            ExitCode::OK => Ok(self.return_value.take().unwrap()),
+            ExitCode::OK => Ok(()),
             abort_code => Err(TokenError::ReceiverHook {
                 from: params.from,
                 to: params.to,
@@ -47,7 +46,7 @@ impl<T> ReceiverHookGuard<T> {
     }
 }
 
-impl<T> std::ops::Drop for ReceiverHookGuard<T> {
+impl std::ops::Drop for ReceiverHookGuard {
     fn drop(&mut self) {
         if self.params.is_some() {
             panic!("dropped before receiver hook was called");
