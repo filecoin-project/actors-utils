@@ -37,12 +37,17 @@ pub trait FRC46Token<E> {
     ///
     /// Must be non-negative. The total supply must equal the balances of all addresses. The total
     /// supply should equal the sum of all minted tokens less the sum of all burnt tokens.
-    fn total_supply(&self) -> TokenAmount;
+    fn total_supply(&self) -> TotalSupplyReturn;
 
     /// Returns the balance of an address
     ///
     /// Balance is always non-negative. Uninitialised addresses have an implicit zero balance.
-    fn balance_of(&self, params: Address) -> Result<TokenAmount, E>;
+    fn balance_of(&self, params: Address) -> Result<BalanceReturn, E>;
+
+    /// Returns the allowance approved for an operator on a spender's balance
+    ///
+    /// The operator can burn or transfer the allowance amount out of the owner's address.
+    fn allowance(&mut self, params: GetAllowanceParams) -> Result<AllowanceReturn, E>;
 
     /// Transfers tokens from the caller to another address
     ///
@@ -62,7 +67,10 @@ pub trait FRC46Token<E> {
     ///
     /// The increase must be non-negative. Returns the new total allowance approved for that
     /// owner-operator pair.
-    fn increase_allowance(&mut self, params: IncreaseAllowanceParams) -> Result<TokenAmount, E>;
+    fn increase_allowance(
+        &mut self,
+        params: IncreaseAllowanceParams,
+    ) -> Result<IncreaseAllowanceReturn, E>;
 
     /// Atomically decreases the approved balance that a operator can transfer/burn from the caller's
     /// balance
@@ -70,15 +78,16 @@ pub trait FRC46Token<E> {
     /// The decrease must be non-negative. Sets the allowance to zero if the decrease is greater
     /// than the currently approved allowance. Returns the new total allowance approved for that
     /// owner-operator pair.
-    fn decrease_allowance(&mut self, params: DecreaseAllowanceParams) -> Result<TokenAmount, E>;
+    fn decrease_allowance(
+        &mut self,
+        params: DecreaseAllowanceParams,
+    ) -> Result<DecreaseAllowanceReturn, E>;
 
     /// Sets the allowance a operator has on the owner's account to zero
-    fn revoke_allowance(&mut self, params: RevokeAllowanceParams) -> Result<(), E>;
-
-    /// Returns the allowance approved for an operator on a spender's balance
-    ///
-    /// The operator can burn or transfer the allowance amount out of the owner's address.
-    fn allowance(&mut self, params: GetAllowanceParams) -> Result<TokenAmount, E>;
+    fn revoke_allowance(
+        &mut self,
+        params: RevokeAllowanceParams,
+    ) -> Result<RevokeAllowanceReturn, E>;
 
     /// Burns tokens from the caller's balance, decreasing the total supply
     fn burn(&mut self, params: BurnParams) -> Result<BurnReturn, E>;
@@ -88,6 +97,28 @@ pub trait FRC46Token<E> {
     /// The caller must have been previously approved to control at least the burnt amount.
     fn burn_from(&mut self, params: BurnFromParams) -> Result<BurnFromReturn, E>;
 }
+
+type TotalSupplyReturn = TokenAmount;
+type BalanceReturn = TokenAmount;
+type AllowanceReturn = TokenAmount;
+type IncreaseAllowanceReturn = TokenAmount;
+type DecreaseAllowanceReturn = TokenAmount;
+type RevokeAllowanceReturn = ();
+
+/// Return value after a successful mint.
+/// The mint method is not standardised, so this is merely a useful library-level type,
+/// and recommendation for token implementations.
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct MintReturn {
+    /// The new balance of the owner address
+    #[serde(with = "bigint_ser")]
+    pub balance: TokenAmount,
+    /// The new total supply.
+    #[serde(with = "bigint_ser")]
+    pub supply: TokenAmount,
+}
+
+impl Cbor for MintReturn {}
 
 /// Instruction to transfer tokens to another address
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]

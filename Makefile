@@ -1,8 +1,3 @@
-install-toolchain:
-	rustup component add rustfmt
-	rustup component add clippy
-	rustup target add wasm32-unknown-unknown
-
 build: install-toolchain
 	cargo build --workspace
 
@@ -30,6 +25,11 @@ test-coverage: install-toolchain
 # separate actor testing stage to run from CI without coverage support
 test-actors: install-toolchain
 	cargo test --package greeter --package fil_token_integration_tests
+
+install-toolchain:
+	rustup component add rustfmt
+	rustup component add clippy
+	rustup target add wasm32-unknown-unknown
 
 clean:
 	cargo clean
