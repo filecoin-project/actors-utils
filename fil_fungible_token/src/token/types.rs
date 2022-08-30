@@ -33,6 +33,15 @@ pub trait FRC46Token<E> {
     /// Must not be empty. Should be a short uppercase string
     fn symbol(&self) -> String;
 
+    /// Returns the smallest amount of tokens which is indivisible.
+    ///
+    /// All transfers, burns, and mints must be a whole multiple of the granularity. All balances
+    /// must be a multiple of this granularity (but allowances need not be). Must be at least 1.
+    /// Must never change.
+    ///
+    /// A granularity of 10^18 corresponds to whole units only, with no further decimal precision.
+    fn granularity(&self) -> GranularityReturn;
+
     /// Returns the total amount of the token in existence
     ///
     /// Must be non-negative. The total supply must equal the balances of all addresses. The total
@@ -98,6 +107,7 @@ pub trait FRC46Token<E> {
     fn burn_from(&mut self, params: BurnFromParams) -> Result<BurnFromReturn, E>;
 }
 
+type GranularityReturn = u64;
 type TotalSupplyReturn = TokenAmount;
 type BalanceReturn = TokenAmount;
 type AllowanceReturn = TokenAmount;

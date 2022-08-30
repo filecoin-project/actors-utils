@@ -39,6 +39,10 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         String::from("FRC46")
     }
 
+    fn granularity(&self) -> u64 {
+        1
+    }
+
     fn total_supply(&self) -> TokenAmount {
         self.util.total_supply()
     }
