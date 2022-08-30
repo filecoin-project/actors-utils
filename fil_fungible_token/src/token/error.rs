@@ -45,13 +45,13 @@ pub enum TokenError {
     StateInvariant(#[from] StateInvariantError),
 }
 
-impl From<TokenError> for ExitCode {
-    fn from(error: TokenError) -> Self {
+impl From<&TokenError> for ExitCode {
+    fn from(error: &TokenError) -> Self {
         match error {
             TokenError::ReceiverHook { from: _, to: _, operator: _, amount: _, exit_code } => {
                 // simply pass through the exit code from the receiver but we could set a flag bit to
                 // distinguish it if needed (e.g. 0x0100 | exit_code)
-                exit_code
+                *exit_code
             }
             TokenError::InvalidIdAddress { address: _, source: _ } => ExitCode::USR_NOT_FOUND,
             TokenError::Serialization(_) => ExitCode::USR_SERIALIZATION,
@@ -95,5 +95,23 @@ impl From<TokenError> for ExitCode {
                 MessagingError::Ipld(_) => ExitCode::USR_SERIALIZATION,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use fvm_shared::error::ExitCode;
+
+    use crate::token::TokenError;
+    use crate::token::TokenStateError;
+
+    #[test]
+    fn it_creates_exit_codes() {
+        let error = TokenError::TokenState(TokenStateError::MissingState(cid::Cid::default()));
+        let msg = error.to_string();
+        let exit_code = ExitCode::from(&error);
+        // taking the exit code doesn't consume the error
+        println!("{}: {:?}", msg, exit_code);
+        assert_eq!(exit_code, ExitCode::USR_ILLEGAL_STATE);
     }
 }
