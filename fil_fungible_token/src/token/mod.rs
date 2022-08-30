@@ -117,8 +117,10 @@ where
     ///
     /// The minter is implicitly defined as the caller of the actor, and must be an ID address.
     /// The mint amount must be non-negative or the method returns an error.
-    /// Returns parameters to be passed to the owner's token receiver hook,
+    ///
+    /// Returns a ReceiverHook to call the owner's token receiver hook,
     /// and the owner's new balance.
+    /// ReceiverHook must be called or it will panic and abort the transaction.
     pub fn mint(
         &mut self,
         operator: &Address,
@@ -371,12 +373,16 @@ where
     /// - The requested value MUST be non-negative
     /// - The requested value MUST NOT exceed the sender's balance
     /// - The receiving actor MUST implement a method called `tokens_received`, corresponding to the
-    /// interface specified for FRC-XXX token receiver. If the receiving hook aborts, when called,
+    /// interface specified for FRC-0046 token receiver. If the receiving hook aborts, when called,
     /// the transfer is discarded and this method returns an error
     ///
     /// Upon successful transfer:
     /// - The from balance decreases by the requested value
     /// - The to balance increases by the requested value
+    ///
+    /// Returns a ReceiverHook to call the recipient's token receiver hook,
+    /// and the updated balances.
+    /// ReceiverHook must be called or it will panic and abort the transaction.
     pub fn transfer(
         &mut self,
         from: &Address,
@@ -428,7 +434,7 @@ where
     /// - The requested value MUST be non-negative
     /// - The requested value MUST NOT exceed the sender's balance
     /// - The receiving actor MUST implement a method called `tokens_received`, corresponding to the
-    /// interface specified for FRC-XXX token receiver. If the receiving hook aborts, when called,
+    /// interface specified for FRC-0046 token receiver. If the receiving hook aborts, when called,
     /// the transfer is discarded and this method returns an error
     ///  - The operator MUST be initialised AND have an allowance not less than the requested value
     ///
@@ -436,6 +442,10 @@ where
     /// - The from balance decreases by the requested value
     /// - The to balance increases by the requested value
     /// - The owner-operator allowance decreases by the requested value
+    ///
+    /// Returns a ReceiverHook to call the recipient's token receiver hook,
+    /// and the updated allowance and balances.
+    /// ReceiverHook must be called or it will panic and abort the transaction.
     pub fn transfer_from(
         &mut self,
         operator: &Address,

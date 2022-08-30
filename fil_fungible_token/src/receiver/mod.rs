@@ -8,6 +8,13 @@ use crate::token::TokenError;
 
 pub mod types;
 
+/// Implements a guarded call to a token receiver hook
+///
+/// Mint and Transfer operations will return this so that state can be updated and saved
+/// before making the call into the receiver hook.
+///
+/// This also tracks whether the call has been made or not, and
+/// will panic if dropped without calling the hook.
 #[derive(Debug)]
 pub struct ReceiverHook {
     address: Address,
@@ -16,9 +23,16 @@ pub struct ReceiverHook {
 }
 
 impl ReceiverHook {
+    /// Construct a new ReceiverHook call
     pub fn new(address: Address, params: TokensReceivedParams) -> Self {
         ReceiverHook { address, params, called: false }
     }
+    /// Call the receiver hook and return the result
+    ///
+    /// Requires the same Messaging trait as the Token
+    /// eg: `hook.call(token.msg())?;`
+    ///
+    /// Returns an error if already called
     pub fn call(&mut self, msg: &dyn Messaging) -> std::result::Result<(), TokenError> {
         if self.called {
             return Err(TokenError::ReceiverHookAlreadyCalled);
@@ -46,6 +60,7 @@ impl ReceiverHook {
     }
 }
 
+/// Drop implements the panic if not called behaviour
 impl std::ops::Drop for ReceiverHook {
     fn drop(&mut self) {
         if !self.called {
