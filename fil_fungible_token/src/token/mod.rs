@@ -2195,7 +2195,6 @@ mod test {
         );
 
         assert_eq!(token.granularity(), 100);
-        assert_eq!(token.granularity(), 100);
 
         // Minting
         token
