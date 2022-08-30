@@ -91,6 +91,15 @@ where
         &self.msg
     }
 
+    /// Replace the current state reference with another
+    /// This is intended for unit tests only (and enforced by the config and visibility limits)
+    /// The replacement state needs the same lifetime as the original so cloning it inside
+    /// actor method calls generally wouldn't work.
+    #[cfg(test)]
+    pub(in crate::token) fn replace(&mut self, state: &'st mut TokenState) {
+        self.state = state;
+    }
+
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
     /// modifications to the state tree.
     ///
@@ -1047,6 +1056,7 @@ mod test {
 
         // force hook to abort
         token.msg.abort_next_send();
+        let mut original_state = token.state().clone();
         let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
@@ -1066,14 +1076,16 @@ mod test {
                 assert_eq!(to, TREASURY.id().unwrap());
                 assert_eq!(operator, TOKEN_ACTOR.id().unwrap());
                 assert_eq!(amount, TokenAmount::from(1_000_000));
+                // restore original pre-mint state
+                // in actor code, we'd just abort and let the VM handle this
+                token.replace(&mut original_state);
             }
             _ => panic!("expected receiver hook error"),
         };
 
         // state remained unchanged
-        // TODO: we abort rather than manually revert state, probably need to get rid of these checks
-        //assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
-        //assert_eq!(token.total_supply(), TokenAmount::zero());
+        assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
+        assert_eq!(token.total_supply(), TokenAmount::zero());
         token.check_invariants().unwrap();
     }
 
@@ -1455,6 +1467,7 @@ mod test {
 
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
         token.msg.abort_next_send();
+        let mut pre_transfer_state = token.state().clone();
         let (mut hook, _) = token
             .transfer(ALICE, BOB, &TokenAmount::from(60), RawBytes::default(), RawBytes::default())
             .unwrap();
@@ -1468,22 +1481,25 @@ mod test {
                 assert_eq!(to, BOB.id().unwrap());
                 assert_eq!(operator, ALICE.id().unwrap());
                 assert_eq!(amount, TokenAmount::from(60));
+                // revert to pre-transfer state
+                // in actor code, we'd just abort and let the VM handle this
+                token.replace(&mut pre_transfer_state);
             }
             _ => panic!("expected receiver hook error"),
         };
 
         // balances unchanged
-        // TODO: these do change as state doesn't get reverted on receiver hook failure
-        //assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
-        //assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(0));
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(0));
 
         // transfer 60 from owner -> self, simulate receiver aborting the hook
         token.msg.abort_next_send();
+        let mut pre_transfer_state = token.state().clone();
         let (mut hook, _) = token
             .transfer(
                 ALICE,
                 ALICE,
-                &TokenAmount::from(40), //was 60
+                &TokenAmount::from(60),
                 RawBytes::default(),
                 RawBytes::default(),
             )
@@ -1497,15 +1513,17 @@ mod test {
                 assert_eq!(from, ALICE.id().unwrap());
                 assert_eq!(to, ALICE.id().unwrap());
                 assert_eq!(operator, ALICE.id().unwrap());
-                assert_eq!(amount, TokenAmount::from(40)); //was 60
+                assert_eq!(amount, TokenAmount::from(60));
+                // revert to pre-transfer state
+                // in actor code, we'd just abort and let the VM handle this
+                token.replace(&mut pre_transfer_state);
             }
             _ => panic!("expected receiver hook error"),
         };
 
         // balances unchanged
-        // TODO: these do change as state doesn't get reverted on receiver hook failure
-        //assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
-        //assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(0));
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(0));
         token.check_invariants().unwrap();
     }
 
