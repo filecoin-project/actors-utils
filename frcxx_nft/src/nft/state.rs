@@ -3,6 +3,7 @@ use fvm_ipld_amt::Amt;
 use fvm_ipld_amt::Error as AmtError;
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::tuple::*;
+use fvm_shared::address::Address;
 use fvm_shared::ActorID;
 use thiserror::Error;
 
