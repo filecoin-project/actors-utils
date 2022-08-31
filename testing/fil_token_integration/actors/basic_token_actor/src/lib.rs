@@ -3,8 +3,9 @@ mod util;
 use fil_fungible_token::runtime::blockstore::Blockstore;
 use fil_fungible_token::runtime::messaging::FvmMessenger;
 use fil_fungible_token::token::types::{
-    BurnFromReturn, BurnParams, BurnReturn, DecreaseAllowanceParams, FRC46Token,
-    GetAllowanceParams, IncreaseAllowanceParams, MintReturn, Result, RevokeAllowanceParams,
+    AllowanceReturn, BalanceReturn, BurnFromReturn, BurnParams, BurnReturn,
+    DecreaseAllowanceParams, FRC46Token, GetAllowanceParams, GranularityReturn,
+    IncreaseAllowanceParams, MintReturn, Result, RevokeAllowanceParams, TotalSupplyReturn,
     TransferFromReturn, TransferParams, TransferReturn,
 };
 use fil_fungible_token::token::Token;
@@ -39,15 +40,15 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         String::from("FRC46")
     }
 
-    fn granularity(&self) -> u64 {
+    fn granularity(&self) -> GranularityReturn {
         1
     }
 
-    fn total_supply(&self) -> TokenAmount {
+    fn total_supply(&self) -> TotalSupplyReturn {
         self.util.total_supply()
     }
 
-    fn balance_of(&self, params: Address) -> Result<TokenAmount, RuntimeError> {
+    fn balance_of(&self, params: Address) -> Result<BalanceReturn, RuntimeError> {
         Ok(self.util.balance_of(&params)?)
     }
 
@@ -92,7 +93,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
     fn increase_allowance(
         &mut self,
         params: IncreaseAllowanceParams,
-    ) -> Result<TokenAmount, RuntimeError> {
+    ) -> Result<AllowanceReturn, RuntimeError> {
         let owner = caller_address();
         let new_allowance =
             self.util.increase_allowance(&owner, &params.operator, &params.increase)?;
@@ -102,7 +103,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
     fn decrease_allowance(
         &mut self,
         params: DecreaseAllowanceParams,
-    ) -> Result<TokenAmount, RuntimeError> {
+    ) -> Result<AllowanceReturn, RuntimeError> {
         let owner = caller_address();
         let new_allowance =
             self.util.decrease_allowance(&owner, &params.operator, &params.decrease)?;
@@ -115,7 +116,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         Ok(())
     }
 
-    fn allowance(&mut self, params: GetAllowanceParams) -> Result<TokenAmount, RuntimeError> {
+    fn allowance(&mut self, params: GetAllowanceParams) -> Result<AllowanceReturn, RuntimeError> {
         let allowance = self.util.allowance(&params.owner, &params.operator)?;
         Ok(allowance)
     }

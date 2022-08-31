@@ -107,13 +107,13 @@ pub trait FRC46Token<E> {
     fn burn_from(&mut self, params: BurnFromParams) -> Result<BurnFromReturn, E>;
 }
 
-type GranularityReturn = u64;
-type TotalSupplyReturn = TokenAmount;
-type BalanceReturn = TokenAmount;
-type AllowanceReturn = TokenAmount;
-type IncreaseAllowanceReturn = TokenAmount;
-type DecreaseAllowanceReturn = TokenAmount;
-type RevokeAllowanceReturn = ();
+pub type GranularityReturn = u64;
+pub type TotalSupplyReturn = TokenAmount;
+pub type BalanceReturn = TokenAmount;
+pub type AllowanceReturn = TokenAmount;
+pub type IncreaseAllowanceReturn = TokenAmount;
+pub type DecreaseAllowanceReturn = TokenAmount;
+pub type RevokeAllowanceReturn = ();
 
 /// Return value after a successful mint.
 /// The mint method is not standardised, so this is merely a useful library-level type,
