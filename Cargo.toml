@@ -11,5 +11,6 @@ members = [
     "testing/fil_token_integration",
     "testing/fil_token_integration/actors/basic_token_actor",
     "testing/fil_token_integration/actors/basic_receiving_actor",
+    "testing/fil_token_integration/actors/basic_nft_actor",
     "frcxx_nft"
 ]
