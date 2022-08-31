@@ -71,3 +71,42 @@ impl std::ops::Drop for ReceiverHook {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use fvm_ipld_encoding::RawBytes;
+    use fvm_shared::{address::Address, econ::TokenAmount};
+    use num_traits::Zero;
+
+    use super::{types::TokensReceivedParams, ReceiverHook};
+    use crate::runtime::messaging::FakeMessenger;
+
+    const TOKEN_ACTOR: Address = Address::new_id(1);
+    const ALICE: Address = Address::new_id(2);
+
+    fn generate_hook() -> ReceiverHook {
+        let params = TokensReceivedParams {
+            operator: TOKEN_ACTOR.id().unwrap(),
+            from: TOKEN_ACTOR.id().unwrap(),
+            to: ALICE.id().unwrap(),
+            amount: TokenAmount::zero(),
+            operator_data: RawBytes::default(),
+            token_data: RawBytes::default(),
+        };
+        ReceiverHook::new(ALICE, params)
+    }
+
+    #[test]
+    fn calls_hook() {
+        let mut hook = generate_hook();
+        let msg = FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 3);
+        hook.call(&msg).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn panics_if_not_called() {
+        let mut _hook = generate_hook();
+        // _hook should panic when dropped as we haven't called the hook
+    }
+}
