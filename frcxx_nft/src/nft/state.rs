@@ -1,9 +1,14 @@
+use cid::multihash::Code;
 use cid::Cid;
 use fvm_ipld_amt::Amt;
 use fvm_ipld_amt::Error as AmtError;
+use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::tuple::*;
+use fvm_ipld_encoding::CborStore;
+use fvm_ipld_encoding::DAG_CBOR;
 use fvm_shared::address::Address;
+use fvm_shared::state::StateInfo0;
 use fvm_shared::ActorID;
 use thiserror::Error;
 
@@ -13,6 +18,8 @@ pub type TokenID = u64;
 pub enum StateError {
     #[error("ipld hamt error: {0}")]
     IpldAmt(#[from] AmtError),
+    #[error("other error: {0}")]
+    Other(String),
 }
 
 /// NFT state IPLD structure
@@ -34,6 +41,26 @@ impl NFTSetState {
             Amt::<ActorID, _>::new_with_bit_width(store, AMT_BIT_WIDTH).flush()?;
 
         Ok(Self { tokens: empty_token_array })
+    }
+
+    pub fn load<BS: Blockstore>(store: &BS, root: &Cid) -> Result<Self> {
+        match store.get_cbor::<Self>(root) {
+            Ok(Some(state)) => Ok(state),
+            _ => panic!(""),
+        }
+    }
+
+    pub fn save<BS: Blockstore>(&self, store: &BS) -> Result<Cid> {
+        let serialized = match fvm_ipld_encoding::to_vec(self) {
+            Ok(s) => s,
+            Err(err) => return Err(StateError::Other(err.to_string())),
+        };
+        let block = Block { codec: DAG_CBOR, data: serialized };
+        let cid = match store.put(Code::Blake2b256, &block) {
+            Ok(cid) => cid,
+            Err(err) => return Err(StateError::Other(err.to_string())),
+        };
+        Ok(cid)
     }
 
     fn get_token_amt<'bs, BS: Blockstore>(&self, store: &'bs BS) -> Result<Amt<ActorID, &'bs BS>> {

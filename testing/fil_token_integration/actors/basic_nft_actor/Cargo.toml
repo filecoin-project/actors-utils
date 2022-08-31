@@ -1,0 +1,16 @@
+[package]
+name = "basic_nft_actor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fil_fungible_token = { path = "../../../../fil_fungible_token" }
+frcxx_nft = { path = "../../../../frcxx_nft" }
+frc42_dispatch = { path = "../../../../frc42_dispatch" }
+fvm_ipld_blockstore = "0.1.1"
+fvm_ipld_encoding = "0.2.2"
+fvm_sdk = { version = "1.0.0" }
+fvm_shared = { version = "0.8.0" }
+
+[build-dependencies]
+wasm-builder = "3.0"
