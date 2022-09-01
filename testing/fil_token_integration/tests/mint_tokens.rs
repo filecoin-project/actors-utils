@@ -5,6 +5,7 @@ use cid::Cid;
 use fil_fungible_token::token::{state::TokenState, types::MintReturn};
 use frc42_dispatch::method_hash;
 use fvm::executor::{ApplyKind, Executor};
+use fvm_integration_tests::dummy::DummyExterns;
 use fvm_integration_tests::tester::{Account, Tester};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
@@ -49,7 +50,7 @@ fn mint_tokens() {
         .unwrap();
 
     // Instantiate machine
-    tester.instantiate_machine().unwrap();
+    tester.instantiate_machine(DummyExterns {}).unwrap();
 
     // Helper to simplify sending messages
     let mut sequence = 0u64;
@@ -80,7 +81,8 @@ fn mint_tokens() {
     println!("receiving actor constructor return data: {:#?}", &ret_val);
 
     // Mint some tokens
-    let mint_params = MintParams { initial_owner: receive_address, amount: TokenAmount::from(100) };
+    let mint_params =
+        MintParams { initial_owner: receive_address, amount: TokenAmount::from_atto(100) };
     let params = RawBytes::serialize(mint_params).unwrap();
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(params));
     println!("mint return data {:#?}", &ret_val);

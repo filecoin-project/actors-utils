@@ -1,6 +1,5 @@
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
-use fvm_shared::bigint::bigint_ser;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 
@@ -23,7 +22,7 @@ pub struct TokensReceivedParams {
     pub to: ActorID,
     /// Address of the operator that initiated the transfer/mint
     pub operator: ActorID,
-    #[serde(with = "bigint_ser")]
+    /// The amount that is being transferred/minted
     pub amount: TokenAmount,
     /// Data specified by the operator during transfer/mint
     pub operator_data: RawBytes,

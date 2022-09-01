@@ -1,6 +1,7 @@
 use cid::Cid;
 use frc42_dispatch::method_hash;
 use fvm::executor::{ApplyKind, Executor};
+use fvm_integration_tests::dummy::DummyExterns;
 use fvm_integration_tests::tester::{Account, Tester};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
@@ -29,7 +30,7 @@ fn test_greeter() {
         .set_actor_from_bin(&wasm_bin, Cid::default(), actor_address, TokenAmount::zero())
         .unwrap();
 
-    tester.instantiate_machine().unwrap();
+    tester.instantiate_machine(DummyExterns {}).unwrap();
 
     // call Constructor
     let message = Message {

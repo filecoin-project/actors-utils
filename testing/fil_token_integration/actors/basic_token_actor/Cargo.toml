@@ -7,8 +7,8 @@ edition = "2021"
 [dependencies]
 fvm_ipld_blockstore = { version = "0.1.1" }
 fvm_ipld_encoding = { version = "0.2.2" }
-fvm_sdk = { version = "1.0.0" }
-fvm_shared = { version = "0.8.0" }
+fvm_sdk = { version = "2.0.0-alpha.3" }
+fvm_shared = { version = "2.0.0-alpha.2" }
 fil_fungible_token = { version = "0.1.0", path = "../../../../fil_fungible_token" }
 num-traits = { version = "0.2.15" }
 serde = { version = "1.0.136", features = ["derive"] }
