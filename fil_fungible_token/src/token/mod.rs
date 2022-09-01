@@ -16,7 +16,7 @@ use self::types::BurnFromReturn;
 use self::types::BurnReturn;
 use self::types::TransferFromReturn;
 use self::types::TransferReturn;
-use crate::receiver::types::TokensReceivedParams;
+use crate::receiver::{types::TokensReceivedParams, ReceiverHook};
 use crate::runtime::messaging::{Messaging, MessagingError};
 use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
 use crate::token::types::MintReturn;
@@ -86,6 +86,20 @@ where
         self.state
     }
 
+    /// Get a reference to the Messaging struct we're using
+    pub fn msg(&self) -> &MSG {
+        &self.msg
+    }
+
+    /// Replace the current state reference with another
+    /// This is intended for unit tests only (and enforced by the config and visibility limits)
+    /// The replacement state needs the same lifetime as the original so cloning it inside
+    /// actor method calls generally wouldn't work.
+    #[cfg(test)]
+    pub(in crate::token) fn replace(&mut self, state: &'st mut TokenState) {
+        self.state = state;
+    }
+
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
     /// modifications to the state tree.
     ///
@@ -112,8 +126,10 @@ where
     ///
     /// The minter is implicitly defined as the caller of the actor, and must be an ID address.
     /// The mint amount must be non-negative or the method returns an error.
-    /// Returns parameters to be passed to the owner's token receiver hook,
+    ///
+    /// Returns a ReceiverHook to call the owner's token receiver hook,
     /// and the owner's new balance.
+    /// ReceiverHook must be called or it will panic and abort the transaction.
     pub fn mint(
         &mut self,
         operator: &Address,
@@ -121,7 +137,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<(TokensReceivedParams, MintReturn)> {
+    ) -> Result<(ReceiverHook, MintReturn)> {
         let amount = validate_amount(amount, "mint", self.granularity)?;
         // init the operator account so that its actor ID can be referenced in the receiver hook
         let operator_id = self.resolve_or_init(operator)?;
@@ -136,17 +152,16 @@ where
         })?;
 
         // return the params we'll send to the receiver hook
-        Ok((
-            TokensReceivedParams {
-                operator: operator_id,
-                from: self.msg.actor_id(),
-                to: owner_id,
-                amount: amount.clone(),
-                operator_data,
-                token_data,
-            },
-            result,
-        ))
+        let params = TokensReceivedParams {
+            operator: operator_id,
+            from: self.msg.actor_id(),
+            to: owner_id,
+            amount: amount.clone(),
+            operator_data,
+            token_data,
+        };
+
+        Ok((ReceiverHook::new(*initial_owner, params), result))
     }
 
     /// Gets the total number of tokens in existence
@@ -367,12 +382,16 @@ where
     /// - The requested value MUST be non-negative
     /// - The requested value MUST NOT exceed the sender's balance
     /// - The receiving actor MUST implement a method called `tokens_received`, corresponding to the
-    /// interface specified for FRC-XXX token receiver. If the receiving hook aborts, when called,
+    /// interface specified for FRC-0046 token receiver. If the receiving hook aborts, when called,
     /// the transfer is discarded and this method returns an error
     ///
     /// Upon successful transfer:
     /// - The from balance decreases by the requested value
     /// - The to balance increases by the requested value
+    ///
+    /// Returns a ReceiverHook to call the recipient's token receiver hook,
+    /// and the updated balances.
+    /// ReceiverHook must be called or it will panic and abort the transaction.
     pub fn transfer(
         &mut self,
         from: &Address,
@@ -380,7 +399,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<(TokensReceivedParams, TransferReturn)> {
+    ) -> Result<(ReceiverHook, TransferReturn)> {
         let amount = validate_amount(amount, "transfer", self.granularity)?;
 
         // owner-initiated transfer
@@ -407,17 +426,16 @@ where
             }
         })?;
 
-        Ok((
-            TokensReceivedParams {
-                operator: from,
-                from,
-                to: to_id,
-                amount: amount.clone(),
-                operator_data,
-                token_data,
-            },
-            res,
-        ))
+        let params = TokensReceivedParams {
+            operator: from,
+            from,
+            to: to_id,
+            amount: amount.clone(),
+            operator_data,
+            token_data,
+        };
+
+        Ok((ReceiverHook::new(*to, params), res))
     }
 
     /// Transfers an amount from one address to another
@@ -425,7 +443,7 @@ where
     /// - The requested value MUST be non-negative
     /// - The requested value MUST NOT exceed the sender's balance
     /// - The receiving actor MUST implement a method called `tokens_received`, corresponding to the
-    /// interface specified for FRC-XXX token receiver. If the receiving hook aborts, when called,
+    /// interface specified for FRC-0046 token receiver. If the receiving hook aborts, when called,
     /// the transfer is discarded and this method returns an error
     ///  - The operator MUST be initialised AND have an allowance not less than the requested value
     ///
@@ -433,6 +451,10 @@ where
     /// - The from balance decreases by the requested value
     /// - The to balance increases by the requested value
     /// - The owner-operator allowance decreases by the requested value
+    ///
+    /// Returns a ReceiverHook to call the recipient's token receiver hook,
+    /// and the updated allowance and balances.
+    /// ReceiverHook must be called or it will panic and abort the transaction.
     pub fn transfer_from(
         &mut self,
         operator: &Address,
@@ -441,7 +463,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<(TokensReceivedParams, TransferFromReturn)> {
+    ) -> Result<(ReceiverHook, TransferFromReturn)> {
         let amount = validate_amount(amount, "transfer", self.granularity)?;
         if self.same_address(operator, from) {
             return Err(TokenError::InvalidOperator(*operator));
@@ -507,17 +529,16 @@ where
             }
         })?;
 
-        Ok((
-            TokensReceivedParams {
-                operator: operator_id,
-                from,
-                to: to_id,
-                amount: amount.clone(),
-                operator_data,
-                token_data,
-            },
-            ret,
-        ))
+        let params = TokensReceivedParams {
+            operator: operator_id,
+            from,
+            to: to_id,
+            amount: amount.clone(),
+            operator_data,
+            token_data,
+        };
+
+        Ok((ReceiverHook::new(*to, params), ret))
     }
 }
 
@@ -690,7 +711,7 @@ mod test {
             &mut actor_state.token_state,
         );
 
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 TREASURY,
@@ -699,6 +720,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         let state = token.state();
         // gets a read-only state
@@ -724,7 +747,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::zero());
 
         // mint some value
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 TREASURY,
@@ -733,6 +756,9 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // flush token to blockstore
@@ -753,7 +779,7 @@ mod test {
         let mut token = Token::wrap(&bs, msg, 1, &mut state);
 
         // mutate state via the handle
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -762,6 +788,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // visible via the handle
         assert_eq!(token.total_supply(), TokenAmount::from(100));
@@ -805,14 +833,13 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn it_mints() {
         let bs = MemoryBlockstore::new();
         let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
         let mut token = new_token(bs, &mut token_state);
 
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
-        let (_hook, result) = token
+        let (mut hook, result) = token
             .mint(
                 TOKEN_ACTOR,
                 TREASURY,
@@ -821,6 +848,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
         assert_eq!(TokenAmount::from(1_000_000), result.balance);
         assert_eq!(TokenAmount::from(1_000_000), result.supply);
 
@@ -844,9 +873,11 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
 
         // mint zero
-        token
+        let (mut hook, _) = token
             .mint(TOKEN_ACTOR, ALICE, &TokenAmount::zero(), Default::default(), Default::default())
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
@@ -866,7 +897,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(1_000_000));
 
         // mint again to same address
-        let (_hook, result) = token
+        let (mut hook, result) = token
             .mint(
                 TOKEN_ACTOR,
                 TREASURY,
@@ -875,6 +906,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
         assert_eq!(TokenAmount::from(2_000_000), result.balance);
         assert_eq!(TokenAmount::from(2_000_000), result.supply);
 
@@ -896,7 +929,7 @@ mod test {
         );
 
         // mint to a different address
-        let (_hook, result) = token
+        let (mut hook, result) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -905,6 +938,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
         assert_eq!(TokenAmount::from(1_000_000), result.balance);
         assert_eq!(TokenAmount::from(3_000_000), result.supply);
 
@@ -933,7 +968,7 @@ mod test {
         // initially zero
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::zero());
         // self-mint to secp address
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 &secp_address,
@@ -942,6 +977,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
@@ -961,7 +998,7 @@ mod test {
         // initially zero
         assert_eq!(token.balance_of(&bls_address).unwrap(), TokenAmount::zero());
         // minting creates the account
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 &bls_address,
@@ -970,6 +1007,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from(2_000_000));
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::from(1_000_000));
@@ -1010,7 +1049,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn it_fails_to_mint_if_receiver_hook_aborts() {
         let bs = MemoryBlockstore::new();
         let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
@@ -1018,7 +1056,8 @@ mod test {
 
         // force hook to abort
         token.msg.abort_next_send();
-        let (params, _result) = token
+        let mut original_state = token.state().clone();
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 TREASURY,
@@ -1027,9 +1066,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
-        // TODO: receiver hook call
-        //token.flush().unwrap();
-        let err = token.call_receiver_hook(TOKEN_ACTOR, params).unwrap_err();
+        token.flush().unwrap();
+        let err = hook.call(token.msg()).unwrap_err();
 
         // check error shape
         match err {
@@ -1038,6 +1076,9 @@ mod test {
                 assert_eq!(to, TREASURY.id().unwrap());
                 assert_eq!(operator, TOKEN_ACTOR.id().unwrap());
                 assert_eq!(amount, TokenAmount::from(1_000_000));
+                // restore original pre-mint state
+                // in actor code, we'd just abort and let the VM handle this
+                token.replace(&mut original_state);
             }
             _ => panic!("expected receiver hook error"),
         };
@@ -1056,9 +1097,12 @@ mod test {
 
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(600_000);
-        token
+        let (mut hook, _) = token
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
         token.burn(TREASURY, &burn_amount).unwrap();
 
         // total supply decreased
@@ -1105,9 +1149,12 @@ mod test {
 
         let mint_amount = TokenAmount::from(1_000_000);
         let burn_amount = TokenAmount::from(2_000_000);
-        token
+        let (mut hook, _) = token
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
         token.burn(TREASURY, &burn_amount).unwrap_err();
 
         // balances and supply were unchanged
@@ -1117,14 +1164,13 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn it_transfers() {
         let bs = MemoryBlockstore::new();
         let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
         let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -1133,10 +1179,14 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
         // transfer 60 from owner -> receiver
-        token
+        let (mut hook, _) = token
             .transfer(ALICE, BOB, &TokenAmount::from(60), RawBytes::default(), RawBytes::default())
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // owner has 100 - 60 = 40
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
@@ -1169,9 +1219,11 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from(100));
 
         // transfer zero value
-        token
+        let (mut hook, _) = token
             .transfer(ALICE, BOB, &TokenAmount::zero(), RawBytes::default(), RawBytes::default())
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from(60));
@@ -1193,14 +1245,13 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn it_transfers_to_self() {
         let bs = MemoryBlockstore::new();
         let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
         let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -1209,10 +1260,14 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
         // transfer zero to self
-        token
+        let (mut hook, _) = token
             .transfer(ALICE, ALICE, &TokenAmount::zero(), RawBytes::default(), RawBytes::default())
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
@@ -1233,7 +1288,7 @@ mod test {
         );
 
         // transfer value to self
-        token
+        let (mut hook, _) = token
             .transfer(
                 ALICE,
                 ALICE,
@@ -1242,6 +1297,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(100));
         // total supply is unchanged
@@ -1262,13 +1319,12 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn it_transfers_to_uninitialized_addresses() {
         let bs = MemoryBlockstore::new();
         let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
         let mut token = new_token(bs, &mut token_state);
 
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -1277,11 +1333,13 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // transfer to an uninitialized pubkey
         let secp_address = &secp_address();
         assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
-        token
+        let (mut hook, _) = token
             .transfer(
                 ALICE,
                 secp_address,
@@ -1290,6 +1348,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // balances changed
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(90));
@@ -1336,7 +1396,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::zero());
 
         // zero-transfer should succeed
-        token
+        let (mut hook, _) = token
             .transfer(
                 secp_address,
                 ALICE,
@@ -1345,6 +1405,9 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
         // balances unchanged
         assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
@@ -1384,14 +1447,13 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn it_fails_to_transfer_when_receiver_hook_aborts() {
         let bs = MemoryBlockstore::new();
         let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
         let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -1400,12 +1462,17 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
         token.msg.abort_next_send();
-        let err = token
+        let mut pre_transfer_state = token.state().clone();
+        let (mut hook, _) = token
             .transfer(ALICE, BOB, &TokenAmount::from(60), RawBytes::default(), RawBytes::default())
-            .unwrap_err();
+            .unwrap();
+        token.flush().unwrap();
+        let err = hook.call(token.msg()).unwrap_err();
 
         // check error shape
         match err {
@@ -1414,6 +1481,9 @@ mod test {
                 assert_eq!(to, BOB.id().unwrap());
                 assert_eq!(operator, ALICE.id().unwrap());
                 assert_eq!(amount, TokenAmount::from(60));
+                // revert to pre-transfer state
+                // in actor code, we'd just abort and let the VM handle this
+                token.replace(&mut pre_transfer_state);
             }
             _ => panic!("expected receiver hook error"),
         };
@@ -1424,7 +1494,8 @@ mod test {
 
         // transfer 60 from owner -> self, simulate receiver aborting the hook
         token.msg.abort_next_send();
-        let err = token
+        let mut pre_transfer_state = token.state().clone();
+        let (mut hook, _) = token
             .transfer(
                 ALICE,
                 ALICE,
@@ -1432,7 +1503,9 @@ mod test {
                 RawBytes::default(),
                 RawBytes::default(),
             )
-            .unwrap_err();
+            .unwrap();
+        token.flush().unwrap();
+        let err = hook.call(token.msg()).unwrap_err();
 
         // check error shape
         match err {
@@ -1441,6 +1514,9 @@ mod test {
                 assert_eq!(to, ALICE.id().unwrap());
                 assert_eq!(operator, ALICE.id().unwrap());
                 assert_eq!(amount, TokenAmount::from(60));
+                // revert to pre-transfer state
+                // in actor code, we'd just abort and let the VM handle this
+                token.replace(&mut pre_transfer_state);
             }
             _ => panic!("expected receiver hook error"),
         };
@@ -1458,7 +1534,7 @@ mod test {
         let mut token = new_token(bs, &mut token_state);
 
         // mint 50 for the owner
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -1467,6 +1543,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // attempt transfer 51 from owner -> receiver
         token
@@ -1542,16 +1620,17 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn it_allows_delegated_transfer() {
         let bs = MemoryBlockstore::new();
         let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
         let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for the owner
-        token
+        let (mut hook, _) = token
             .mint(ALICE, ALICE, &TokenAmount::from(100), Default::default(), Default::default())
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // operator can't transfer without allowance, even if amount is zero
         token
@@ -1568,7 +1647,7 @@ mod test {
         // approve 100 spending allowance for operator
         token.increase_allowance(ALICE, CAROL, &TokenAmount::from(100)).unwrap();
         // operator makes transfer of 60 from owner -> receiver
-        token
+        let (mut hook, _) = token
             .transfer_from(
                 CAROL,
                 ALICE,
@@ -1578,6 +1657,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // verify all balances are correct
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(40));
@@ -1602,7 +1683,7 @@ mod test {
         assert_eq!(operator_allowance, TokenAmount::from(40));
 
         // operator makes another transfer of 40 from owner -> self
-        token
+        let (mut hook, _) = token
             .transfer_from(
                 CAROL,
                 ALICE,
@@ -1612,6 +1693,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // verify all balances are correct
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
@@ -1642,7 +1725,7 @@ mod test {
         let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -1651,6 +1734,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         let initialised_address = &secp_address();
         token.msg.initialize_account(initialised_address).unwrap();
@@ -1692,7 +1777,7 @@ mod test {
 
         // the pubkey can be given an allowance which it can use to transfer tokens
         token.increase_allowance(ALICE, initialised_address, &TokenAmount::from(100)).unwrap();
-        token
+        let (mut hook, _) = token
             .transfer_from(
                 initialised_address,
                 ALICE,
@@ -1702,6 +1787,9 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
         // balances and allowance changed
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from(99));
         assert_eq!(token.balance_of(initialised_address).unwrap(), TokenAmount::from(1));
@@ -1717,7 +1805,7 @@ mod test {
         let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for owner
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -1726,6 +1814,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // non-zero transfer by an uninitialized pubkey
         let secp_address = &secp_address();
@@ -1810,9 +1900,12 @@ mod test {
         let burn_amount = TokenAmount::from(600_000);
 
         // mint the total amount
-        token
+        let (mut hook, _) = token
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
         // approve the burner to spend the allowance
         token.increase_allowance(TREASURY, ALICE, &approval_amount).unwrap();
         // burn the approved amount
@@ -1874,9 +1967,12 @@ mod test {
         let secp_id = token.msg.initialize_account(secp_address).unwrap();
 
         // mint the total amount
-        token
+        let (mut hook, _) = token
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
         // approve the burner to spend the allowance
         token.increase_allowance(TREASURY, secp_address, &approval_amount).unwrap();
         // burn the approved amount
@@ -1934,9 +2030,11 @@ mod test {
         let secp_address = &secp_address();
 
         // mint the total amount
-        token
+        let (mut hook, _) = token
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // cannot burn non-zero
         let err = token.burn_from(secp_address, TREASURY, &burn_amount).unwrap_err();
@@ -1993,7 +2091,7 @@ mod test {
         let mut token = new_token(bs, &mut token_state);
 
         // mint 100 for the owner
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -2002,6 +2100,9 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
         // approve only 40 spending allowance for operator
         token.increase_allowance(ALICE, CAROL, &TokenAmount::from(40)).unwrap();
         // operator attempts makes transfer of 60 from owner -> receiver
@@ -2034,7 +2135,7 @@ mod test {
         let mut token = new_token(bs, &mut token_state);
 
         // mint 50 for the owner
-        token
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -2043,6 +2144,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // allow 100 to be spent by operator
         token.increase_allowance(ALICE, BOB, &TokenAmount::from(100)).unwrap();
@@ -2108,10 +2211,12 @@ mod test {
                 RawBytes::default(),
             )
             .expect_err("minted below granularity");
-        token
+        let (mut hook, _) = token
             .mint(TOKEN_ACTOR, ALICE, &TokenAmount::from(0), Default::default(), Default::default())
             .unwrap();
-        token
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -2120,7 +2225,9 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
-        token
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -2129,7 +2236,9 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
-        token
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+        let (mut hook, _) = token
             .mint(
                 TOKEN_ACTOR,
                 ALICE,
@@ -2138,6 +2247,8 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
 
         // Burn
         token.burn(ALICE, &TokenAmount::from(1)).expect_err("burned below granularity");
@@ -2161,12 +2272,16 @@ mod test {
         token
             .transfer(ALICE, BOB, &TokenAmount::from(1), RawBytes::default(), RawBytes::default())
             .expect_err("transfer delta below granularity");
-        token
+        let (mut hook, _) = token
             .transfer(ALICE, BOB, &TokenAmount::from(0), RawBytes::default(), RawBytes::default())
             .unwrap();
-        token
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+        let (mut hook, _) = token
             .transfer(ALICE, BOB, &TokenAmount::from(100), RawBytes::default(), RawBytes::default())
             .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
     }
 
     #[test]
@@ -2241,7 +2356,11 @@ mod test {
             }
             // set balance if not zero (avoiding unecessary account insantiation)
             if !balance.is_zero() {
-                token.mint(from, from, balance, Default::default(), Default::default()).unwrap();
+                let (mut hook, _) = token
+                    .mint(from, from, balance, Default::default(), Default::default())
+                    .unwrap();
+                token.flush().unwrap();
+                hook.call(token.msg()).unwrap();
             }
             token
         }
@@ -2321,7 +2440,8 @@ mod test {
                 if behaviour != "OK" {
                     assert_error(res.unwrap_err(), token);
                 } else {
-                    res.expect("expect transfer to succeed");
+                    let (mut hook, _) = res.expect("expect transfer to succeed");
+                    hook.call(token.msg()).expect("receiver hook should succeed");
                 }
             } else {
                 let res = token.transfer_from(
@@ -2336,7 +2456,8 @@ mod test {
                 if behaviour != "OK" {
                     assert_error(res.unwrap_err(), token);
                 } else {
-                    res.expect("expect transfer to succeed");
+                    let (mut hook, _) = res.expect("expect transfer to succeed");
+                    hook.call(token.msg()).expect("receiver hook should succeed");
                 }
             }
         }

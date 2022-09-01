@@ -1,8 +1,8 @@
 use std::env;
 
-use basic_token_actor::{MintParams, MintReturn};
+use basic_token_actor::MintParams;
 use cid::Cid;
-use fil_fungible_token::token::state::TokenState;
+use fil_fungible_token::token::{state::TokenState, types::MintReturn};
 use frc42_dispatch::method_hash;
 use fvm::executor::{ApplyKind, Executor};
 use fvm_integration_tests::tester::{Account, Tester};
@@ -89,7 +89,7 @@ fn mint_tokens() {
         println!("return data was empty");
     } else {
         let mint_result: MintReturn = return_data.deserialize().unwrap();
-        println!("new total supply: {:?}", &mint_result.total_supply);
+        println!("new total supply: {:?}", &mint_result.supply);
     }
 
     // Check balance
