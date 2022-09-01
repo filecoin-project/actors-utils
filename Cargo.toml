@@ -6,11 +6,12 @@ members = [
     "frc42_dispatch/hasher",
     "frc42_dispatch/macros",
     "frc42_dispatch/macros/example",
+    "frcxx_nft",
     "fvm_dispatch_tools",
     "fil_fungible_token",
     "testing/fil_token_integration",
     "testing/fil_token_integration/actors/basic_token_actor",
     "testing/fil_token_integration/actors/basic_receiving_actor",
     "testing/fil_token_integration/actors/basic_nft_actor",
-    "frcxx_nft"
+    "testing/fil_token_integration/actors/basic_transfer_actor"
 ]
