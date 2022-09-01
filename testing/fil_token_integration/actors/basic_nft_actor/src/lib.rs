@@ -31,8 +31,10 @@ fn invoke(_input: u32) -> u32 {
         2 => {
             let bs = Blockstore {};
             let root_cid = sdk::sself::root().unwrap();
-            let state = NFTSetState::load(&bs, &root_cid).unwrap();
+            let mut state = NFTSetState::load(&bs, &root_cid).unwrap();
             let res = state.mint_token(&bs, sdk::message::caller()).unwrap();
+            let cid = state.save(&bs).unwrap();
+            sdk::sself::set_root(&cid).unwrap();
             return_ipld(&res)
         }
         _ => {

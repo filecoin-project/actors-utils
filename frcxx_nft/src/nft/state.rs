@@ -68,10 +68,11 @@ impl NFTSetState {
         Ok(res)
     }
 
-    pub fn mint_token<BS: Blockstore>(&self, bs: &BS, owner: ActorID) -> Result<TokenID> {
+    pub fn mint_token<BS: Blockstore>(&mut self, bs: &BS, owner: ActorID) -> Result<TokenID> {
         let mut token_map = self.get_token_amt(&bs)?;
         let new_index = token_map.count();
         token_map.set(new_index, owner)?;
+        self.tokens = token_map.flush()?;
         Ok(new_index)
     }
 }
