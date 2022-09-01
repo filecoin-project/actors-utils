@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+base64 = "0.13.0"
 fil_fungible_token = { path = "../../../../fil_fungible_token" }
 frcxx_nft = { path = "../../../../frcxx_nft" }
 frc42_dispatch = { path = "../../../../frc42_dispatch" }

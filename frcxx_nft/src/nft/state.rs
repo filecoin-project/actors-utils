@@ -7,12 +7,15 @@ use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::CborStore;
 use fvm_ipld_encoding::DAG_CBOR;
-use fvm_shared::address::Address;
-use fvm_shared::state::StateInfo0;
 use fvm_shared::ActorID;
 use thiserror::Error;
 
 pub type TokenID = u64;
+
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct BatchMintReturn {
+    pub tokens: Vec<TokenID>,
+}
 
 #[derive(Error, Debug)]
 pub enum StateError {
@@ -74,5 +77,22 @@ impl NFTSetState {
         token_map.set(new_index, owner)?;
         self.tokens = token_map.flush()?;
         Ok(new_index)
+    }
+
+    pub fn batch_mint_tokens<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        owner: ActorID,
+        count: u64,
+    ) -> Result<BatchMintReturn> {
+        let mut token_map = self.get_token_amt(&bs)?;
+        let mut tokens = Vec::new();
+        for _ in 0..count {
+            let new_index = token_map.count();
+            token_map.set(new_index, owner)?;
+            tokens.push(new_index);
+        }
+        self.tokens = token_map.flush()?;
+        Ok(BatchMintReturn { tokens })
     }
 }
