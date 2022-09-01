@@ -122,6 +122,14 @@ where
     BS: Blockstore,
     MSG: Messaging,
 {
+    /// Returns the smallest amount of tokens which is indivisible
+    ///
+    /// Transfers and balances must be in multiples of granularity but allowances need not be.
+    /// Granularity never changes after it is initially set
+    pub fn granularity(&self) -> u64 {
+        self.granularity
+    }
+
     /// Mints the specified value of tokens into an account
     ///
     /// The minter is implicitly defined as the caller of the actor, and must be an ID address.
@@ -2177,8 +2185,16 @@ mod test {
     fn it_enforces_granularity() {
         let bs = MemoryBlockstore::new();
         let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
-        let mut token = new_token(bs, &mut token_state);
-        token.granularity = 100;
+
+        // construct token with 100 granularity
+        let mut token = Token::wrap(
+            bs,
+            FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6),
+            100,
+            &mut token_state,
+        );
+
+        assert_eq!(token.granularity(), 100);
 
         // Minting
         token
