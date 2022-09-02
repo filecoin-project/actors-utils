@@ -1,3 +1,4 @@
+use frc42_dispatch::method_hash;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::bigint::bigint_ser;
@@ -12,11 +13,14 @@ pub trait FRC46TokenReceiver {
     /// the receiving actor can immediately utilise the received funds. If the receiver wishes to
     /// reject the incoming transfer, this function should abort which will cause the token actor
     /// to rollback the transaction.
-    fn tokens_received(params: TokensReceivedParams);
+    fn receive(token_type: TokenType, params: FRC46TokenReceived);
 }
 
+pub type TokenType = u32;
+pub const FRC46_TOKEN_TYPE: TokenType = method_hash!("FRC46") as u32;
+
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
-pub struct TokensReceivedParams {
+pub struct FRC46TokenReceived {
     /// The account that the tokens are being pulled from (the token actor address itself for mint)
     pub from: ActorID,
     /// The account that the tokens are being sent to (the receiver address)
@@ -31,4 +35,11 @@ pub struct TokensReceivedParams {
     pub token_data: RawBytes,
 }
 
-impl Cbor for TokensReceivedParams {}
+impl Cbor for FRC46TokenReceived {}
+
+#[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
+pub struct ReceiveParams {
+    pub type_: TokenType,
+    pub payload: RawBytes,
+}
+impl Cbor for ReceiveParams {}

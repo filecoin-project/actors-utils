@@ -52,9 +52,9 @@ pub trait Messaging {
     fn initialize_account(&self, address: &Address) -> Result<ActorID>;
 }
 
-// the method number comes from taking the name as "TokensReceived" and applying
+// the method number comes from taking the name as "Received" and applying
 // the transformation described in https://github.com/filecoin-project/FIPs/pull/399
-pub const RECEIVER_HOOK_METHOD_NUM: u64 = method_hash!("TokensReceived");
+pub const RECEIVER_HOOK_METHOD_NUM: u64 = method_hash!("Received");
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FvmMessenger {}

@@ -1,7 +1,7 @@
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode};
 use num_traits::Zero;
-use types::TokensReceivedParams;
+use types::{FRC46TokenReceived, ReceiveParams, FRC46_TOKEN_TYPE};
 
 use crate::runtime::messaging::{Messaging, RECEIVER_HOOK_METHOD_NUM};
 use crate::token::TokenError;
@@ -18,13 +18,13 @@ pub mod types;
 #[derive(Debug)]
 pub struct ReceiverHook {
     address: Address,
-    params: TokensReceivedParams,
+    params: FRC46TokenReceived,
     called: bool,
 }
 
 impl ReceiverHook {
     /// Construct a new ReceiverHook call
-    pub fn new(address: Address, params: TokensReceivedParams) -> Self {
+    pub fn new(address: Address, params: FRC46TokenReceived) -> Self {
         ReceiverHook { address, params, called: false }
     }
     /// Call the receiver hook and return the result
@@ -40,10 +40,13 @@ impl ReceiverHook {
 
         self.called = true;
 
+        let params =
+            ReceiveParams { type_: FRC46_TOKEN_TYPE, payload: RawBytes::serialize(&self.params)? };
+
         let receipt = msg.send(
             &self.address,
             RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(&self.params)?,
+            &RawBytes::serialize(&params)?,
             &TokenAmount::zero(),
         )?;
 
@@ -78,14 +81,14 @@ mod test {
     use fvm_shared::{address::Address, econ::TokenAmount};
     use num_traits::Zero;
 
-    use super::{types::TokensReceivedParams, ReceiverHook};
+    use super::{types::FRC46TokenReceived, ReceiverHook};
     use crate::runtime::messaging::FakeMessenger;
 
     const TOKEN_ACTOR: Address = Address::new_id(1);
     const ALICE: Address = Address::new_id(2);
 
     fn generate_hook() -> ReceiverHook {
-        let params = TokensReceivedParams {
+        let params = FRC46TokenReceived {
             operator: TOKEN_ACTOR.id().unwrap(),
             from: TOKEN_ACTOR.id().unwrap(),
             to: ALICE.id().unwrap(),

@@ -16,7 +16,7 @@ use self::types::BurnFromReturn;
 use self::types::BurnReturn;
 use self::types::TransferFromReturn;
 use self::types::TransferReturn;
-use crate::receiver::{types::TokensReceivedParams, ReceiverHook};
+use crate::receiver::{types::FRC46TokenReceived, ReceiverHook};
 use crate::runtime::messaging::{Messaging, MessagingError};
 use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
 use crate::token::types::MintReturn;
@@ -160,7 +160,7 @@ where
         })?;
 
         // return the params we'll send to the receiver hook
-        let params = TokensReceivedParams {
+        let params = FRC46TokenReceived {
             operator: operator_id,
             from: self.msg.actor_id(),
             to: owner_id,
@@ -434,7 +434,7 @@ where
             }
         })?;
 
-        let params = TokensReceivedParams {
+        let params = FRC46TokenReceived {
             operator: from,
             from,
             to: to_id,
@@ -537,7 +537,7 @@ where
             }
         })?;
 
-        let params = TokensReceivedParams {
+        let params = FRC46TokenReceived {
             operator: operator_id,
             from,
             to: to_id,
@@ -602,7 +602,7 @@ where
     pub fn call_receiver_hook(
         &mut self,
         token_receiver: &Address,
-        params: TokensReceivedParams,
+        params: FRC46TokenReceived,
     ) -> Result<()> {
         let receipt = self.msg.send(
             token_receiver,
@@ -657,7 +657,7 @@ mod test {
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
 
-    use crate::receiver::types::TokensReceivedParams;
+    use crate::receiver::types::{FRC46TokenReceived, ReceiveParams};
     use crate::runtime::messaging::{FakeMessenger, Messaging, MessagingError};
     use crate::token::state::StateError;
     use crate::token::state::TokenState;
@@ -694,9 +694,10 @@ mod test {
         Token::wrap(bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), 1, state)
     }
 
-    fn assert_last_hook_call_eq(messenger: &FakeMessenger, expected: TokensReceivedParams) {
+    fn assert_last_hook_call_eq(messenger: &FakeMessenger, expected: FRC46TokenReceived) {
         let last_called = messenger.last_message.borrow().clone().unwrap();
-        let last_called: TokensReceivedParams = last_called.deserialize().unwrap();
+        let last_called: ReceiveParams = last_called.deserialize().unwrap();
+        let last_called: FRC46TokenReceived = last_called.payload.deserialize().unwrap();
         assert_eq!(last_called, expected);
     }
 
@@ -890,7 +891,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: ALICE.id().unwrap(),
@@ -926,7 +927,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: TREASURY.id().unwrap(),
@@ -958,7 +959,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: ALICE.id().unwrap(),
@@ -991,7 +992,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: token.get_id(&secp_address).unwrap(),
@@ -1026,7 +1027,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
                 to: token.get_id(&bls_address).unwrap(),
@@ -1206,7 +1207,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 amount: TokenAmount::from(60),
@@ -1241,7 +1242,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: BOB.id().unwrap(),
@@ -1285,7 +1286,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: ALICE.id().unwrap(),
@@ -1315,7 +1316,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: ALICE.id().unwrap(),
@@ -1369,7 +1370,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: token.get_id(secp_address).unwrap(),
@@ -1676,7 +1677,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: CAROL.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: BOB.id().unwrap(),
@@ -1712,7 +1713,7 @@ mod test {
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
             &token.msg,
-            TokensReceivedParams {
+            FRC46TokenReceived {
                 operator: CAROL.id().unwrap(),
                 from: ALICE.id().unwrap(),
                 to: CAROL.id().unwrap(),
