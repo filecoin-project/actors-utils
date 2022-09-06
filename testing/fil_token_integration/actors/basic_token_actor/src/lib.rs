@@ -268,6 +268,14 @@ pub fn invoke(params: u32) -> u32 {
                 401872942 => {
                     // TransferFrom
                     let params = deserialize_params(params);
+                    let res = token_actor.transfer_from(params).unwrap();
+                    let cid = token_actor.util.flush().unwrap();
+                    sdk::sself::set_root(&cid).unwrap();
+                    return_ipld(&res).unwrap()
+                }
+                1303003700 => {
+                    // Transfer
+                    let params = deserialize_params(params);
                     let res = token_actor.transfer(params).unwrap();
                     let cid = token_actor.util.flush().unwrap();
                     sdk::sself::set_root(&cid).unwrap();
