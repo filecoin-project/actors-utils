@@ -1,4 +1,6 @@
-use fil_fungible_token::receiver::types::{FRC46TokenReceived, ReceiveParams, FRC46_TOKEN_TYPE};
+use fil_fungible_token::receiver::types::{
+    FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE,
+};
 use frc42_dispatch::match_method;
 use fvm_ipld_encoding::{de::DeserializeOwned, RawBytes};
 use fvm_sdk as sdk;
@@ -24,9 +26,9 @@ fn invoke(input: u32) -> u32 {
             // this is a stateless actor so constructor does nothing
             NO_DATA_BLOCK_ID
         },
-        "Received" => {
-            // Received is passed a TokenReceivedParams
-            let params: ReceiveParams = deserialize_params(input);
+        "Receive" => {
+            // Receive is passed a UniversalReceiverParams
+            let params: UniversalReceiverParams = deserialize_params(input);
 
             // reject if not an FRC46 token
             // we don't know how to inspect other payloads in this example

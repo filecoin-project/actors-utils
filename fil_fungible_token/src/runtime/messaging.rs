@@ -54,7 +54,7 @@ pub trait Messaging {
 
 // the method number comes from taking the name as "Received" and applying
 // the transformation described in https://github.com/filecoin-project/FIPs/pull/399
-pub const RECEIVER_HOOK_METHOD_NUM: u64 = method_hash!("Received");
+pub const RECEIVER_HOOK_METHOD_NUM: u64 = method_hash!("Receive");
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FvmMessenger {}

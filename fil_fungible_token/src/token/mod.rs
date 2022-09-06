@@ -657,7 +657,7 @@ mod test {
     use fvm_shared::econ::TokenAmount;
     use num_traits::Zero;
 
-    use crate::receiver::types::{FRC46TokenReceived, ReceiveParams};
+    use crate::receiver::types::{FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE};
     use crate::runtime::messaging::{FakeMessenger, Messaging, MessagingError};
     use crate::token::state::StateError;
     use crate::token::state::TokenState;
@@ -696,7 +696,8 @@ mod test {
 
     fn assert_last_hook_call_eq(messenger: &FakeMessenger, expected: FRC46TokenReceived) {
         let last_called = messenger.last_message.borrow().clone().unwrap();
-        let last_called: ReceiveParams = last_called.deserialize().unwrap();
+        let last_called: UniversalReceiverParams = last_called.deserialize().unwrap();
+        assert_eq!(last_called.type_, FRC46_TOKEN_TYPE);
         let last_called: FRC46TokenReceived = last_called.payload.deserialize().unwrap();
         assert_eq!(last_called, expected);
     }

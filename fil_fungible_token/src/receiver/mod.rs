@@ -1,7 +1,7 @@
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode};
 use num_traits::Zero;
-use types::{FRC46TokenReceived, ReceiveParams, FRC46_TOKEN_TYPE};
+use types::{FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE};
 
 use crate::runtime::messaging::{Messaging, RECEIVER_HOOK_METHOD_NUM};
 use crate::token::TokenError;
@@ -40,8 +40,10 @@ impl ReceiverHook {
 
         self.called = true;
 
-        let params =
-            ReceiveParams { type_: FRC46_TOKEN_TYPE, payload: RawBytes::serialize(&self.params)? };
+        let params = UniversalReceiverParams {
+            type_: FRC46_TOKEN_TYPE,
+            payload: RawBytes::serialize(&self.params)?,
+        };
 
         let receipt = msg.send(
             &self.address,
