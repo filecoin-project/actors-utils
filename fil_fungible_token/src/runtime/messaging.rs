@@ -52,9 +52,9 @@ pub trait Messaging {
     fn initialize_account(&self, address: &Address) -> Result<ActorID>;
 }
 
-// the method number comes from taking the name as "TokensReceived" and applying
+// the method number comes from taking the name as "Received" and applying
 // the transformation described in https://github.com/filecoin-project/FIPs/pull/399
-pub const RECEIVER_HOOK_METHOD_NUM: u64 = method_hash!("TokensReceived");
+pub const RECEIVER_HOOK_METHOD_NUM: u64 = method_hash!("Receive");
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FvmMessenger {}
@@ -71,8 +71,7 @@ impl Messaging for FvmMessenger {
         params: &RawBytes,
         value: &TokenAmount,
     ) -> Result<Receipt> {
-        let params = RawBytes::new(fvm_ipld_encoding::to_vec(&params)?);
-        Ok(send::send(to, method, params, value.clone())?)
+        Ok(send::send(to, method, params.clone(), value.clone())?)
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
