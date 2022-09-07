@@ -6,8 +6,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = { version = "1.0.63", features = ["backtrace"] }
-basic_token_actor = { version = "0.1.0", path = "../../testing/fil_token_integration/actors/basic_token_actor" }
-basic_nft_actor = { version = "0.1.0", path = "../../testing/fil_token_integration/actors/basic_nft_actor" }
 cid = { version = "0.8.5", default-features = false }
 fvm = { version = "~1.1.0", default-features = false }
 frc42_dispatch = { path = "../../frc42_dispatch" }
