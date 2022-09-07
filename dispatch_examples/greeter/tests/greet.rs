@@ -1,6 +1,8 @@
 use cid::Cid;
 use frc42_dispatch::method_hash;
 use fvm::executor::{ApplyKind, Executor};
+use fvm_integration_tests::bundle;
+use fvm_integration_tests::dummy::DummyExterns;
 use fvm_integration_tests::tester::{Account, Tester};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
@@ -16,7 +18,9 @@ const DISPATCH_EXAMPLE_WASM: &str = "../../target/debug/wbuild/greeter/greeter.c
 #[test]
 fn test_greeter() {
     let blockstore = MemoryBlockstore::default();
-    let mut tester = Tester::new(NetworkVersion::V15, StateTreeVersion::V4, blockstore).unwrap();
+    let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
+    let mut tester =
+        Tester::new(NetworkVersion::V15, StateTreeVersion::V4, bundle_root, blockstore).unwrap();
 
     let wasm_path =
         std::env::current_dir().unwrap().join(DISPATCH_EXAMPLE_WASM).canonicalize().unwrap();
@@ -29,7 +33,7 @@ fn test_greeter() {
         .set_actor_from_bin(&wasm_bin, Cid::default(), actor_address, TokenAmount::zero())
         .unwrap();
 
-    tester.instantiate_machine().unwrap();
+    tester.instantiate_machine(DummyExterns).unwrap();
 
     // call Constructor
     let message = Message {

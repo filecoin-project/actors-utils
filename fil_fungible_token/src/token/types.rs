@@ -1,7 +1,6 @@
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::address::Address;
-use fvm_shared::bigint::bigint_ser;
 use fvm_shared::econ::TokenAmount;
 use thiserror::Error;
 
@@ -121,10 +120,8 @@ pub type RevokeAllowanceReturn = ();
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct MintReturn {
     /// The new balance of the owner address
-    #[serde(with = "bigint_ser")]
     pub balance: TokenAmount,
     /// The new total supply.
-    #[serde(with = "bigint_ser")]
     pub supply: TokenAmount,
 }
 
@@ -135,7 +132,6 @@ impl Cbor for MintReturn {}
 pub struct TransferParams {
     pub to: Address,
     /// A non-negative amount to transfer
-    #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
     /// Arbitrary data to pass on via the receiver hook
     pub operator_data: RawBytes,
@@ -145,10 +141,8 @@ pub struct TransferParams {
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct TransferReturn {
     /// The new balance of the `from` address
-    #[serde(with = "bigint_ser")]
     pub from_balance: TokenAmount,
     /// The new balance of the `to` address
-    #[serde(with = "bigint_ser")]
     pub to_balance: TokenAmount,
 }
 
@@ -161,7 +155,6 @@ pub struct TransferFromParams {
     pub from: Address,
     pub to: Address,
     /// A non-negative amount to transfer
-    #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
     /// Arbitrary data to pass on via the receiver hook
     pub operator_data: RawBytes,
@@ -171,13 +164,10 @@ pub struct TransferFromParams {
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct TransferFromReturn {
     /// The new balance of the `from` address
-    #[serde(with = "bigint_ser")]
     pub from_balance: TokenAmount,
     /// The new balance of the `to` address
-    #[serde(with = "bigint_ser")]
     pub to_balance: TokenAmount,
     /// The new remaining allowance between `owner` and `operator` (caller)
-    #[serde(with = "bigint_ser")]
     pub allowance: TokenAmount,
 }
 
@@ -189,7 +179,6 @@ impl Cbor for TransferFromReturn {}
 pub struct IncreaseAllowanceParams {
     pub operator: Address,
     /// A non-negative amount to increase the allowance by
-    #[serde(with = "bigint_ser")]
     pub increase: TokenAmount,
 }
 
@@ -198,7 +187,6 @@ pub struct IncreaseAllowanceParams {
 pub struct DecreaseAllowanceParams {
     pub operator: Address,
     /// A non-negative amount to decrease the allowance by
-    #[serde(with = "bigint_ser")]
     pub decrease: TokenAmount,
 }
 
@@ -224,7 +212,6 @@ impl Cbor for GetAllowanceParams {}
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct BurnParams {
     /// A non-negative amount to burn
-    #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
 }
 
@@ -232,7 +219,6 @@ pub struct BurnParams {
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct BurnReturn {
     /// New balance in the account after the successful burn
-    #[serde(with = "bigint_ser")]
     pub balance: TokenAmount,
 }
 
@@ -244,7 +230,6 @@ impl Cbor for BurnReturn {}
 pub struct BurnFromParams {
     pub owner: Address,
     /// A non-negative amount to burn
-    #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
 }
 
@@ -252,10 +237,8 @@ pub struct BurnFromParams {
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct BurnFromReturn {
     /// New balance in the account after the successful burn
-    #[serde(with = "bigint_ser")]
     pub balance: TokenAmount,
     /// New remaining allowance between the owner and operator (caller)
-    #[serde(with = "bigint_ser")]
     pub allowance: TokenAmount,
 }
 

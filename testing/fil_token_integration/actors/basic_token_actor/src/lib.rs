@@ -13,8 +13,6 @@ use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
 use fvm_shared::address::Address;
-use fvm_shared::bigint::bigint_ser;
-use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::error::ExitCode;
 use sdk::sys::ErrorNumber;
@@ -140,7 +138,6 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct MintParams {
     pub initial_owner: Address,
-    #[serde(with = "bigint_ser")]
     pub amount: TokenAmount,
 }
 
@@ -220,19 +217,19 @@ pub fn invoke(params: u32) -> u32 {
                 2511420746 => {
                     // TotalSupply
                     let total_supply = token_actor.total_supply();
-                    return_ipld(&BigIntDe(total_supply)).unwrap()
+                    return_ipld(&total_supply).unwrap()
                 }
                 1568445334 => {
                     //BalanceOf
                     let params = deserialize_params(params);
                     let res = token_actor.balance_of(params).unwrap();
-                    return_ipld(&BigIntDe(res)).unwrap()
+                    return_ipld(&res).unwrap()
                 }
                 2804639308 => {
                     // Allowance
                     let params = deserialize_params(params);
                     let res = token_actor.allowance(params).unwrap();
-                    return_ipld(&BigIntDe(res)).unwrap()
+                    return_ipld(&res).unwrap()
                 }
                 991449938 => {
                     // IncreaseAllowance
@@ -240,7 +237,7 @@ pub fn invoke(params: u32) -> u32 {
                     let res = token_actor.increase_allowance(params).unwrap();
                     let cid = token_actor.util.flush().unwrap();
                     sdk::sself::set_root(&cid).unwrap();
-                    return_ipld(&BigIntDe(res)).unwrap()
+                    return_ipld(&res).unwrap()
                 }
                 4218751446 => {
                     // DecreaseAllowance
@@ -248,7 +245,7 @@ pub fn invoke(params: u32) -> u32 {
                     let res = token_actor.decrease_allowance(params).unwrap();
                     let cid = token_actor.util.flush().unwrap();
                     sdk::sself::set_root(&cid).unwrap();
-                    return_ipld(&BigIntDe(res)).unwrap()
+                    return_ipld(&res).unwrap()
                 }
                 1691518633 => {
                     // RevokeAllowance
