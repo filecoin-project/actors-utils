@@ -188,11 +188,19 @@ impl TokenState {
     }
 
     /// Retrieve the balance map as a HAMT
-    fn get_balance_map<'bs, BS: Blockstore>(
+    pub fn get_balance_map<'bs, BS: Blockstore>(
         &self,
         bs: &'bs BS,
     ) -> Result<Map<'bs, BS, ActorID, TokenAmount>> {
         Ok(Hamt::load_with_bit_width(&self.balances, bs, HAMT_BIT_WIDTH)?)
+    }
+
+    /// Retrieve the number of token holders
+    ///
+    /// This involves iterating through the entire HAMT
+    pub fn get_number_token_holders<BS: Blockstore>(&self, bs: &BS) -> Result<usize> {
+        let balance_map = self.get_balance_map(bs)?;
+        Ok(balance_map.for_each(|_, _| Ok(())).into_iter().count())
     }
 
     /// Increase/decrease the total supply by the specified value
@@ -363,7 +371,7 @@ impl TokenState {
     /// Ok(Some) if the owner has allocated allowances to other actors
     /// Ok(None) if the owner has no current non-zero allowances to other actors
     /// Err if operations on the underlying Hamt failed
-    fn get_owner_allowance_map<'bs, BS: Blockstore>(
+    pub fn get_owner_allowance_map<'bs, BS: Blockstore>(
         &self,
         bs: &'bs BS,
         owner: ActorID,
@@ -379,7 +387,7 @@ impl TokenState {
     /// Get the global allowances map
     ///
     /// Gets a HAMT with CIDs linking to other HAMTs
-    fn get_allowances_map<'bs, BS: Blockstore>(
+    pub fn get_allowances_map<'bs, BS: Blockstore>(
         &self,
         bs: &'bs BS,
     ) -> Result<Map<'bs, BS, ActorID, Cid>> {
