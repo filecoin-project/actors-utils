@@ -5,11 +5,12 @@ use cid::Cid;
 use fil_fungible_token::token::{state::TokenState, types::MintReturn};
 use frc42_dispatch::method_hash;
 use fvm::executor::{ApplyKind, Executor};
+use fvm_integration_tests::bundle;
+use fvm_integration_tests::dummy::DummyExterns;
 use fvm_integration_tests::tester::{Account, Tester};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
-use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::message::Message;
@@ -24,8 +25,10 @@ const BASIC_RECEIVER_ACTOR_WASM: &str =
 #[test]
 fn mint_tokens() {
     let blockstore = MemoryBlockstore::default();
+    let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
     let mut tester =
-        Tester::new(NetworkVersion::V15, StateTreeVersion::V4, blockstore.clone()).unwrap();
+        Tester::new(NetworkVersion::V15, StateTreeVersion::V4, bundle_root, blockstore.clone())
+            .unwrap();
 
     let minter: [Account; 1] = tester.create_accounts().unwrap();
 
@@ -49,7 +52,7 @@ fn mint_tokens() {
         .unwrap();
 
     // Instantiate machine
-    tester.instantiate_machine().unwrap();
+    tester.instantiate_machine(DummyExterns).unwrap();
 
     // Helper to simplify sending messages
     let mut sequence = 0u64;
@@ -80,7 +83,8 @@ fn mint_tokens() {
     println!("receiving actor constructor return data: {:#?}", &ret_val);
 
     // Mint some tokens
-    let mint_params = MintParams { initial_owner: receive_address, amount: TokenAmount::from(100) };
+    let mint_params =
+        MintParams { initial_owner: receive_address, amount: TokenAmount::from_atto(100) };
     let params = RawBytes::serialize(mint_params).unwrap();
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(params));
     println!("mint return data {:#?}", &ret_val);
@@ -98,6 +102,6 @@ fn mint_tokens() {
     println!("balance return data {:#?}", &ret_val);
 
     let return_data = ret_val.msg_receipt.return_data;
-    let balance: BigIntDe = return_data.deserialize().unwrap();
-    println!("balance: {:?}", balance.0);
+    let balance: TokenAmount = return_data.deserialize().unwrap();
+    println!("balance: {:?}", balance);
 }

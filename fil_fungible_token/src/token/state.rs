@@ -12,12 +12,9 @@ use fvm_ipld_encoding::DAG_CBOR;
 use fvm_ipld_hamt::Error as HamtError;
 use fvm_ipld_hamt::Hamt;
 use fvm_shared::address::Address;
-use fvm_shared::bigint::bigint_ser;
-use fvm_shared::bigint::bigint_ser::BigIntDe;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
-use num_traits::Signed;
 use thiserror::Error;
 
 const HAMT_BIT_WIDTH: u32 = 5;
@@ -81,7 +78,6 @@ type Map<'bs, BS, K, V> = Hamt<&'bs BS, V, K>;
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
 pub struct TokenState {
     /// Total supply of token
-    #[serde(with = "bigint_ser")]
     pub supply: TokenAmount,
 
     /// Map<ActorId, TokenAmount> of balances as a Hamt
@@ -144,7 +140,7 @@ impl TokenState {
         let balances = self.get_balance_map(bs)?;
 
         let balance = match balances.get(&owner)? {
-            Some(amount) => amount.0.clone(),
+            Some(amount) => amount.clone(),
             None => TokenAmount::zero(),
         };
 
@@ -169,11 +165,11 @@ impl TokenState {
         let mut balance_map = self.get_balance_map(bs)?;
         let balance = balance_map.get(&owner)?;
         let balance = match balance {
-            Some(amount) => amount.0.clone(),
+            Some(amount) => amount.clone(),
             None => TokenAmount::zero(),
         };
 
-        let new_balance = balance.clone() + delta;
+        let new_balance = &balance + delta;
 
         // if the new_balance is negative, return an error
         if new_balance.is_negative() {
@@ -183,7 +179,7 @@ impl TokenState {
         if new_balance.is_zero() {
             balance_map.delete(&owner)?;
         } else {
-            balance_map.set(owner, BigIntDe(new_balance.clone()))?;
+            balance_map.set(owner, new_balance.clone())?;
         }
 
         self.balances = balance_map.flush()?;
@@ -195,7 +191,7 @@ impl TokenState {
     fn get_balance_map<'bs, BS: Blockstore>(
         &self,
         bs: &'bs BS,
-    ) -> Result<Map<'bs, BS, ActorID, BigIntDe>> {
+    ) -> Result<Map<'bs, BS, ActorID, TokenAmount>> {
         Ok(Hamt::load_with_bit_width(&self.balances, bs, HAMT_BIT_WIDTH)?)
     }
 
@@ -229,7 +225,7 @@ impl TokenState {
             Some(hamt) => {
                 let maybe_allowance = hamt.get(&operator)?;
                 if let Some(allowance) = maybe_allowance {
-                    return Ok(allowance.clone().0);
+                    return Ok(allowance.clone());
                 }
                 Ok(TokenAmount::zero())
             }
@@ -262,13 +258,13 @@ impl TokenState {
                 }
 
                 // else create a new map for the owner
-                Hamt::<&BS, BigIntDe, ActorID>::new_with_bit_width(bs, HAMT_BIT_WIDTH)
+                Hamt::<&BS, TokenAmount, ActorID>::new_with_bit_width(bs, HAMT_BIT_WIDTH)
             }
         };
 
         // calculate new allowance (max with zero)
         let new_allowance = match allowance_map.get(&operator)? {
-            Some(existing_allowance) => existing_allowance.0.clone() + delta,
+            Some(existing_allowance) => existing_allowance + delta,
             None => (*delta).clone(),
         }
         .max(TokenAmount::zero());
@@ -277,7 +273,7 @@ impl TokenState {
         if new_allowance.is_zero() {
             allowance_map.delete(&operator)?;
         } else {
-            allowance_map.set(operator, BigIntDe(new_allowance.clone()))?;
+            allowance_map.set(operator, new_allowance.clone())?;
         }
 
         // if the owner-allowance map is empty, remove it from the global allowances map
@@ -371,7 +367,7 @@ impl TokenState {
         &self,
         bs: &'bs BS,
         owner: ActorID,
-    ) -> Result<Option<Map<'bs, BS, ActorID, BigIntDe>>> {
+    ) -> Result<Option<Map<'bs, BS, ActorID, TokenAmount>>> {
         let allowances_map = self.get_allowances_map(bs)?;
         let owner_allowances = match allowances_map.get(&owner)? {
             Some(cid) => Some(Hamt::load_with_bit_width(cid, bs, HAMT_BIT_WIDTH)?),
@@ -411,19 +407,19 @@ impl TokenState {
         let balances = self.get_balance_map(bs)?;
         let res = balances.for_each(|owner, balance| {
             // all balances must be positive
-            if balance.0.is_negative() {
+            if balance.is_negative() {
                 maybe_err = Some(StateInvariantError::BalanceNegative {
                     account: *owner,
-                    balance: balance.0.clone(),
+                    balance: balance.clone(),
                 });
                 bail!("invariant failed")
             }
             // zero balances should not be stored in the Hamt
-            if balance.0.is_zero() {
+            if balance.is_zero() {
                 maybe_err = Some(StateInvariantError::ExplicitZeroBalance(*owner));
                 bail!("invariant failed")
             }
-            balance_sum = balance_sum.clone() + balance.0.clone();
+            balance_sum = balance_sum.clone() + balance.clone();
             Ok(())
         });
         if res.is_err() {
@@ -455,21 +451,21 @@ impl TokenState {
                 if *owner == *operator {
                     maybe_err = Some(StateInvariantError::ExplicitSelfAllowance {
                         account: *owner,
-                        allowance: allowance.0.clone(),
+                        allowance: allowance.clone(),
                     });
                     bail!("invariant failed")
                 }
                 // check the allowance isn't negative
-                if allowance.0.is_negative() {
+                if allowance.is_negative() {
                     maybe_err = Some(StateInvariantError::NegativeAllowance {
                         owner: *owner,
                         operator: *operator,
-                        allowance: allowance.0.clone(),
+                        allowance: allowance.clone(),
                     });
                     bail!("invariant failed")
                 }
                 // check there's no explicit zero allowance
-                if allowance.0.is_zero() {
+                if allowance.is_zero() {
                     maybe_err = Some(StateInvariantError::ExplicitZeroAllowance {
                         owner: *owner,
                         operator: *operator,
@@ -494,10 +490,8 @@ impl Cbor for TokenState {}
 #[cfg(test)]
 mod test {
     use fvm_ipld_blockstore::MemoryBlockstore;
-    use fvm_shared::{
-        bigint::{BigInt, Zero},
-        ActorID,
-    };
+    use fvm_shared::econ::TokenAmount;
+    use fvm_shared::{bigint::Zero, ActorID};
 
     use super::TokenState;
 
@@ -517,9 +511,9 @@ mod test {
         let actor: ActorID = 1;
 
         // Initially any actor has an implicit balance of 0
-        assert_eq!(state.get_balance(bs, actor).unwrap(), BigInt::zero());
+        assert_eq!(state.get_balance(bs, actor).unwrap(), TokenAmount::zero());
 
-        let amount = BigInt::from(100);
+        let amount = TokenAmount::from_atto(100);
         state.change_balance_by(bs, actor, &amount).unwrap();
 
         assert_eq!(state.get_balance(bs, actor).unwrap(), amount);
@@ -532,13 +526,13 @@ mod test {
         let actor: ActorID = 1;
 
         // can't decrease from zero
-        state.change_balance_by(bs, actor, &BigInt::from(-1)).unwrap_err();
+        state.change_balance_by(bs, actor, &TokenAmount::from_atto(-1)).unwrap_err();
         let balance = state.get_balance(bs, actor).unwrap();
-        assert_eq!(balance, BigInt::zero());
+        assert_eq!(balance, TokenAmount::zero());
 
         // can't become negative from a positive balance
-        state.change_balance_by(bs, actor, &BigInt::from(50)).unwrap();
-        state.change_balance_by(bs, actor, &BigInt::from(-100)).unwrap_err();
+        state.change_balance_by(bs, actor, &TokenAmount::from_atto(50)).unwrap();
+        state.change_balance_by(bs, actor, &TokenAmount::from_atto(-100)).unwrap_err();
     }
 
     #[test]
@@ -550,10 +544,10 @@ mod test {
 
         // initial allowance is zero
         let initial_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
-        assert_eq!(initial_allowance, BigInt::zero());
+        assert_eq!(initial_allowance, TokenAmount::zero());
 
         // can set a positive allowance
-        let delta = BigInt::from(100);
+        let delta = TokenAmount::from_atto(100);
         let ret = state.change_allowance_by(bs, owner, operator, &delta).unwrap();
         assert_eq!(ret, delta);
         let allowance_1 = state.get_allowance_between(bs, owner, operator).unwrap();
@@ -561,22 +555,22 @@ mod test {
 
         // vice-versa allowance was unaffected
         let reverse_allowance = state.get_allowance_between(bs, operator, owner).unwrap();
-        assert_eq!(reverse_allowance, BigInt::zero());
+        assert_eq!(reverse_allowance, TokenAmount::zero());
 
         // can subtract an allowance
-        let delta = BigInt::from(-50);
+        let delta = TokenAmount::from_atto(-50);
         let ret = state.change_allowance_by(bs, owner, operator, &delta).unwrap();
-        assert_eq!(ret, BigInt::from(50));
+        assert_eq!(ret, TokenAmount::from_atto(50));
         let allowance_2 = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(allowance_2, allowance_1 + delta);
-        assert_eq!(allowance_2, BigInt::from(50));
+        assert_eq!(allowance_2, TokenAmount::from_atto(50));
 
         // allowance won't go negative
-        let delta = BigInt::from(-100);
+        let delta = TokenAmount::from_atto(-100);
         let ret = state.change_allowance_by(bs, owner, operator, &delta).unwrap();
-        assert_eq!(ret, BigInt::zero());
+        assert_eq!(ret, TokenAmount::zero());
         let allowance_3 = state.get_allowance_between(bs, owner, operator).unwrap();
-        assert_eq!(allowance_3, BigInt::zero());
+        assert_eq!(allowance_3, TokenAmount::zero());
     }
 
     #[test]
@@ -587,21 +581,21 @@ mod test {
         let operator: ActorID = 2;
 
         // set a positive allowance
-        let delta = BigInt::from(100);
+        let delta = TokenAmount::from_atto(100);
         state.change_allowance_by(bs, owner, operator, &delta).unwrap();
 
         // can consume an allowance
         let new_allowance =
-            state.attempt_use_allowance(bs, operator, owner, &BigInt::from(60)).unwrap();
-        assert_eq!(new_allowance, BigInt::from(40));
+            state.attempt_use_allowance(bs, operator, owner, &TokenAmount::from_atto(60)).unwrap();
+        assert_eq!(new_allowance, TokenAmount::from_atto(40));
         let new_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
-        assert_eq!(new_allowance, BigInt::from(40));
+        assert_eq!(new_allowance, TokenAmount::from_atto(40));
 
         // cannot consume more allowance than approved
-        state.attempt_use_allowance(bs, operator, owner, &BigInt::from(50)).unwrap_err();
+        state.attempt_use_allowance(bs, operator, owner, &TokenAmount::from_atto(50)).unwrap_err();
         // allowance was unchanged
         let new_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
-        assert_eq!(new_allowance, BigInt::from(40));
+        assert_eq!(new_allowance, TokenAmount::from_atto(40));
     }
 
     #[test]
@@ -612,14 +606,14 @@ mod test {
         let operator: ActorID = 2;
 
         // set a positive allowance
-        let delta = BigInt::from(100);
+        let delta = TokenAmount::from_atto(100);
         state.change_allowance_by(bs, owner, operator, &delta).unwrap();
         state.change_allowance_by(bs, owner, operator, &delta).unwrap();
         let allowance = state.get_allowance_between(bs, owner, operator).unwrap();
-        assert_eq!(allowance, BigInt::from(200));
+        assert_eq!(allowance, TokenAmount::from_atto(200));
 
         state.revoke_allowance(bs, owner, operator).unwrap();
         let allowance = state.get_allowance_between(bs, owner, operator).unwrap();
-        assert_eq!(allowance, BigInt::zero());
+        assert_eq!(allowance, TokenAmount::zero());
     }
 }
