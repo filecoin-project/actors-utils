@@ -27,8 +27,8 @@ pub enum StateError {
 
 /// NFT state IPLD structure
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
-pub struct NFTSetState {
-    /// Amt<ActorID> of balances as a Hamt where index is TokenID
+pub struct NFTState {
+    /// Amt<TokenID, ActorID> of balances
     pub tokens: Cid,
 }
 
@@ -36,7 +36,7 @@ const AMT_BIT_WIDTH: u32 = 5;
 
 type Result<T> = std::result::Result<T, StateError>;
 
-impl NFTSetState {
+impl NFTState {
     /// Create a new NFT state-tree, without committing it (the root Cid) to a blockstore
     pub fn new<BS: Blockstore>(store: &BS) -> Result<Self> {
         // Blockstore is still needed to create valid Cids for the Hamts

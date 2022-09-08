@@ -1,7 +1,7 @@
 use fvm_ipld_blockstore::Blockstore;
 use fvm_shared::ActorID;
 
-use self::state::{NFTSetState, TokenID};
+use self::state::{NFTState, TokenID};
 
 pub mod state;
 
@@ -10,14 +10,14 @@ where
     BS: Blockstore,
 {
     bs: BS,
-    state: &'st mut NFTSetState,
+    state: &'st mut NFTState,
 }
 
 impl<'st, BS> NFT<'st, BS>
 where
     BS: Blockstore,
 {
-    pub fn wrap(bs: BS, state: &'st mut NFTSetState) -> Self {
+    pub fn wrap(bs: BS, state: &'st mut NFTState) -> Self {
         Self { bs, state }
     }
 }

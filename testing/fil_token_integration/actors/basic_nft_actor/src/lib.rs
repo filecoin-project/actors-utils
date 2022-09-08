@@ -1,5 +1,5 @@
 use fil_fungible_token::runtime::blockstore::Blockstore;
-use frcxx_nft::nft::state::{BatchMintReturn, NFTSetState};
+use frcxx_nft::nft::state::{BatchMintReturn, NFTState};
 use fvm_ipld_encoding::{de::DeserializeOwned, ser, RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
 use fvm_shared::error::ExitCode;
@@ -32,7 +32,7 @@ fn invoke(_input: u32) -> u32 {
             // Mint single token
             let bs = Blockstore {};
             let root_cid = sdk::sself::root().unwrap();
-            let mut state = NFTSetState::load(&bs, &root_cid).unwrap();
+            let mut state = NFTState::load(&bs, &root_cid).unwrap();
             let res = state.mint_token(&bs, sdk::message::caller()).unwrap();
             let cid = state.save(&bs).unwrap();
             sdk::sself::set_root(&cid).unwrap();
@@ -42,7 +42,7 @@ fn invoke(_input: u32) -> u32 {
             // Batch mint 10
             let bs = Blockstore {};
             let root_cid = sdk::sself::root().unwrap();
-            let mut state = NFTSetState::load(&bs, &root_cid).unwrap();
+            let mut state = NFTState::load(&bs, &root_cid).unwrap();
             let mut res: Vec<u64> = vec![];
             for _ in 0..10 {
                 let token = state.mint_token(&bs, sdk::message::caller()).unwrap();
@@ -56,7 +56,7 @@ fn invoke(_input: u32) -> u32 {
             // Batch mint 10 state level
             let bs = Blockstore {};
             let root_cid = sdk::sself::root().unwrap();
-            let mut state = NFTSetState::load(&bs, &root_cid).unwrap();
+            let mut state = NFTState::load(&bs, &root_cid).unwrap();
             let res = state.batch_mint_tokens(&bs, sdk::message::caller(), 10).unwrap();
             let cid = state.save(&bs).unwrap();
             sdk::sself::set_root(&cid).unwrap();
@@ -70,7 +70,7 @@ fn invoke(_input: u32) -> u32 {
 
 pub fn constructor() {
     let bs = Blockstore {};
-    let nft_state = NFTSetState::new(&bs).unwrap();
+    let nft_state = NFTState::new(&bs).unwrap();
     let state_cid = nft_state.save(&bs).unwrap();
     sdk::sself::set_root(&state_cid).unwrap();
 }
