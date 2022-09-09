@@ -58,7 +58,7 @@ pub enum IllegalNameErr {
 impl<T: Hasher> MethodResolver<T> {
     const CONSTRUCTOR_METHOD_NAME: &'static str = "Constructor";
     const CONSTRUCTOR_METHOD_NUMBER: u64 = 1_u64;
-    const FIRST_METHOD_NUMBER: u64 = 256_u64;
+    const FIRST_METHOD_NUMBER: u64 = 1 << 24;
     const DIGEST_CHUNK_LENGTH: usize = 4;
 
     /// Creates a MethodResolver with an instance of a hasher (blake2b by convention)
