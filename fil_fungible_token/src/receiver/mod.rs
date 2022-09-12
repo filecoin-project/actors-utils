@@ -32,8 +32,11 @@ impl ReceiverHook {
     /// Requires the same Messaging trait as the Token
     /// eg: `hook.call(token.msg())?;`
     ///
-    /// Returns an error if already called
-    pub fn call(&mut self, msg: &dyn Messaging) -> std::result::Result<(), TokenError> {
+    /// Returns
+    /// - an error if already called
+    /// - an error if the hook call aborted
+    /// - any return data provided by the hook upon success
+    pub fn call(&mut self, msg: &dyn Messaging) -> std::result::Result<RawBytes, TokenError> {
         if self.called {
             return Err(TokenError::ReceiverHookAlreadyCalled);
         }
@@ -53,7 +56,7 @@ impl ReceiverHook {
         )?;
 
         match receipt.exit_code {
-            ExitCode::OK => Ok(()),
+            ExitCode::OK => Ok(receipt.return_data),
             abort_code => Err(TokenError::ReceiverHook {
                 from: self.params.from,
                 to: self.params.to,
