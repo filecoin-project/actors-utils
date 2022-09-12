@@ -290,8 +290,6 @@ pub fn invoke(params: u32) -> u32 {
                     let params = deserialize_params(params);
                     let res = token_actor.mint(params).unwrap();
 
-                    let cid = token_actor.util.flush().unwrap();
-                    sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&res).unwrap()
                 }
                 _ => {
