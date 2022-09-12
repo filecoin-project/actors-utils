@@ -116,13 +116,12 @@ fn more_tests() {
         tester.call_method(operator[0].1, token_actor, method_hash!("Mint"), Some(params));
     println!("minting return data {:#?}", &ret_val);
     let mint_result: MintReturn = ret_val.msg_receipt.return_data.deserialize().unwrap();
-    // TOOD: mint result doesn't know the tokens were burned
-    // it needs some awareness of post-hook state
+    // tokens were burned so supply reduces back to zero
     println!("minted - total supply: {:?}", &mint_result.supply);
-    assert_eq!(mint_result.supply, TokenAmount::from_atto(100));
+    assert_eq!(mint_result.supply, TokenAmount::from_atto(0));
 
-    // check balance of test actor
+    // check balance of test actor, should also be zero
     let balance = tester.get_balance(operator[0].1, token_actor, test_actor);
     println!("balance held by test actor: {:?}", balance);
-    assert_eq!(balance, TokenAmount::from_atto(100));
+    assert_eq!(balance, TokenAmount::from_atto(0));
 }
