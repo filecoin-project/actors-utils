@@ -360,30 +360,31 @@ impl TokenState {
         Ok(())
     }
 
-    /// Set the allowance between owner and operator to a specific amount
+    /// Set the allowance between owner and operator to a specific amount, returning the old allowance
     pub fn set_allowance<BS: Blockstore>(
         &mut self,
         bs: &BS,
         owner: ActorID,
         operator: ActorID,
         amount: &TokenAmount,
-    ) -> Result<()> {
+    ) -> Result<TokenAmount> {
         if amount.is_negative() {
             return Err(StateError::NegativeAllowance { owner, operator, amount: amount.clone() });
         }
 
-        if amount.is_zero() {
-            // zero allowance may have special handling for cleaning up
-            return self.revoke_allowance(bs, owner, operator);
-        }
-
+        let old_allowance = self.get_allowance_between(bs, owner, operator)?;
         let mut root_allowances_map = self.get_allowances_map(bs)?;
-
         // get or create the owner's allowance map
         let mut allowance_map = match root_allowances_map.get(&owner)? {
             Some(hamt) => Hamt::load_with_bit_width(hamt, bs, HAMT_BIT_WIDTH)?,
             None => Hamt::<&BS, TokenAmount, ActorID>::new_with_bit_width(bs, HAMT_BIT_WIDTH),
         };
+
+        if amount.is_zero() {
+            // zero allowance may have special handling for cleaning up
+            self.revoke_allowance(bs, owner, operator)?;
+            return Ok(old_allowance);
+        }
 
         // set the new allowance
         allowance_map.set(operator, amount.clone())?;
@@ -392,7 +393,7 @@ impl TokenState {
         // update the state with the updated global map
         self.allowances = root_allowances_map.flush()?;
 
-        Ok(())
+        Ok(old_allowance)
     }
 
     /// Atomically checks if value is less than the allowance and deducts it if so
@@ -687,19 +688,22 @@ mod test {
 
         // can set a positive allowance
         let allowance = TokenAmount::from_atto(100);
-        state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        let old_allowance = state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        assert_eq!(old_allowance, TokenAmount::zero());
         let returned_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(returned_allowance, allowance);
 
         // can set a different positive allowance
         let allowance = TokenAmount::from_atto(120);
-        state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        let old_allowance = state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        assert_eq!(old_allowance, TokenAmount::from_atto(100));
         let returned_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(returned_allowance, allowance);
 
         // can set a zero-allowance
         let allowance = TokenAmount::from_atto(0);
-        state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        let old_allowance = state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        assert_eq!(old_allowance, TokenAmount::from_atto(120));
         let returned_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(returned_allowance, allowance);
         // the map entry is cleaned-up

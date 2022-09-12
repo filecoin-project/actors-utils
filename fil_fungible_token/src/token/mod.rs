@@ -145,7 +145,7 @@ where
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<(ReceiverHook, MintReturn)> {
-        let amount = validate_amount(amount, "mint", self.granularity)?;
+        let amount = validate_amount_with_granularity(amount, "mint", self.granularity)?;
         // init the operator account so that its actor ID can be referenced in the receiver hook
         let operator_id = self.resolve_or_init(operator)?;
         // init the owner account as allowance and balance checks are not performed for minting
@@ -237,7 +237,12 @@ where
         operator: &Address,
         delta: &TokenAmount,
     ) -> Result<TokenAmount> {
-        let delta = validate_amount(delta, "allowance delta", self.granularity)?;
+        if delta.is_negative() {
+            return Err(TokenError::InvalidNegative {
+                name: "allowance delta",
+                amount: delta.clone(),
+            });
+        }
         // Attempt to instantiate the accounts if they don't exist
         let owner = self.resolve_or_init(owner)?;
         let operator = self.resolve_or_init(operator)?;
@@ -260,7 +265,12 @@ where
         operator: &Address,
         delta: &TokenAmount,
     ) -> Result<TokenAmount> {
-        let delta = validate_amount(delta, "allowance delta", self.granularity)?;
+        if delta.is_negative() {
+            return Err(TokenError::InvalidNegative {
+                name: "allowance delta",
+                amount: delta.clone(),
+            });
+        }
         // Attempt to instantiate the accounts if they don't exist
         let owner = self.resolve_or_init(owner)?;
         let operator = self.resolve_or_init(operator)?;
@@ -294,33 +304,30 @@ where
         Ok(())
     }
 
-    /// Sets the allowance to a specified amount
+    /// Sets the allowance to a specified amount, returning the old allowance
     pub fn set_allowance(
         &mut self,
         owner: &Address,
         operator: &Address,
         amount: &TokenAmount,
-    ) -> Result<()> {
-        let owner = match self.get_id(owner) {
-            Ok(owner) => owner,
-            Err(MessagingError::AddressNotResolved(_)) => {
-                // uninitialized address has implicit zero allowance already
-                return Ok(());
-            }
-            Err(e) => return Err(e.into()),
-        };
-        let operator = match self.get_id(operator) {
-            Ok(operator) => operator,
-            Err(MessagingError::AddressNotResolved(_)) => {
-                // uninitialized address has implicit zero allowance already
-                return Ok(());
-            }
-            Err(e) => return Err(e.into()),
-        };
-        // if both accounts resolved, explicitly set allowance to zero
-        self.state.set_allowance(&self.bs, owner, operator, amount)?;
+    ) -> Result<TokenAmount> {
+        if amount.is_negative() {
+            return Err(TokenError::InvalidNegative { name: "allowance", amount: amount.clone() });
+        }
 
-        Ok(())
+        // Handle special revoke allowance case
+        if amount.is_zero() {
+            let old_allowance = self.allowance(owner, operator)?;
+            self.revoke_allowance(owner, operator)?;
+            return Ok(old_allowance);
+        }
+
+        // Attempt to instantiate the accounts if they don't exist
+        let owner = self.resolve_or_init(owner)?;
+        let operator = self.resolve_or_init(operator)?;
+
+        // if both accounts resolved, explicitly set allowance to zero
+        Ok(self.state.set_allowance(&self.bs, owner, operator, amount)?)
     }
 
     /// Burns an amount of token from the specified address, decreasing total token supply
@@ -334,7 +341,7 @@ where
     /// - The target's balance decreases by the requested value
     /// - The total_supply decreases by the requested value
     pub fn burn(&mut self, owner: &Address, amount: &TokenAmount) -> Result<BurnReturn> {
-        let amount = validate_amount(amount, "burn", self.granularity)?;
+        let amount = validate_amount_with_granularity(amount, "burn", self.granularity)?;
 
         let owner = self.resolve_or_init(owner)?;
         self.transaction(|state, bs| {
@@ -366,7 +373,7 @@ where
         owner: &Address,
         amount: &TokenAmount,
     ) -> Result<BurnFromReturn> {
-        let amount = validate_amount(amount, "burn", self.granularity)?;
+        let amount = validate_amount_with_granularity(amount, "burn", self.granularity)?;
         if self.same_address(operator, owner) {
             return Err(TokenError::InvalidOperator(*operator));
         }
@@ -436,7 +443,7 @@ where
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<(ReceiverHook, TransferReturn)> {
-        let amount = validate_amount(amount, "transfer", self.granularity)?;
+        let amount = validate_amount_with_granularity(amount, "transfer", self.granularity)?;
 
         // owner-initiated transfer
         let from = self.resolve_or_init(from)?;
@@ -500,7 +507,7 @@ where
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<(ReceiverHook, TransferFromReturn)> {
-        let amount = validate_amount(amount, "transfer", self.granularity)?;
+        let amount = validate_amount_with_granularity(amount, "transfer", self.granularity)?;
         if self.same_address(operator, from) {
             return Err(TokenError::InvalidOperator(*operator));
         }
@@ -582,7 +589,7 @@ where
     /// Using this library method obeys granularity and sign checks but does not invoke the receiver
     /// hook on recipient accounts. Returns the old balance.
     pub fn set_balance(&mut self, owner: &Address, amount: &TokenAmount) -> Result<TokenAmount> {
-        let amount = validate_amount(amount, "set_balance", self.granularity)?;
+        let amount = validate_amount_with_granularity(amount, "set_balance", self.granularity)?;
         let owner = self.resolve_or_init(owner)?;
         let old_balance =
             self.transaction(|state, bs| Ok(state.set_balance(bs, owner, amount)?))?;
@@ -672,7 +679,7 @@ where
 
 /// Validates that a token amount is non-negative, and an integer multiple of granularity.
 /// Returns the argument, or an error.
-fn validate_amount<'a>(
+fn validate_amount_with_granularity<'a>(
     a: &'a TokenAmount,
     name: &'static str,
     granularity: u64,
@@ -2433,19 +2440,6 @@ mod test {
         token.burn(ALICE, &TokenAmount::from_atto(1)).expect_err("burned below granularity");
         token.burn(ALICE, &TokenAmount::from_atto(0)).unwrap();
         token.burn(ALICE, &TokenAmount::from_atto(100)).unwrap();
-
-        // Allowance
-        token
-            .increase_allowance(ALICE, BOB, &TokenAmount::from_atto(1))
-            .expect_err("allowance delta below granularity");
-        token.increase_allowance(ALICE, BOB, &TokenAmount::from_atto(0)).unwrap();
-        token.increase_allowance(ALICE, BOB, &TokenAmount::from_atto(100)).unwrap();
-
-        token
-            .decrease_allowance(ALICE, BOB, &TokenAmount::from_atto(1))
-            .expect_err("allowance delta below granularity");
-        token.decrease_allowance(ALICE, BOB, &TokenAmount::from_atto(0)).unwrap();
-        token.decrease_allowance(ALICE, BOB, &TokenAmount::from_atto(100)).unwrap();
 
         // Transfer
         token
