@@ -85,7 +85,11 @@ fn more_tests() {
     assert!(ret_val.msg_receipt.exit_code.is_success());
 
     // mint some tokens, hook will reject
-    let mint_params = MintParams { initial_owner: test_actor, amount: TokenAmount::from_atto(100), operator_data: action(TestAction::Reject) };
+    let mint_params = MintParams {
+        initial_owner: test_actor,
+        amount: TokenAmount::from_atto(100),
+        operator_data: action(TestAction::Reject),
+    };
     let params = RawBytes::serialize(mint_params).unwrap();
     let ret_val =
         tester.call_method(operator[0].1, token_actor, method_hash!("Mint"), Some(params));
@@ -102,7 +106,11 @@ fn more_tests() {
     assert_eq!(balance, TokenAmount::from_atto(0));
 
     // mint again, hook will burn
-    let mint_params = MintParams { initial_owner: test_actor, amount: TokenAmount::from_atto(100), operator_data: action(TestAction::Burn) };
+    let mint_params = MintParams {
+        initial_owner: test_actor,
+        amount: TokenAmount::from_atto(100),
+        operator_data: action(TestAction::Burn),
+    };
     let params = RawBytes::serialize(mint_params).unwrap();
     let ret_val =
         tester.call_method(operator[0].1, token_actor, method_hash!("Mint"), Some(params));
