@@ -149,8 +149,11 @@ fn transfer_tokens() {
     println!("receiving actor constructor return data: {:#?}", &ret_val);
 
     // mint some tokens
-    let mint_params =
-        MintParams { initial_owner: transfer_address, amount: TokenAmount::from_atto(100) };
+    let mint_params = MintParams {
+        initial_owner: transfer_address,
+        amount: TokenAmount::from_atto(100),
+        operator_data: RawBytes::default(),
+    };
     let params = RawBytes::serialize(mint_params).unwrap();
     let ret_val =
         tester.call_method(operator[0].1, token_address, method_hash!("Mint"), Some(params));

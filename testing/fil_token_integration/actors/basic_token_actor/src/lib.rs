@@ -141,6 +141,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 pub struct MintParams {
     pub initial_owner: Address,
     pub amount: TokenAmount,
+    pub operator_data: RawBytes,
 }
 
 impl Cbor for MintParams {}
@@ -151,7 +152,7 @@ impl BasicToken<'_> {
             &caller_address(),
             &params.initial_owner,
             &params.amount,
-            Default::default(),
+            params.operator_data,
             Default::default(),
         )?;
 

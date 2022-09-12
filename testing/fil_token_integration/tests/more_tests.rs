@@ -84,9 +84,8 @@ fn more_tests() {
     let ret_val = tester.call_method(operator[0].1, test_actor, method_hash!("Constructor"), None);
     assert!(ret_val.msg_receipt.exit_code.is_success());
 
-    // mint some tokens
-    // TODO: add operator data to MintParams
-    let mint_params = MintParams { initial_owner: test_actor, amount: TokenAmount::from_atto(100) };
+    // mint some tokens, hook will reject
+    let mint_params = MintParams { initial_owner: test_actor, amount: TokenAmount::from_atto(100), operator_data: action(TestAction::Reject) };
     let params = RawBytes::serialize(mint_params).unwrap();
     let ret_val =
         tester.call_method(operator[0].1, token_actor, method_hash!("Mint"), Some(params));

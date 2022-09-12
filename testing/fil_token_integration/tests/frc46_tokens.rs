@@ -84,7 +84,7 @@ fn it_mints_tokens() {
 
     // Mint some tokens
     let mint_params =
-        MintParams { initial_owner: receive_address, amount: TokenAmount::from_atto(100) };
+        MintParams { initial_owner: receive_address, amount: TokenAmount::from_atto(100), operator_data: RawBytes::default() };
     let params = RawBytes::serialize(mint_params).unwrap();
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(params));
     println!("mint return data {:#?}", &ret_val);
