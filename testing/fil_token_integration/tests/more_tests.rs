@@ -90,10 +90,31 @@ fn more_tests() {
     let ret_val =
         tester.call_method(operator[0].1, token_actor, method_hash!("Mint"), Some(params));
     println!("minting return data {:#?}", &ret_val);
-    let mint_result: MintReturn = ret_val.msg_receipt.return_data.deserialize().unwrap();
-    println!("minted - total supply: {:?}", &mint_result.supply);
+    if ret_val.msg_receipt.exit_code.is_success() {
+        let mint_result: MintReturn = ret_val.msg_receipt.return_data.deserialize().unwrap();
+        println!("minted - total supply: {:?}", &mint_result.supply);
+        assert_eq!(mint_result.supply, TokenAmount::from_atto(100));
+    }
 
-    // check balance of transfer actor
+    // check balance of test actor
     let balance = tester.get_balance(operator[0].1, token_actor, test_actor);
-    println!("balance held by transfer actor: {:?}", balance);
+    println!("balance held by test actor: {:?}", balance);
+    assert_eq!(balance, TokenAmount::from_atto(0));
+
+    // mint again, hook will burn
+    let mint_params = MintParams { initial_owner: test_actor, amount: TokenAmount::from_atto(100), operator_data: action(TestAction::Burn) };
+    let params = RawBytes::serialize(mint_params).unwrap();
+    let ret_val =
+        tester.call_method(operator[0].1, token_actor, method_hash!("Mint"), Some(params));
+    println!("minting return data {:#?}", &ret_val);
+    let mint_result: MintReturn = ret_val.msg_receipt.return_data.deserialize().unwrap();
+    // TOOD: mint result doesn't know the tokens were burned
+    // it needs some awareness of post-hook state
+    println!("minted - total supply: {:?}", &mint_result.supply);
+    assert_eq!(mint_result.supply, TokenAmount::from_atto(100));
+
+    // check balance of test actor
+    let balance = tester.get_balance(operator[0].1, token_actor, test_actor);
+    println!("balance held by test actor: {:?}", balance);
+    assert_eq!(balance, TokenAmount::from_atto(100));
 }
