@@ -294,6 +294,35 @@ where
         Ok(())
     }
 
+    /// Sets the allowance to a specified amount
+    pub fn set_allowance(
+        &mut self,
+        owner: &Address,
+        operator: &Address,
+        amount: &TokenAmount,
+    ) -> Result<()> {
+        let owner = match self.get_id(owner) {
+            Ok(owner) => owner,
+            Err(MessagingError::AddressNotResolved(_)) => {
+                // uninitialized address has implicit zero allowance already
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let operator = match self.get_id(operator) {
+            Ok(operator) => operator,
+            Err(MessagingError::AddressNotResolved(_)) => {
+                // uninitialized address has implicit zero allowance already
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
+        };
+        // if both accounts resolved, explicitly set allowance to zero
+        self.state.set_allowance(&self.bs, owner, operator, amount)?;
+
+        Ok(())
+    }
+
     /// Burns an amount of token from the specified address, decreasing total token supply
     ///
     /// - The requested value MUST be non-negative
@@ -1659,6 +1688,34 @@ mod test {
         token
             .increase_allowance(ALICE, uninitializable_address, &TokenAmount::from_atto(10))
             .unwrap_err();
+        token.check_invariants().unwrap();
+    }
+
+    #[test]
+    fn it_sets_allowances() {
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
+
+        // set allowance between Alice and Carol as 100
+        token.set_allowance(ALICE, CAROL, &TokenAmount::from_atto(100)).unwrap();
+        let allowance = token.allowance(ALICE, CAROL).unwrap();
+        assert_eq!(allowance, TokenAmount::from_atto(100));
+
+        // set allowance between Alice and Carol as 120
+        token.set_allowance(ALICE, CAROL, &TokenAmount::from_atto(120)).unwrap();
+        let allowance = token.allowance(ALICE, CAROL).unwrap();
+        assert_eq!(allowance, TokenAmount::from_atto(120));
+
+        // set allowance between Alice and Carol as 0
+        token.set_allowance(ALICE, CAROL, &TokenAmount::from_atto(0)).unwrap();
+        let allowance = token.allowance(ALICE, CAROL).unwrap();
+        assert_eq!(allowance, TokenAmount::from_atto(0));
+
+        // attempt to set allowance between Alice and Carol as -50 which should error
+        token.set_allowance(ALICE, CAROL, &TokenAmount::from_atto(-50)).unwrap_err();
+
+        // check invariants (i.e. that the allowance map is emptied after being set to 0)
         token.check_invariants().unwrap();
     }
 

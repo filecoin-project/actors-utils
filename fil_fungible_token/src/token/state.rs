@@ -42,6 +42,8 @@ pub enum StateError {
     },
     #[error("total_supply cannot be negative, cannot apply delta of {delta:?} to {supply:?}")]
     NegativeTotalSupply { supply: TokenAmount, delta: TokenAmount },
+    #[error("allowance cannot be negative, cannot set allowance between {owner:?} and {operator:?} to {amount:?}")]
+    NegativeAllowance { owner: u64, operator: u64, amount: TokenAmount },
 }
 
 #[derive(Error, Debug)]
@@ -325,6 +327,41 @@ impl TokenState {
         Ok(())
     }
 
+    /// Set the allowance between owner and operator to a specific amount
+    pub fn set_allowance<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        owner: ActorID,
+        operator: ActorID,
+        amount: &TokenAmount,
+    ) -> Result<()> {
+        if amount.is_negative() {
+            return Err(StateError::NegativeAllowance { owner, operator, amount: amount.clone() });
+        }
+
+        if amount.is_zero() {
+            // zero allowance may have special handling for cleaning up
+            return self.revoke_allowance(bs, owner, operator);
+        }
+
+        let mut root_allowances_map = self.get_allowances_map(bs)?;
+
+        // get or create the owner's allowance map
+        let mut allowance_map = match root_allowances_map.get(&owner)? {
+            Some(hamt) => Hamt::load_with_bit_width(hamt, bs, HAMT_BIT_WIDTH)?,
+            None => Hamt::<&BS, TokenAmount, ActorID>::new_with_bit_width(bs, HAMT_BIT_WIDTH),
+        };
+
+        // set the new allowance
+        allowance_map.set(operator, amount.clone())?;
+        // update the root map
+        root_allowances_map.set(owner, allowance_map.flush()?)?;
+        // update the state with the updated global map
+        self.allowances = root_allowances_map.flush()?;
+
+        Ok(())
+    }
+
     /// Atomically checks if value is less than the allowance and deducts it if so
     ///
     /// Returns new allowance if successful, else returns an error and the allowance is unchanged
@@ -502,6 +539,7 @@ mod test {
     use fvm_shared::{bigint::Zero, ActorID};
 
     use super::TokenState;
+    use crate::token::state::StateError;
 
     #[test]
     fn it_instantiates() {
@@ -544,7 +582,7 @@ mod test {
     }
 
     #[test]
-    fn it_sets_allowances_between_actors() {
+    fn it_changes_allowances_between_actors() {
         let bs = &MemoryBlockstore::new();
         let mut state = TokenState::new(&bs).unwrap();
         let owner: ActorID = 1;
@@ -579,6 +617,46 @@ mod test {
         assert_eq!(ret, TokenAmount::zero());
         let allowance_3 = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(allowance_3, TokenAmount::zero());
+    }
+
+    #[test]
+    fn it_sets_allowances_between_actors() {
+        let bs = &MemoryBlockstore::new();
+        let mut state = TokenState::new(&bs).unwrap();
+        let owner: ActorID = 1;
+        let operator: ActorID = 2;
+
+        // initial allowance is zero
+        let initial_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
+        assert_eq!(initial_allowance, TokenAmount::zero());
+
+        // can set a positive allowance
+        let allowance = TokenAmount::from_atto(100);
+        state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        let returned_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
+        assert_eq!(returned_allowance, allowance);
+
+        // can set a different positive allowance
+        let allowance = TokenAmount::from_atto(120);
+        state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        let returned_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
+        assert_eq!(returned_allowance, allowance);
+
+        // can set a zero-allowance
+        let allowance = TokenAmount::from_atto(0);
+        state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        let returned_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
+        assert_eq!(returned_allowance, allowance);
+        // the map entry is cleaned-up
+        let root_map = state.get_allowances_map(bs).unwrap();
+        assert!(!root_map.contains_key(&owner).unwrap());
+
+        // can't set negative allowance
+        let allowance = TokenAmount::from_atto(-50);
+        let err = state.set_allowance(bs, owner, operator, &allowance).unwrap_err();
+        if let StateError::NegativeAllowance { owner: _, operator: _, amount } = err {
+            assert_eq!(amount, allowance);
+        }
     }
 
     #[test]
