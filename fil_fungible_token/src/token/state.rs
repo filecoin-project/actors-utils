@@ -233,7 +233,7 @@ impl TokenState {
     /// Retrieve the number of token holders
     ///
     /// This involves iterating through the entire HAMT
-    pub fn get_number_token_holders<BS: Blockstore>(&self, bs: &BS) -> Result<usize> {
+    pub fn count_balances<BS: Blockstore>(&self, bs: &BS) -> Result<usize> {
         let balance_map = self.get_balance_map(bs)?;
         Ok(balance_map.for_each(|_, _| Ok(())).into_iter().count())
     }
@@ -372,12 +372,18 @@ impl TokenState {
             return Err(StateError::NegativeAllowance { owner, operator, amount: amount.clone() });
         }
 
-        let old_allowance = self.get_allowance_between(bs, owner, operator)?;
         let mut root_allowances_map = self.get_allowances_map(bs)?;
+
         // get or create the owner's allowance map
         let mut allowance_map = match root_allowances_map.get(&owner)? {
             Some(hamt) => Hamt::load_with_bit_width(hamt, bs, HAMT_BIT_WIDTH)?,
             None => Hamt::<&BS, TokenAmount, ActorID>::new_with_bit_width(bs, HAMT_BIT_WIDTH),
+        };
+
+        // determine the existing allowance
+        let old_allowance = match allowance_map.get(&operator)? {
+            Some(a) => a.clone(),
+            None => TokenAmount::zero(),
         };
 
         if amount.is_zero() {

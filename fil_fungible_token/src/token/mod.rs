@@ -237,12 +237,8 @@ where
         operator: &Address,
         delta: &TokenAmount,
     ) -> Result<TokenAmount> {
-        if delta.is_negative() {
-            return Err(TokenError::InvalidNegative {
-                name: "allowance delta",
-                amount: delta.clone(),
-            });
-        }
+        let delta = validate_allowance(delta, "increase allowance delta")?;
+
         // Attempt to instantiate the accounts if they don't exist
         let owner = self.resolve_or_init(owner)?;
         let operator = self.resolve_or_init(operator)?;
@@ -265,12 +261,8 @@ where
         operator: &Address,
         delta: &TokenAmount,
     ) -> Result<TokenAmount> {
-        if delta.is_negative() {
-            return Err(TokenError::InvalidNegative {
-                name: "allowance delta",
-                amount: delta.clone(),
-            });
-        }
+        let delta = validate_allowance(delta, "decrease allowance delta")?;
+
         // Attempt to instantiate the accounts if they don't exist
         let owner = self.resolve_or_init(owner)?;
         let operator = self.resolve_or_init(operator)?;
@@ -311,10 +303,6 @@ where
         operator: &Address,
         amount: &TokenAmount,
     ) -> Result<TokenAmount> {
-        if amount.is_negative() {
-            return Err(TokenError::InvalidNegative { name: "allowance", amount: amount.clone() });
-        }
-
         // Handle special revoke allowance case
         if amount.is_zero() {
             let old_allowance = self.allowance(owner, operator)?;
@@ -677,9 +665,11 @@ where
     }
 }
 
-/// Validates that a token amount is non-negative, and an integer multiple of granularity.
+/// Validates that a token amount for burning/transfer/minting is non-negative, and an integer
+/// multiple of granularity.
+///
 /// Returns the argument, or an error.
-fn validate_amount_with_granularity<'a>(
+pub fn validate_amount_with_granularity<'a>(
     a: &'a TokenAmount,
     name: &'static str,
     granularity: u64,
@@ -690,6 +680,17 @@ fn validate_amount_with_granularity<'a>(
     let (_, modulus) = a.div_rem(granularity);
     if !modulus.is_zero() {
         return Err(InvalidGranularity { name, amount: a.clone(), granularity });
+    }
+    Ok(a)
+}
+
+/// Validates that an allowance is non-negative. Allowances do not need to be an integer multiple of
+/// granularity.
+///
+/// Returns the argument, or an error.
+pub fn validate_allowance<'a>(a: &'a TokenAmount, name: &'static str) -> Result<&'a TokenAmount> {
+    if a.is_negative() {
+        return Err(TokenError::InvalidNegative { name, amount: a.clone() });
     }
     Ok(a)
 }
