@@ -43,7 +43,9 @@ pub enum StateError {
     #[error("total_supply cannot be negative, cannot apply delta of {delta:?} to {supply:?}")]
     NegativeTotalSupply { supply: TokenAmount, delta: TokenAmount },
     #[error("allowance cannot be negative, cannot set allowance between {owner:?} and {operator:?} to {amount:?}")]
-    NegativeAllowance { owner: u64, operator: u64, amount: TokenAmount },
+    NegativeAllowance { amount: TokenAmount, owner: ActorID, operator: ActorID },
+    #[error("balance cannot be negative, cannot set balance of {owner:?} to {amount:?}")]
+    NegativeBalance { amount: TokenAmount, owner: ActorID },
 }
 
 #[derive(Error, Debug)]
@@ -187,6 +189,37 @@ impl TokenState {
         self.balances = balance_map.flush()?;
 
         Ok(new_balance)
+    }
+
+    /// Set the balance of the account returning the old balance
+    pub fn set_balance<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        owner: ActorID,
+        new_balance: &TokenAmount,
+    ) -> Result<TokenAmount> {
+        // if the new balance is negative, return an error
+        if new_balance.is_negative() {
+            return Err(StateError::NegativeBalance { amount: new_balance.clone(), owner });
+        }
+
+        let mut balance_map = self.get_balance_map(bs)?;
+        let old_balance = match balance_map.get(&owner)? {
+            Some(amount) => amount.clone(),
+            None => TokenAmount::zero(),
+        };
+
+        // if the new balance is zero, remove from balance map
+        if new_balance.is_zero() {
+            balance_map.delete(&owner)?;
+            self.balances = balance_map.flush()?;
+            return Ok(old_balance);
+        }
+
+        // else, set the new balance
+        balance_map.set(owner, new_balance.clone())?;
+        self.balances = balance_map.flush()?;
+        Ok(old_balance)
     }
 
     /// Retrieve the balance map as a HAMT
@@ -579,6 +612,28 @@ mod test {
         // can't become negative from a positive balance
         state.change_balance_by(bs, actor, &TokenAmount::from_atto(50)).unwrap();
         state.change_balance_by(bs, actor, &TokenAmount::from_atto(-100)).unwrap_err();
+    }
+
+    #[test]
+    fn it_sets_balances() {
+        let bs = &MemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
+        let actor: ActorID = 1;
+
+        // can set a positive balance
+        let old_balance = state.set_balance(bs, actor, &TokenAmount::from_atto(1)).unwrap();
+        assert_eq!(old_balance, TokenAmount::from_atto(0));
+        let balance = state.get_balance(bs, actor).unwrap();
+        assert_eq!(balance, TokenAmount::from_atto(1));
+
+        // can set a new positive balance, overwriting the old one
+        let old_balance = state.set_balance(bs, actor, &TokenAmount::from_atto(100)).unwrap();
+        assert_eq!(old_balance, TokenAmount::from_atto(1));
+        let balance = state.get_balance(bs, actor).unwrap();
+        assert_eq!(balance, TokenAmount::from_atto(100));
+
+        // cannot set a negative balance
+        state.set_balance(bs, actor, &TokenAmount::from_atto(-1)).unwrap_err();
     }
 
     #[test]
