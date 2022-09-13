@@ -55,7 +55,6 @@ pub trait FRCXXXNFT {
 
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct TransferParams {
-    pub from: Address,
     pub to: Address,
     pub token_ids: Vec<TokenID>,
     pub operator_data: RawBytes,
@@ -67,7 +66,6 @@ impl Cbor for TransferParams {}
 pub struct TransferFromParams {
     pub from: Address,
     pub to: Address,
-    pub operator: Address,
     pub token_ids: Vec<TokenID>,
     pub operator_data: RawBytes,
 }
