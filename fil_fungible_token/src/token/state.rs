@@ -42,6 +42,10 @@ pub enum StateError {
     },
     #[error("total_supply cannot be negative, cannot apply delta of {delta:?} to {supply:?}")]
     NegativeTotalSupply { supply: TokenAmount, delta: TokenAmount },
+    #[error("allowance cannot be negative, cannot set allowance between {owner:?} and {operator:?} to {amount:?}")]
+    NegativeAllowance { amount: TokenAmount, owner: ActorID, operator: ActorID },
+    #[error("balance cannot be negative, cannot set balance of {owner:?} to {amount:?}")]
+    NegativeBalance { amount: TokenAmount, owner: ActorID },
 }
 
 #[derive(Error, Debug)]
@@ -187,12 +191,51 @@ impl TokenState {
         Ok(new_balance)
     }
 
+    /// Set the balance of the account returning the old balance
+    pub fn set_balance<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        owner: ActorID,
+        new_balance: &TokenAmount,
+    ) -> Result<TokenAmount> {
+        // if the new balance is negative, return an error
+        if new_balance.is_negative() {
+            return Err(StateError::NegativeBalance { amount: new_balance.clone(), owner });
+        }
+
+        let mut balance_map = self.get_balance_map(bs)?;
+        let old_balance = match balance_map.get(&owner)? {
+            Some(amount) => amount.clone(),
+            None => TokenAmount::zero(),
+        };
+
+        // if the new balance is zero, remove from balance map
+        if new_balance.is_zero() {
+            balance_map.delete(&owner)?;
+            self.balances = balance_map.flush()?;
+            return Ok(old_balance);
+        }
+
+        // else, set the new balance
+        balance_map.set(owner, new_balance.clone())?;
+        self.balances = balance_map.flush()?;
+        Ok(old_balance)
+    }
+
     /// Retrieve the balance map as a HAMT
-    fn get_balance_map<'bs, BS: Blockstore>(
+    pub fn get_balance_map<'bs, BS: Blockstore>(
         &self,
         bs: &'bs BS,
     ) -> Result<Map<'bs, BS, ActorID, TokenAmount>> {
         Ok(Hamt::load_with_bit_width(&self.balances, bs, HAMT_BIT_WIDTH)?)
+    }
+
+    /// Retrieve the number of token holders
+    ///
+    /// This involves iterating through the entire HAMT
+    pub fn count_balances<BS: Blockstore>(&self, bs: &BS) -> Result<usize> {
+        let balance_map = self.get_balance_map(bs)?;
+        Ok(balance_map.for_each(|_, _| Ok(())).into_iter().count())
     }
 
     /// Increase/decrease the total supply by the specified value
@@ -292,16 +335,22 @@ impl TokenState {
 
     /// Revokes an approved allowance by removing the entry from the owner-operator map
     ///
-    /// If that map becomes empty, it is removed from the root map.
+    /// If that map becomes empty, it is removed from the root map. Returns the old allowance
     pub fn revoke_allowance<BS: Blockstore>(
         &mut self,
         bs: &BS,
         owner: ActorID,
         operator: ActorID,
-    ) -> Result<()> {
+    ) -> Result<TokenAmount> {
         let allowance_map = self.get_owner_allowance_map(bs, owner)?;
         if let Some(mut map) = allowance_map {
-            map.delete(&operator)?;
+            // revoke the allowance
+            let old_allowance = match map.delete(&operator)? {
+                Some((_, amount)) => amount,
+                None => TokenAmount::zero(),
+            };
+
+            // if the allowance map has become empty it can be dropped entirely
             if map.is_empty() {
                 let mut root_allowance_map = self.get_allowances_map(bs)?;
                 root_allowance_map.delete(&owner)?;
@@ -312,9 +361,54 @@ impl TokenState {
                 root_allowance_map.set(owner, new_cid)?;
                 self.allowances = root_allowance_map.flush()?;
             }
+
+            Ok(old_allowance)
+        } else {
+            // no allowance map exists, there is nothing to do
+            Ok(TokenAmount::zero())
+        }
+    }
+
+    /// Set the allowance between owner and operator to a specific amount, returning the old allowance
+    pub fn set_allowance<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        owner: ActorID,
+        operator: ActorID,
+        amount: &TokenAmount,
+    ) -> Result<TokenAmount> {
+        if amount.is_negative() {
+            return Err(StateError::NegativeAllowance { owner, operator, amount: amount.clone() });
         }
 
-        Ok(())
+        let mut root_allowances_map = self.get_allowances_map(bs)?;
+
+        // get or create the owner's allowance map
+        let mut allowance_map = match root_allowances_map.get(&owner)? {
+            Some(hamt) => Hamt::load_with_bit_width(hamt, bs, HAMT_BIT_WIDTH)?,
+            None => Hamt::<&BS, TokenAmount, ActorID>::new_with_bit_width(bs, HAMT_BIT_WIDTH),
+        };
+
+        // determine the existing allowance
+        let old_allowance = match allowance_map.get(&operator)? {
+            Some(a) => a.clone(),
+            None => TokenAmount::zero(),
+        };
+
+        if amount.is_zero() {
+            // zero allowance may have special handling for cleaning up
+            self.revoke_allowance(bs, owner, operator)?;
+            return Ok(old_allowance);
+        }
+
+        // set the new allowance
+        allowance_map.set(operator, amount.clone())?;
+        // update the root map
+        root_allowances_map.set(owner, allowance_map.flush()?)?;
+        // update the state with the updated global map
+        self.allowances = root_allowances_map.flush()?;
+
+        Ok(old_allowance)
     }
 
     /// Atomically checks if value is less than the allowance and deducts it if so
@@ -363,7 +457,7 @@ impl TokenState {
     /// Ok(Some) if the owner has allocated allowances to other actors
     /// Ok(None) if the owner has no current non-zero allowances to other actors
     /// Err if operations on the underlying Hamt failed
-    fn get_owner_allowance_map<'bs, BS: Blockstore>(
+    pub fn get_owner_allowance_map<'bs, BS: Blockstore>(
         &self,
         bs: &'bs BS,
         owner: ActorID,
@@ -379,7 +473,7 @@ impl TokenState {
     /// Get the global allowances map
     ///
     /// Gets a HAMT with CIDs linking to other HAMTs
-    fn get_allowances_map<'bs, BS: Blockstore>(
+    pub fn get_allowances_map<'bs, BS: Blockstore>(
         &self,
         bs: &'bs BS,
     ) -> Result<Map<'bs, BS, ActorID, Cid>> {
@@ -494,6 +588,7 @@ mod test {
     use fvm_shared::{bigint::Zero, ActorID};
 
     use super::TokenState;
+    use crate::token::state::StateError;
 
     #[test]
     fn it_instantiates() {
@@ -536,7 +631,29 @@ mod test {
     }
 
     #[test]
-    fn it_sets_allowances_between_actors() {
+    fn it_sets_balances() {
+        let bs = &MemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
+        let actor: ActorID = 1;
+
+        // can set a positive balance
+        let old_balance = state.set_balance(bs, actor, &TokenAmount::from_atto(1)).unwrap();
+        assert_eq!(old_balance, TokenAmount::from_atto(0));
+        let balance = state.get_balance(bs, actor).unwrap();
+        assert_eq!(balance, TokenAmount::from_atto(1));
+
+        // can set a new positive balance, overwriting the old one
+        let old_balance = state.set_balance(bs, actor, &TokenAmount::from_atto(100)).unwrap();
+        assert_eq!(old_balance, TokenAmount::from_atto(1));
+        let balance = state.get_balance(bs, actor).unwrap();
+        assert_eq!(balance, TokenAmount::from_atto(100));
+
+        // cannot set a negative balance
+        state.set_balance(bs, actor, &TokenAmount::from_atto(-1)).unwrap_err();
+    }
+
+    #[test]
+    fn it_changes_allowances_between_actors() {
         let bs = &MemoryBlockstore::new();
         let mut state = TokenState::new(&bs).unwrap();
         let owner: ActorID = 1;
@@ -571,6 +688,49 @@ mod test {
         assert_eq!(ret, TokenAmount::zero());
         let allowance_3 = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(allowance_3, TokenAmount::zero());
+    }
+
+    #[test]
+    fn it_sets_allowances_between_actors() {
+        let bs = &MemoryBlockstore::new();
+        let mut state = TokenState::new(&bs).unwrap();
+        let owner: ActorID = 1;
+        let operator: ActorID = 2;
+
+        // initial allowance is zero
+        let initial_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
+        assert_eq!(initial_allowance, TokenAmount::zero());
+
+        // can set a positive allowance
+        let allowance = TokenAmount::from_atto(100);
+        let old_allowance = state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        assert_eq!(old_allowance, TokenAmount::zero());
+        let returned_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
+        assert_eq!(returned_allowance, allowance);
+
+        // can set a different positive allowance
+        let allowance = TokenAmount::from_atto(120);
+        let old_allowance = state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        assert_eq!(old_allowance, TokenAmount::from_atto(100));
+        let returned_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
+        assert_eq!(returned_allowance, allowance);
+
+        // can set a zero-allowance
+        let allowance = TokenAmount::from_atto(0);
+        let old_allowance = state.set_allowance(bs, owner, operator, &allowance).unwrap();
+        assert_eq!(old_allowance, TokenAmount::from_atto(120));
+        let returned_allowance = state.get_allowance_between(bs, owner, operator).unwrap();
+        assert_eq!(returned_allowance, allowance);
+        // the map entry is cleaned-up
+        let root_map = state.get_allowances_map(bs).unwrap();
+        assert!(!root_map.contains_key(&owner).unwrap());
+
+        // can't set negative allowance
+        let allowance = TokenAmount::from_atto(-50);
+        let err = state.set_allowance(bs, owner, operator, &allowance).unwrap_err();
+        if let StateError::NegativeAllowance { owner: _, operator: _, amount } = err {
+            assert_eq!(amount, allowance);
+        }
     }
 
     #[test]

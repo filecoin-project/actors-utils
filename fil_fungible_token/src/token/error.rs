@@ -66,7 +66,9 @@ impl From<&TokenError> for ExitCode {
                 TokenStateError::IpldHamt(_) | TokenStateError::Serialization(_) => {
                     ExitCode::USR_SERIALIZATION
                 }
-                TokenStateError::NegativeTotalSupply { supply: _, delta: _ }
+                TokenStateError::NegativeBalance { amount: _, owner: _ }
+                | TokenStateError::NegativeAllowance { amount: _, owner: _, operator: _ }
+                | TokenStateError::NegativeTotalSupply { supply: _, delta: _ }
                 | TokenStateError::MissingState(_) => ExitCode::USR_ILLEGAL_STATE,
                 TokenStateError::InsufficientBalance { balance: _, delta: _, owner: _ }
                 | TokenStateError::InsufficientAllowance {
