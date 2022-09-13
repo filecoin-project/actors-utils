@@ -117,7 +117,10 @@ fn more_tests() {
     println!("minting return data {:#?}", &ret_val);
     let mint_result: MintReturn = ret_val.msg_receipt.return_data.deserialize().unwrap();
     // tokens were burned so supply reduces back to zero
-    println!("minted - total supply: {:?}", &mint_result.supply);
+    println!(
+        "minted - total supply: {:?}, balance: {:?}",
+        &mint_result.supply, &mint_result.balance
+    );
     assert_eq!(mint_result.supply, TokenAmount::from_atto(0));
 
     // check balance of test actor, should also be zero

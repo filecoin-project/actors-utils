@@ -105,6 +105,13 @@ where
         self.state = state;
     }
 
+    /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing state
+    /// The old state is returned to enable comparisons and the like but can be safely dropped otherwise
+    pub fn load_replace(&mut self, cid: &Cid) -> Result<TokenState> {
+        let new_state = TokenState::load(&self.bs, cid)?;
+        Ok(std::mem::replace(self.state, new_state))
+    }
+
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
     /// modifications to the state tree.
     ///

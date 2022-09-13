@@ -1,6 +1,5 @@
 mod util;
 
-use cid::Cid;
 use frc46_token::token::types::{
     AllowanceReturn, BalanceReturn, BurnFromReturn, BurnParams, BurnReturn,
     DecreaseAllowanceParams, FRC46Token, GetAllowanceParams, GranularityReturn,
@@ -148,7 +147,8 @@ pub struct MintParams {
 impl Cbor for MintParams {}
 
 impl BasicToken<'_> {
-    fn mint(&mut self, params: MintParams) -> Result<(Cid, MintReturn), RuntimeError> {
+    fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
+        let owner = params.initial_owner;
         let mut hook = self.util.mint(
             &caller_address(),
             &params.initial_owner,
@@ -162,7 +162,19 @@ impl BasicToken<'_> {
 
         let ret = hook.call(self.util.msg())?;
 
-        Ok((cid, ret))
+        let new_cid = sdk::sself::root().unwrap();
+        let ret = if cid == new_cid {
+            ret
+        } else {
+            self.util.load_replace(&new_cid).unwrap();
+            MintReturn {
+                balance: self.balance_of(owner).unwrap(),
+                supply: self.total_supply(),
+                recipient_data: ret.recipient_data,
+            }
+        };
+
+        Ok(ret)
     }
 }
 
@@ -290,26 +302,8 @@ pub fn invoke(params: u32) -> u32 {
                 3839021839 => {
                     // Mint
                     let params: MintParams = deserialize_params(params);
-                    let owner = params.initial_owner;
-                    let (cid, res) = token_actor.mint(params).unwrap();
-
-                    // TODO: we need to know if the cid changed. having mint return it kinda works but is messy
-                    // but we also can't reload state inside those calls
-                    let new_cid = sdk::sself::root().unwrap();
-                    if cid == new_cid {
-                        return_ipld(&res).unwrap()
-                    } else {
-                        token_state = Token::<_, FvmMessenger>::load_state(&bs, &root_cid).unwrap();
-                        token_actor = BasicToken {
-                            util: Token::wrap(bs, FvmMessenger::default(), 1, &mut token_state),
-                        };
-
-                        return_ipld(&MintReturn {
-                            balance: token_actor.balance_of(owner).unwrap(),
-                            supply: token_actor.total_supply(),
-                        })
-                        .unwrap()
-                    }
+                    let res = token_actor.mint(params).unwrap();
+                    return_ipld(&res).unwrap()
                 }
                 _ => {
                     sdk::vm::abort(
