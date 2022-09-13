@@ -123,6 +123,8 @@ pub struct MintReturn {
     pub balance: TokenAmount,
     /// The new total supply.
     pub supply: TokenAmount,
+    /// (Optional) data returned from receiver hook
+    pub hook_return_data: RawBytes,
 }
 
 impl Cbor for MintReturn {}

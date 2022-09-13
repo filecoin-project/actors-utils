@@ -145,7 +145,7 @@ impl Cbor for MintParams {}
 
 impl BasicToken<'_> {
     fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
-        let (mut hook, ret) = self.util.mint(
+        let (mut hook, mut ret) = self.util.mint(
             &caller_address(),
             &params.initial_owner,
             &params.amount,
@@ -156,7 +156,8 @@ impl BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        hook.call(self.util.msg())?;
+        let data = hook.call(self.util.msg())?;
+        ret.hook_return_data = data;
 
         Ok(ret)
     }

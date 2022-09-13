@@ -163,7 +163,11 @@ where
         let result = self.transaction(|state, bs| {
             let balance = state.change_balance_by(&bs, owner_id, amount)?;
             let supply = state.change_supply_by(amount)?;
-            Ok(MintReturn { balance, supply: supply.clone() })
+            Ok(MintReturn {
+                balance,
+                supply: supply.clone(),
+                hook_return_data: RawBytes::default(),
+            })
         })?;
 
         // return the params we'll send to the receiver hook
