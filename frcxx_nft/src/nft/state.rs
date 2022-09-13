@@ -10,12 +10,9 @@ use fvm_ipld_encoding::DAG_CBOR;
 use fvm_shared::ActorID;
 use thiserror::Error;
 
-pub type TokenID = u64;
+pub use super::types::BatchMintReturn;
 
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
-pub struct BatchMintReturn {
-    pub tokens: Vec<TokenID>,
-}
+pub type TokenID = u64;
 
 #[derive(Error, Debug)]
 pub enum StateError {
@@ -25,11 +22,30 @@ pub enum StateError {
     Other(String),
 }
 
+/// Each token stores its owner, approved operators etc.
+pub struct TokenData {
+    pub owner: ActorID,
+    pub approved: Vec<ActorID>, // or maybe as a Cid to an Amt
+}
+
+/// Each owner stores their own balance and other indexed data
+pub struct OwnerData {
+    pub balance: u64,
+    // account-level operators
+    pub approved: Vec<ActorID>, // maybe as a Cid to an Amt
+}
+
 /// NFT state IPLD structure
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
 pub struct NFTState {
-    /// Amt<TokenID, ActorID> of balances
-    pub tokens: Cid,
+    /// Amt<TokenId, TokenData> encodes information per token - ownership, operators, metadata etc.
+    pub token_data: Cid,
+    /// Amt<ActorID, OwnerData> index for faster lookup of data often queried by owner
+    pub owner_data: Cid,
+    /// The next available token id for minting
+    pub next_token: TokenID,
+    /// The number of minted tokens less the number of burned tokens
+    pub total_supply: u64,
 }
 
 const AMT_BIT_WIDTH: u32 = 5;
@@ -42,8 +58,16 @@ impl NFTState {
         // Blockstore is still needed to create valid Cids for the Hamts
         let empty_token_array =
             Amt::<ActorID, _>::new_with_bit_width(store, AMT_BIT_WIDTH).flush()?;
+        // Blockstore is still needed to create valid Cids for the Hamts
+        let empty_owner_arrays =
+            Amt::<ActorID, _>::new_with_bit_width(store, AMT_BIT_WIDTH).flush()?;
 
-        Ok(Self { tokens: empty_token_array })
+        Ok(Self {
+            token_data: empty_token_array,
+            owner_data: empty_owner_arrays,
+            next_token: 0,
+            total_supply: 0,
+        })
     }
 
     pub fn load<BS: Blockstore>(store: &BS, root: &Cid) -> Result<Self> {
@@ -67,7 +91,7 @@ impl NFTState {
     }
 
     fn get_token_amt<'bs, BS: Blockstore>(&self, store: &'bs BS) -> Result<Amt<ActorID, &'bs BS>> {
-        let res = Amt::load(&self.tokens, store)?;
+        let res = Amt::load(&self.owner_data, store)?;
         Ok(res)
     }
 
@@ -75,7 +99,7 @@ impl NFTState {
         let mut token_map = self.get_token_amt(&bs)?;
         let new_index = token_map.count();
         token_map.set(new_index, owner)?;
-        self.tokens = token_map.flush()?;
+        self.token_data = token_map.flush()?;
         Ok(new_index)
     }
 
@@ -92,7 +116,10 @@ impl NFTState {
             token_map.set(new_index, owner)?;
             tokens.push(new_index);
         }
-        self.tokens = token_map.flush()?;
+        self.token_data = token_map.flush()?;
         Ok(BatchMintReturn { tokens })
     }
 }
+
+#[cfg(test)]
+mod test {}

@@ -4,6 +4,7 @@ use fvm_shared::ActorID;
 use self::state::{NFTState, TokenID};
 
 pub mod state;
+pub mod types;
 
 pub struct NFT<'st, BS>
 where
