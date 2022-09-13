@@ -459,11 +459,19 @@ where
                     }
                     .into());
                 }
-                Ok(TransferReturn { from_balance: balance.clone(), to_balance: balance })
+                Ok(TransferReturn {
+                    from_balance: balance.clone(),
+                    to_balance: balance,
+                    hook_return_data: RawBytes::default(),
+                })
             } else {
                 let to_balance = state.change_balance_by(&bs, to_id, amount)?;
                 let from_balance = state.change_balance_by(&bs, from, &amount.neg())?;
-                Ok(TransferReturn { from_balance, to_balance })
+                Ok(TransferReturn {
+                    from_balance,
+                    to_balance,
+                    hook_return_data: RawBytes::default(),
+                })
             }
         })?;
 
@@ -562,11 +570,17 @@ where
                     from_balance: balance.clone(),
                     to_balance: balance,
                     allowance: remaining_allowance,
+                    hook_return_data: RawBytes::default(),
                 })
             } else {
                 let to_balance = state.change_balance_by(&bs, to_id, amount)?;
                 let from_balance = state.change_balance_by(&bs, from, &amount.neg())?;
-                Ok(TransferFromReturn { from_balance, to_balance, allowance: remaining_allowance })
+                Ok(TransferFromReturn {
+                    from_balance,
+                    to_balance,
+                    allowance: remaining_allowance,
+                    hook_return_data: RawBytes::default(),
+                })
             }
         })?;
 

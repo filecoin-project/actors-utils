@@ -146,6 +146,8 @@ pub struct TransferReturn {
     pub from_balance: TokenAmount,
     /// The new balance of the `to` address
     pub to_balance: TokenAmount,
+    /// (Optional) data returned from receiver hook
+    pub hook_return_data: RawBytes,
 }
 
 impl Cbor for TransferParams {}
@@ -171,6 +173,8 @@ pub struct TransferFromReturn {
     pub to_balance: TokenAmount,
     /// The new remaining allowance between `owner` and `operator` (caller)
     pub allowance: TokenAmount,
+    /// (Optional) data returned from receiver hook
+    pub hook_return_data: RawBytes,
 }
 
 impl Cbor for TransferFromParams {}
