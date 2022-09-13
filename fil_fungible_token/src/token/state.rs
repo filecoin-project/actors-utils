@@ -335,16 +335,22 @@ impl TokenState {
 
     /// Revokes an approved allowance by removing the entry from the owner-operator map
     ///
-    /// If that map becomes empty, it is removed from the root map.
+    /// If that map becomes empty, it is removed from the root map. Returns the old allowance
     pub fn revoke_allowance<BS: Blockstore>(
         &mut self,
         bs: &BS,
         owner: ActorID,
         operator: ActorID,
-    ) -> Result<()> {
+    ) -> Result<TokenAmount> {
         let allowance_map = self.get_owner_allowance_map(bs, owner)?;
         if let Some(mut map) = allowance_map {
-            map.delete(&operator)?;
+            // revoke the allowance
+            let old_allowance = match map.delete(&operator)? {
+                Some((_, amount)) => amount,
+                None => TokenAmount::zero(),
+            };
+
+            // if the allowance map has become empty it can be dropped entirely
             if map.is_empty() {
                 let mut root_allowance_map = self.get_allowances_map(bs)?;
                 root_allowance_map.delete(&owner)?;
@@ -355,9 +361,12 @@ impl TokenState {
                 root_allowance_map.set(owner, new_cid)?;
                 self.allowances = root_allowance_map.flush()?;
             }
-        }
 
-        Ok(())
+            Ok(old_allowance)
+        } else {
+            // no allowance map exists, there is nothing to do
+            Ok(TokenAmount::zero())
+        }
     }
 
     /// Set the allowance between owner and operator to a specific amount, returning the old allowance

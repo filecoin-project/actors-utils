@@ -272,13 +272,13 @@ where
         Ok(new_allowance)
     }
 
-    /// Sets the allowance between owner and operator to 0
-    pub fn revoke_allowance(&mut self, owner: &Address, operator: &Address) -> Result<()> {
+    /// Sets the allowance between owner and operator to zero, returning the old allowance
+    pub fn revoke_allowance(&mut self, owner: &Address, operator: &Address) -> Result<TokenAmount> {
         let owner = match self.get_id(owner) {
             Ok(owner) => owner,
             Err(MessagingError::AddressNotResolved(_)) => {
                 // uninitialized address has implicit zero allowance already
-                return Ok(());
+                return Ok(TokenAmount::zero());
             }
             Err(e) => return Err(e.into()),
         };
@@ -286,14 +286,12 @@ where
             Ok(operator) => operator,
             Err(MessagingError::AddressNotResolved(_)) => {
                 // uninitialized address has implicit zero allowance already
-                return Ok(());
+                return Ok(TokenAmount::zero());
             }
             Err(e) => return Err(e.into()),
         };
         // if both accounts resolved, explicitly set allowance to zero
-        self.state.revoke_allowance(&self.bs, owner, operator)?;
-
-        Ok(())
+        Ok(self.state.revoke_allowance(&self.bs, owner, operator)?)
     }
 
     /// Sets the allowance to a specified amount, returning the old allowance
@@ -303,18 +301,18 @@ where
         operator: &Address,
         amount: &TokenAmount,
     ) -> Result<TokenAmount> {
-        // Handle special revoke allowance case
+        let amount = validate_allowance(amount, "set allowance amount")?;
+
+        // Handle special revoke allowance case to avoid unnecessary account initialization
         if amount.is_zero() {
-            let old_allowance = self.allowance(owner, operator)?;
-            self.revoke_allowance(owner, operator)?;
-            return Ok(old_allowance);
+            return self.revoke_allowance(owner, operator);
         }
 
         // Attempt to instantiate the accounts if they don't exist
         let owner = self.resolve_or_init(owner)?;
         let operator = self.resolve_or_init(operator)?;
 
-        // if both accounts resolved, explicitly set allowance to zero
+        // if both accounts resolved, explicitly set allowance
         Ok(self.state.set_allowance(&self.bs, owner, operator, amount)?)
     }
 
