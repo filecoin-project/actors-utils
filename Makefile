@@ -21,7 +21,8 @@ test-coverage: install-toolchain
 		--exclude fil_token_integration_tests \
 		--exclude basic_token_actor \
 		--exclude basic_receiving_actor \
-		--exclude basic_nft_actor
+		--exclude basic_nft_actor \
+		--exclude basic_transfer_actor
 
 # separate actor testing stage to run from CI without coverage support
 test-actors: install-toolchain
