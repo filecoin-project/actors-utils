@@ -157,10 +157,12 @@ fn transfer_tokens() {
     println!("minting return data {:#?}", &ret_val);
     let mint_result: MintReturn = ret_val.msg_receipt.return_data.deserialize().unwrap();
     println!("minted - total supply: {:?}", &mint_result.supply);
+    assert_eq!(mint_result.supply, TokenAmount::from_atto(100));
 
     // check balance of transfer actor
     let balance = tester.check_balance(operator[0].1, token_address, transfer_address);
     println!("balance held by transfer actor: {:?}", balance);
+    assert_eq!(balance, TokenAmount::from_atto(100));
 
     // forward from transfer to receiving actor
     let params = RawBytes::serialize(receiver_address).unwrap();
@@ -171,7 +173,9 @@ fn transfer_tokens() {
     // check balance of receiver actor
     let balance = tester.check_balance(operator[0].1, token_address, transfer_address);
     println!("balance held by transfer actor: {:?}", balance);
+    assert_eq!(balance, TokenAmount::from_atto(0));
 
     let balance = tester.check_balance(operator[0].1, token_address, receiver_address);
     println!("balance held by receiver actor: {:?}", balance);
+    assert_eq!(balance, TokenAmount::from_atto(100));
 }
