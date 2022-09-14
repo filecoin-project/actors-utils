@@ -5,6 +5,7 @@ use fvm_shared::econ::TokenAmount;
 use thiserror::Error;
 
 use super::TokenError;
+use crate::receiver::RecipientData;
 
 #[derive(Error, Debug)]
 pub enum ActorError<Err> {
@@ -128,6 +129,11 @@ pub struct MintReturn {
 }
 
 impl Cbor for MintReturn {}
+impl RecipientData for MintReturn {
+    fn set_recipient_data(&mut self, data: RawBytes) {
+        self.recipient_data = data;
+    }
+}
 
 /// Instruction to transfer tokens to another address
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
@@ -152,6 +158,11 @@ pub struct TransferReturn {
 
 impl Cbor for TransferParams {}
 impl Cbor for TransferReturn {}
+impl RecipientData for TransferReturn {
+    fn set_recipient_data(&mut self, data: RawBytes) {
+        self.recipient_data = data;
+    }
+}
 
 /// Instruction to transfer tokens between two addresses as an operator
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
@@ -179,6 +190,11 @@ pub struct TransferFromReturn {
 
 impl Cbor for TransferFromParams {}
 impl Cbor for TransferFromReturn {}
+impl RecipientData for TransferFromReturn {
+    fn set_recipient_data(&mut self, data: RawBytes) {
+        self.recipient_data = data;
+    }
+}
 
 /// Instruction to increase an allowance between two addresses
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
