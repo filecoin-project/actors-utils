@@ -19,7 +19,8 @@ impl Hasher for Blake2bSyscall {
     // fvm_sdk dependence can be removed using no_sdk feature
     #[cfg(not(feature = "no_sdk"))]
     fn hash(&self, bytes: &[u8]) -> Vec<u8> {
-        crypto::hash_blake2b(bytes).try_into().unwrap()
+        use fvm_shared::crypto::hash::SupportedHashes;
+        crypto::hash(SupportedHashes::Blake2b512, bytes)
     }
 
     // stub version that avoids fvm_sdk syscalls (eg: for proc macro, or built-in actor use)
@@ -58,7 +59,7 @@ pub enum IllegalNameErr {
 impl<T: Hasher> MethodResolver<T> {
     const CONSTRUCTOR_METHOD_NAME: &'static str = "Constructor";
     const CONSTRUCTOR_METHOD_NUMBER: u64 = 1_u64;
-    const FIRST_METHOD_NUMBER: u64 = 256_u64;
+    const FIRST_METHOD_NUMBER: u64 = 1 << 24;
     const DIGEST_CHUNK_LENGTH: usize = 4;
 
     /// Creates a MethodResolver with an instance of a hasher (blake2b by convention)
