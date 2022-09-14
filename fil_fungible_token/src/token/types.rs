@@ -124,7 +124,7 @@ pub struct MintReturn {
     /// The new total supply.
     pub supply: TokenAmount,
     /// (Optional) data returned from receiver hook
-    pub hook_return_data: RawBytes,
+    pub recipient_data: RawBytes,
 }
 
 impl Cbor for MintReturn {}
@@ -147,7 +147,7 @@ pub struct TransferReturn {
     /// The new balance of the `to` address
     pub to_balance: TokenAmount,
     /// (Optional) data returned from receiver hook
-    pub hook_return_data: RawBytes,
+    pub recipient_data: RawBytes,
 }
 
 impl Cbor for TransferParams {}
@@ -174,7 +174,7 @@ pub struct TransferFromReturn {
     /// The new remaining allowance between `owner` and `operator` (caller)
     pub allowance: TokenAmount,
     /// (Optional) data returned from receiver hook
-    pub hook_return_data: RawBytes,
+    pub recipient_data: RawBytes,
 }
 
 impl Cbor for TransferFromParams {}

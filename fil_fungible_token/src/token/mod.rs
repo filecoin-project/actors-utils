@@ -163,11 +163,7 @@ where
         let result = self.transaction(|state, bs| {
             let balance = state.change_balance_by(&bs, owner_id, amount)?;
             let supply = state.change_supply_by(amount)?;
-            Ok(MintReturn {
-                balance,
-                supply: supply.clone(),
-                hook_return_data: RawBytes::default(),
-            })
+            Ok(MintReturn { balance, supply: supply.clone(), recipient_data: RawBytes::default() })
         })?;
 
         // return the params we'll send to the receiver hook
@@ -462,16 +458,12 @@ where
                 Ok(TransferReturn {
                     from_balance: balance.clone(),
                     to_balance: balance,
-                    hook_return_data: RawBytes::default(),
+                    recipient_data: RawBytes::default(),
                 })
             } else {
                 let to_balance = state.change_balance_by(&bs, to_id, amount)?;
                 let from_balance = state.change_balance_by(&bs, from, &amount.neg())?;
-                Ok(TransferReturn {
-                    from_balance,
-                    to_balance,
-                    hook_return_data: RawBytes::default(),
-                })
+                Ok(TransferReturn { from_balance, to_balance, recipient_data: RawBytes::default() })
             }
         })?;
 
@@ -570,7 +562,7 @@ where
                     from_balance: balance.clone(),
                     to_balance: balance,
                     allowance: remaining_allowance,
-                    hook_return_data: RawBytes::default(),
+                    recipient_data: RawBytes::default(),
                 })
             } else {
                 let to_balance = state.change_balance_by(&bs, to_id, amount)?;
@@ -579,7 +571,7 @@ where
                     from_balance,
                     to_balance,
                     allowance: remaining_allowance,
-                    hook_return_data: RawBytes::default(),
+                    recipient_data: RawBytes::default(),
                 })
             }
         })?;

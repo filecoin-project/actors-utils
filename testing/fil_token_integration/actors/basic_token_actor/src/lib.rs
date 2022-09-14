@@ -64,7 +64,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         sdk::sself::set_root(&cid).unwrap();
 
         let data = hook.call(self.util.msg())?;
-        ret.hook_return_data = data;
+        ret.recipient_data = data;
 
         Ok(ret)
     }
@@ -87,7 +87,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         sdk::sself::set_root(&cid).unwrap();
 
         let data = hook.call(self.util.msg())?;
-        ret.hook_return_data = data;
+        ret.recipient_data = data;
 
         Ok(ret)
     }
@@ -161,7 +161,7 @@ impl BasicToken<'_> {
         sdk::sself::set_root(&cid).unwrap();
 
         let data = hook.call(self.util.msg())?;
-        ret.hook_return_data = data;
+        ret.recipient_data = data;
 
         Ok(ret)
     }
