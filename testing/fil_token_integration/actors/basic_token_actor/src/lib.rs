@@ -52,7 +52,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
     fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
         let operator = caller_address();
-        let (mut hook, ret) = self.util.transfer(
+        let mut hook = self.util.transfer(
             &operator,
             &params.to,
             &params.amount,
@@ -63,7 +63,8 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        hook.call(self.util.msg())?;
+        let ret = hook.call(self.util.msg())?;
+
         Ok(ret)
     }
 
@@ -72,7 +73,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         params: fil_fungible_token::token::types::TransferFromParams,
     ) -> Result<TransferFromReturn, RuntimeError> {
         let operator = caller_address();
-        let (mut hook, ret) = self.util.transfer_from(
+        let mut hook = self.util.transfer_from(
             &operator,
             &params.from,
             &params.to,
@@ -84,7 +85,8 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        hook.call(self.util.msg())?;
+        let ret = hook.call(self.util.msg())?;
+
         Ok(ret)
     }
 
@@ -145,7 +147,7 @@ impl Cbor for MintParams {}
 
 impl BasicToken<'_> {
     fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
-        let (mut hook, ret) = self.util.mint(
+        let mut hook = self.util.mint(
             &caller_address(),
             &params.initial_owner,
             &params.amount,
@@ -156,7 +158,7 @@ impl BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        hook.call(self.util.msg())?;
+        let ret = hook.call(self.util.msg())?;
 
         Ok(ret)
     }
