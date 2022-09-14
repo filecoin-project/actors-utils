@@ -65,6 +65,14 @@ where
         Ok(TokenState::new(bs)?)
     }
 
+    /// Creates a new clean token state instance, specifying the underlying Hamt bit widths
+    ///
+    /// This should be wrapped in a Token handle for convenience. Must be flushed to the blockstore
+    /// explicitly to persist changes
+    pub fn create_state_with_bit_width(bs: &BS, hamt_bit_width: u32) -> Result<TokenState> {
+        Ok(TokenState::new_with_bit_width(bs, hamt_bit_width)?)
+    }
+
     /// Wrap an existing token state
     pub fn wrap(bs: BS, msg: MSG, granularity: u64, state: &'st mut TokenState) -> Self {
         Self { bs, msg, granularity, state }
@@ -825,6 +833,20 @@ mod test {
         let token2 =
             Token::wrap(&bs, FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 6), 1, &mut state);
         assert_eq!(token2.total_supply(), TokenAmount::from_atto(100));
+    }
+
+    #[test]
+    fn it_instantiates_with_variable_bit_width() {
+        let bs = &MemoryBlockstore::new();
+        let mut state = Token::<_, FakeMessenger>::create_state_with_bit_width(bs, 2).unwrap();
+        state.set_balance(bs, ALICE.id().unwrap(), &TokenAmount::from_atto(100)).unwrap();
+        let state_cid = state.save(bs).unwrap();
+
+        let token = Token::<_, FakeMessenger>::load_state(bs, &state_cid).unwrap();
+        assert_eq!(
+            token.get_balance(bs, ALICE.id().unwrap()).unwrap(),
+            TokenAmount::from_atto(100)
+        );
     }
 
     #[test]

@@ -17,7 +17,9 @@ use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 use thiserror::Error;
 
-const HAMT_BIT_WIDTH: u32 = 5;
+/// This value has been chosen to optimise to reduce gas-costs when accessing the balances map. Non-
+/// standard use cases of the token library might find a different value to be more efficient.
+pub const DEFAULT_HAMT_BIT_WIDTH: u32 = 3;
 
 #[derive(Error, Debug)]
 pub enum StateError {
@@ -83,11 +85,12 @@ type Map<'bs, BS, K, V> = Hamt<&'bs BS, V, K>;
 pub struct TokenState {
     /// Total supply of token
     pub supply: TokenAmount,
-
     /// Map<ActorId, TokenAmount> of balances as a Hamt
     pub balances: Cid,
     /// Map<ActorId, Map<ActorId, TokenAmount>> as a Hamt. Allowances are stored balances[owner][operator]
     pub allowances: Cid,
+    /// Bit-width to use when loading Hamts
+    hamt_bit_width: u32,
 }
 
 /// An abstraction over the IPLD layer to get and modify token state without dealing with HAMTs etc.
@@ -96,33 +99,40 @@ pub struct TokenState {
 /// checks such as ensuring necessary approvals are enforced during transfers. This is left for the
 /// caller to handle. However, some invariants such as non-negative balances, allowances and total
 /// supply are enforced.
-///
-/// Some methods on TokenState require the caller to pass in a blockstore implementing the Clone
-/// trait. It is assumed that when cloning the blockstore implementation does a "shallow-clone"
-/// of the blockstore and provides access to the same underlying data.
 impl TokenState {
-    /// Create a new token state-tree, without committing it (the root Cid) to a blockstore
+    /// Create a new token state-tree, without committing it (the root cid) to a blockstore
     pub fn new<BS: Blockstore>(store: &BS) -> Result<Self> {
+        Self::new_with_bit_width(store, DEFAULT_HAMT_BIT_WIDTH)
+    }
+
+    /// Create a new token state-tree, without committing it (the root cid) to a blockstore
+    ///
+    /// Explicitly sets the bit width of underlying Hamt structures. Caller must ensure
+    /// 1 <= hamt_bit_width <= 8.
+    pub fn new_with_bit_width<BS: Blockstore>(store: &BS, hamt_bit_width: u32) -> Result<Self> {
         // Blockstore is still needed to create valid Cids for the Hamts
-        let empty_balance_map = Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH).flush()?;
+        let empty_balance_map = Hamt::<_, ()>::new_with_bit_width(store, hamt_bit_width).flush()?;
         let empty_allowances_map =
-            Hamt::<_, ()>::new_with_bit_width(store, HAMT_BIT_WIDTH).flush()?;
+            Hamt::<_, ()>::new_with_bit_width(store, hamt_bit_width).flush()?;
 
         Ok(Self {
             supply: Default::default(),
             balances: empty_balance_map,
             allowances: empty_allowances_map,
+            hamt_bit_width,
         })
     }
 
     /// Loads a fresh copy of the state from a blockstore from a given cid
     pub fn load<BS: Blockstore>(bs: &BS, cid: &Cid) -> Result<Self> {
         // Load the actor state from the state tree.
-        match bs.get_cbor::<Self>(cid) {
+        let state = match bs.get_cbor::<Self>(cid) {
             Ok(Some(state)) => Ok(state),
             Ok(None) => Err(StateError::MissingState(*cid)),
             Err(err) => Err(StateError::Serialization(err.to_string())),
-        }
+        }?;
+
+        Ok(state)
     }
 
     /// Saves the current state to the blockstore, returning the cid
@@ -227,7 +237,7 @@ impl TokenState {
         &self,
         bs: &'bs BS,
     ) -> Result<Map<'bs, BS, ActorID, TokenAmount>> {
-        Ok(Hamt::load_with_bit_width(&self.balances, bs, HAMT_BIT_WIDTH)?)
+        Ok(Hamt::load_with_bit_width(&self.balances, bs, self.hamt_bit_width)?)
     }
 
     /// Retrieve the number of token holders
@@ -293,7 +303,7 @@ impl TokenState {
 
         // get or create the owner's allowance map
         let mut allowance_map = match global_allowances_map.get(&owner)? {
-            Some(hamt) => Hamt::load_with_bit_width(hamt, bs, HAMT_BIT_WIDTH)?,
+            Some(hamt) => Hamt::load_with_bit_width(hamt, bs, self.hamt_bit_width)?,
             None => {
                 // the owner doesn't have any allowances, and the delta is negative, this is a no-op
                 if delta.is_negative() {
@@ -301,7 +311,7 @@ impl TokenState {
                 }
 
                 // else create a new map for the owner
-                Hamt::<&BS, TokenAmount, ActorID>::new_with_bit_width(bs, HAMT_BIT_WIDTH)
+                Hamt::<&BS, TokenAmount, ActorID>::new_with_bit_width(bs, self.hamt_bit_width)
             }
         };
 
@@ -385,8 +395,8 @@ impl TokenState {
 
         // get or create the owner's allowance map
         let mut allowance_map = match root_allowances_map.get(&owner)? {
-            Some(hamt) => Hamt::load_with_bit_width(hamt, bs, HAMT_BIT_WIDTH)?,
-            None => Hamt::<&BS, TokenAmount, ActorID>::new_with_bit_width(bs, HAMT_BIT_WIDTH),
+            Some(hamt) => Hamt::load_with_bit_width(hamt, bs, self.hamt_bit_width)?,
+            None => Hamt::<&BS, TokenAmount, ActorID>::new_with_bit_width(bs, self.hamt_bit_width),
         };
 
         // determine the existing allowance
@@ -464,7 +474,7 @@ impl TokenState {
     ) -> Result<Option<Map<'bs, BS, ActorID, TokenAmount>>> {
         let allowances_map = self.get_allowances_map(bs)?;
         let owner_allowances = match allowances_map.get(&owner)? {
-            Some(cid) => Some(Hamt::load_with_bit_width(cid, bs, HAMT_BIT_WIDTH)?),
+            Some(cid) => Some(Hamt::load_with_bit_width(cid, bs, self.hamt_bit_width)?),
             None => None,
         };
         Ok(owner_allowances)
@@ -477,7 +487,7 @@ impl TokenState {
         &self,
         bs: &'bs BS,
     ) -> Result<Map<'bs, BS, ActorID, Cid>> {
-        Ok(Hamt::load_with_bit_width(&self.allowances, bs, HAMT_BIT_WIDTH)?)
+        Ok(Hamt::load_with_bit_width(&self.allowances, bs, self.hamt_bit_width)?)
     }
 
     /// Checks that the current state obeys all system invariants
@@ -775,5 +785,24 @@ mod test {
         state.revoke_allowance(bs, owner, operator).unwrap();
         let allowance = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(allowance, TokenAmount::zero());
+    }
+
+    #[test]
+    fn it_allows_variable_bit_width() {
+        let bs = &MemoryBlockstore::new();
+        let mut state = TokenState::new_with_bit_width(bs, 8).unwrap();
+        let amount = TokenAmount::from_whole(5);
+        for owner in 0_u64..10_u64 {
+            state.set_balance(&bs, owner, &amount).unwrap();
+        }
+        let cid = state.save(bs).unwrap();
+
+        let loaded_state = TokenState::load(bs, &cid).unwrap();
+        assert_eq!(loaded_state.hamt_bit_width, 8);
+        for owner in 0_u64..10_u64 {
+            // loading the hamts with the wrong bitwidth would result in corrupted data
+            let balance = loaded_state.get_balance(&bs, owner).unwrap();
+            assert_eq!(balance, amount);
+        }
     }
 }
