@@ -37,6 +37,17 @@ impl TransferActorState {
     }
 }
 
+/// Implements a simple actor that can hold and transfer tokens
+///
+/// First operator to send it tokens will be saved and tokens from other operators will be rejected
+///
+/// Address of the token actor is also saved as this identifies the token type
+///
+/// After receiving some tokens, it does nothing until the Forward method is called by the initial operator
+/// When Forward method is invoked, it will transfer the entire balance it holds to a given address
+///
+/// Forward requires the same operator to initiate transfer and will abort if the operator address doesn't match,
+/// or if the receiver hook rejects the transfer
 #[no_mangle]
 fn invoke(input: u32) -> u32 {
     std::panic::set_hook(Box::new(|info| {
