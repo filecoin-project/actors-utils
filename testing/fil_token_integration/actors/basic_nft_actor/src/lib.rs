@@ -1,4 +1,4 @@
-use fil_fungible_token::runtime::blockstore::Blockstore;
+use frc46_token::runtime::blockstore::Blockstore;
 use frcxx_nft::nft::state::{BatchMintReturn, NFTState};
 use fvm_ipld_encoding::{de::DeserializeOwned, ser, RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;

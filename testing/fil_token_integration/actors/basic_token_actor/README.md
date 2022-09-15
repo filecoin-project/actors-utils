@@ -1,10 +1,7 @@
 # Basic Token Actor
 
-This example uses the
-[fil_fungible_token](../../../../fil_fungible_token/README.md) package to
-implement a
-[FRC XXX compliant](https://github.com/filecoin-project/FIPs/discussions/407)
-token actor.
-
-This actor SHOULD NOT be used in production as it has a faucet-like minting
-strategy.
+This is an **example** that uses the
+[frc46_token](../../../../frc46_token/README.md) package to implement a
+[FRC0046-compliant](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md)
+token actor. This actor **should not be used in production** as it has a
+faucet-like minting strategy.

@@ -4,7 +4,7 @@ use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 
-/// Standard interface for an actor that wishes to receive FRC-XXX tokens or other assets
+/// Standard interface for an actor that wishes to receive FRC0046 tokens or other assets
 pub trait UniversalReceiver {
     /// Invoked by a token actor during pending transfer or mint to the receiver's address
     ///

@@ -2,8 +2,8 @@ use std::env;
 
 use basic_token_actor::MintParams;
 use cid::Cid;
-use fil_fungible_token::token::{state::TokenState, types::MintReturn};
 use frc42_dispatch::method_hash;
+use frc46_token::token::{state::TokenState, types::MintReturn};
 use fvm::{
     executor::{ApplyKind, ApplyRet, Executor},
     externs::Externs,

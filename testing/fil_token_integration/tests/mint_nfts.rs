@@ -1,8 +1,8 @@
 use std::env;
 
 use cid::Cid;
-use fil_fungible_token::token::state::TokenState;
 use frc42_dispatch::method_hash;
+use frc46_token::token::state::TokenState;
 use fvm::executor::{ApplyKind, Executor};
 use fvm_integration_tests::bundle;
 use fvm_integration_tests::dummy::DummyExterns;
