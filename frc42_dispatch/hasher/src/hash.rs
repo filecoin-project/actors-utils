@@ -42,7 +42,7 @@ pub struct MethodResolver<T: Hasher> {
 pub enum MethodNameErr {
     #[error("empty method name provided")]
     EmptyString,
-    #[error("method name does not conform to the FRC0042 convention {0}")]
+    #[error("method name does not conform to the FRC-0042 convention {0}")]
     IllegalName(#[from] IllegalNameErr),
     #[error("unable to calculate method id, choose a another method name")]
     IndeterminableId,
