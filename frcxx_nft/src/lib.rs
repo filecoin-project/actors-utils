@@ -7,7 +7,7 @@
 //! in many cases.
 
 use fvm_ipld_blockstore::Blockstore;
-use fvm_shared::ActorID;
+use fvm_shared::{address::Address, ActorID};
 
 use self::state::{NFTState, TokenID};
 
@@ -40,7 +40,7 @@ where
     /// Create a single new NFT belonging to the initial_owner
     ///
     /// Returns the TokenID of the minted which is allocated incrementally
-    pub fn mint(&mut self, initial_owner: ActorID, metadata_uri: String) -> TokenID {
+    pub fn mint(&mut self, initial_owner: Address, metadata_uri: String) -> TokenID {
         self.state.mint_token(&self.bs, initial_owner, metadata_uri).unwrap()
     }
 }
