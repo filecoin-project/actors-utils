@@ -14,7 +14,7 @@ This repo contains utilities and libraries to work with the
 
 An actor calling convention that derives method numbers by hashing method names
 
-| FIP Spec                                                              | Reference Implementation                     | Examples                                         |
+| FRC Spec                                                              | Reference Implementation                     | Examples                                         |
 | --------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------ |
 | https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0042.md | [frc42_dispatch](./frc42_dispatch/README.md) | [greeter](./dispatch_examples/greeter/README.md) |
 
