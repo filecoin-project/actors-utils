@@ -13,8 +13,6 @@ use fvm_ipld_hamt::Hamt;
 use fvm_shared::ActorID;
 use thiserror::Error;
 
-pub use super::types::BatchMintReturn;
-
 pub type TokenID = u64;
 
 #[derive(Error, Debug)]

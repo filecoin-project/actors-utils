@@ -96,8 +96,3 @@ pub struct IsApprovedForAllParams {
 }
 
 impl Cbor for IsApprovedForAllParams {}
-
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
-pub struct BatchMintReturn {
-    pub tokens: Vec<TokenID>,
-}

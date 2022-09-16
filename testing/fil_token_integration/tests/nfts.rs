@@ -38,10 +38,6 @@ fn it_mints_nfts() {
         env::current_dir().unwrap().join(BASIC_RECEIVER_ACTOR_WASM).canonicalize().unwrap();
     let rcvr_bin = std::fs::read(rcvr_path).expect("Unable to read receiver actor file");
 
-    // Set actor state
-    let actor_state = NFTState::new(&blockstore).unwrap();
-    let _state_cid = tester.set_state(&actor_state).unwrap();
-
     let actor_address = Address::new_id(10000);
     let receive_address = Address::new_id(10010);
     tester
