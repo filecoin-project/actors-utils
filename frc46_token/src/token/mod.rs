@@ -2,15 +2,12 @@ use std::ops::Neg;
 
 use cid::Cid;
 pub use error::TokenError;
-use fvm_actor_utils::messaging::{
-    Messaging, MessagingError, Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM,
-};
+use fvm_actor_utils::messaging::{Messaging, MessagingError, RECEIVER_HOOK_METHOD_NUM};
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::error::ExitCode;
-use fvm_shared::ActorID;
 use num_traits::Zero;
 
 use self::state::{StateError as TokenStateError, TokenState};
@@ -156,9 +153,9 @@ where
     ) -> Result<ReceiverHook<MintReturn>> {
         let amount = validate_amount_with_granularity(amount, "mint", self.granularity)?;
         // init the operator account so that its actor ID can be referenced in the receiver hook
-        let operator_id = self.resolve_or_init(operator)?;
+        let operator_id = self.msg.resolve_or_init(operator)?;
         // init the owner account as allowance and balance checks are not performed for minting
-        let owner_id = self.resolve_or_init(initial_owner)?;
+        let owner_id = self.msg.resolve_or_init(initial_owner)?;
 
         // Increase the balance of the actor and increase total supply
         let result = self.transaction(|state, bs| {
@@ -194,7 +191,7 @@ where
     pub fn balance_of(&self, owner: &Address) -> Result<TokenAmount> {
         // Don't instantiate an account if unable to resolve to an ID address, as non-initialized
         // addresses have an implicit zero balance
-        match self.get_id(owner) {
+        match self.msg.resolve_id(owner) {
             Ok(owner) => Ok(self.state.get_balance(&self.bs, owner)?),
             Err(MessagingError::AddressNotResolved(_)) => {
                 // uninitialized address has implicit zero balance
@@ -211,7 +208,7 @@ where
     pub fn allowance(&self, owner: &Address, operator: &Address) -> Result<TokenAmount> {
         // Don't instantiate an account if unable to resolve owner-ID, as non-initialized addresses
         // give implicit zero allowances to all addresses
-        let owner = match self.get_id(owner) {
+        let owner = match self.msg.resolve_id(owner) {
             Ok(owner) => owner,
             Err(MessagingError::AddressNotResolved(_)) => {
                 return Ok(TokenAmount::zero());
@@ -221,7 +218,7 @@ where
 
         // Don't instantiate an account if unable to resolve operator-ID, as non-initialized
         // addresses have an implicit zero allowance
-        let operator = match self.get_id(operator) {
+        let operator = match self.msg.resolve_id(operator) {
             Ok(operator) => operator,
             Err(MessagingError::AddressNotResolved(_)) => {
                 return Ok(TokenAmount::zero());
@@ -249,8 +246,8 @@ where
         let delta = validate_allowance(delta, "increase allowance delta")?;
 
         // Attempt to instantiate the accounts if they don't exist
-        let owner = self.resolve_or_init(owner)?;
-        let operator = self.resolve_or_init(operator)?;
+        let owner = self.msg.resolve_or_init(owner)?;
+        let operator = self.msg.resolve_or_init(operator)?;
         let new_amount = self.state.change_allowance_by(&self.bs, owner, operator, delta)?;
 
         Ok(new_amount)
@@ -273,8 +270,8 @@ where
         let delta = validate_allowance(delta, "decrease allowance delta")?;
 
         // Attempt to instantiate the accounts if they don't exist
-        let owner = self.resolve_or_init(owner)?;
-        let operator = self.resolve_or_init(operator)?;
+        let owner = self.msg.resolve_or_init(owner)?;
+        let operator = self.msg.resolve_or_init(operator)?;
         let new_allowance =
             self.state.change_allowance_by(&self.bs, owner, operator, &delta.neg())?;
 
@@ -283,7 +280,7 @@ where
 
     /// Sets the allowance between owner and operator to zero, returning the old allowance
     pub fn revoke_allowance(&mut self, owner: &Address, operator: &Address) -> Result<TokenAmount> {
-        let owner = match self.get_id(owner) {
+        let owner = match self.msg.resolve_id(owner) {
             Ok(owner) => owner,
             Err(MessagingError::AddressNotResolved(_)) => {
                 // uninitialized address has implicit zero allowance already
@@ -291,7 +288,7 @@ where
             }
             Err(e) => return Err(e.into()),
         };
-        let operator = match self.get_id(operator) {
+        let operator = match self.msg.resolve_id(operator) {
             Ok(operator) => operator,
             Err(MessagingError::AddressNotResolved(_)) => {
                 // uninitialized address has implicit zero allowance already
@@ -318,8 +315,8 @@ where
         }
 
         // Attempt to instantiate the accounts if they don't exist
-        let owner = self.resolve_or_init(owner)?;
-        let operator = self.resolve_or_init(operator)?;
+        let owner = self.msg.resolve_or_init(owner)?;
+        let operator = self.msg.resolve_or_init(operator)?;
 
         // if both accounts resolved, explicitly set allowance
         Ok(self.state.set_allowance(&self.bs, owner, operator, amount)?)
@@ -338,7 +335,7 @@ where
     pub fn burn(&mut self, owner: &Address, amount: &TokenAmount) -> Result<BurnReturn> {
         let amount = validate_amount_with_granularity(amount, "burn", self.granularity)?;
 
-        let owner = self.resolve_or_init(owner)?;
+        let owner = self.msg.resolve_or_init(owner)?;
         self.transaction(|state, bs| {
             // attempt to burn the requested amount
             let new_amount = state.change_balance_by(&bs, owner, &amount.clone().neg())?;
@@ -369,12 +366,12 @@ where
         amount: &TokenAmount,
     ) -> Result<BurnFromReturn> {
         let amount = validate_amount_with_granularity(amount, "burn", self.granularity)?;
-        if self.same_address(operator, owner) {
+        if self.msg.same_address(operator, owner) {
             return Err(TokenError::InvalidOperator(*operator));
         }
 
         // operator must exist to have a non-zero allowance
-        let operator = match self.get_id(operator) {
+        let operator = match self.msg.resolve_id(operator) {
             Ok(operator) => operator,
             Err(MessagingError::AddressNotResolved(addr)) => {
                 // if not resolved, implicit zero allowance is not permitted to burn, so return an
@@ -391,7 +388,7 @@ where
         };
 
         // owner must exist to have set a non-zero allowance
-        let owner = match self.get_id(owner) {
+        let owner = match self.msg.resolve_id(owner) {
             Ok(owner) => owner,
             Err(MessagingError::AddressNotResolved(addr)) => {
                 return Err(TokenStateError::InsufficientAllowance {
@@ -441,8 +438,8 @@ where
         let amount = validate_amount_with_granularity(amount, "transfer", self.granularity)?;
 
         // owner-initiated transfer
-        let from = self.resolve_or_init(from)?;
-        let to_id = self.resolve_or_init(to)?;
+        let from = self.msg.resolve_or_init(from)?;
+        let to_id = self.msg.resolve_or_init(to)?;
         // skip allowance check for self-managed transfers
         let res = self.transaction(|state, bs| {
             // don't change balance if to == from, but must check that the transfer doesn't exceed balance
@@ -507,12 +504,12 @@ where
         token_data: RawBytes,
     ) -> Result<ReceiverHook<TransferFromReturn>> {
         let amount = validate_amount_with_granularity(amount, "transfer", self.granularity)?;
-        if self.same_address(operator, from) {
+        if self.msg.same_address(operator, from) {
             return Err(TokenError::InvalidOperator(*operator));
         }
 
         // operator-initiated transfer must have a resolvable operator
-        let operator_id = match self.get_id(operator) {
+        let operator_id = match self.msg.resolve_id(operator) {
             // if operator resolved, we can continue with other checks
             Ok(id) => id,
             // if we cannot resolve the operator, they are forbidden to transfer
@@ -528,7 +525,7 @@ where
         };
 
         // the owner must exist to have specified a non-zero allowance
-        let from = match self.get_id(from) {
+        let from = match self.msg.resolve_id(from) {
             Ok(id) => id,
             Err(MessagingError::AddressNotResolved(from)) => {
                 return Err(TokenError::TokenState(TokenStateError::InsufficientAllowance {
@@ -542,7 +539,7 @@ where
         };
 
         // attempt to initialize the receiving account if not present
-        let to_id = self.resolve_or_init(to)?;
+        let to_id = self.msg.resolve_or_init(to)?;
 
         // update token state
         let ret = self.transaction(|state, bs| {
@@ -595,7 +592,7 @@ where
     /// hook on recipient accounts. Returns the old balance.
     pub fn set_balance(&mut self, owner: &Address, amount: &TokenAmount) -> Result<TokenAmount> {
         let amount = validate_amount_with_granularity(amount, "set_balance", self.granularity)?;
-        let owner = self.resolve_or_init(owner)?;
+        let owner = self.msg.resolve_or_init(owner)?;
         let old_balance =
             self.transaction(|state, bs| Ok(state.set_balance(bs, owner, amount)?))?;
         Ok(old_balance)
@@ -607,49 +604,6 @@ where
     BS: Blockstore,
     MSG: Messaging,
 {
-    /// Resolves an address to an ID address, sending a message to initialize an account there if
-    /// it doesn't exist
-    ///
-    /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
-    fn resolve_or_init(&self, address: &Address) -> MessagingResult<ActorID> {
-        let id = match self.msg.resolve_id(address) {
-            Ok(addr) => addr,
-            Err(MessagingError::AddressNotResolved(_e)) => self.msg.initialize_account(address)?,
-            Err(e) => return Err(e),
-        };
-        Ok(id)
-    }
-
-    /// Attempts to resolve an address to an ActorID, returning MessagingError::AddressNotResolved
-    /// if it wasn't found
-    fn get_id(&self, address: &Address) -> MessagingResult<ActorID> {
-        self.msg.resolve_id(address)
-    }
-
-    /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without
-    /// actually initiating accounts for them
-    ///
-    /// If a and b are of the same type, simply do an equality check. Otherwise, attempt to resolve
-    /// to an ActorID and compare
-    fn same_address(&self, address_a: &Address, address_b: &Address) -> bool {
-        let protocol_a = address_a.protocol();
-        let protocol_b = address_b.protocol();
-        if protocol_a == protocol_b {
-            address_a == address_b
-        } else {
-            // attempt to resolve both to ActorID
-            let id_a = match self.get_id(address_a) {
-                Ok(id) => id,
-                Err(_) => return false,
-            };
-            let id_b = match self.get_id(address_b) {
-                Ok(id) => id,
-                Err(_) => return false,
-            };
-            id_a == id_b
-        }
-    }
-
     /// Calls the receiver hook, returning the result
     pub fn call_receiver_hook(
         &mut self,
@@ -1078,7 +1032,7 @@ mod test {
             FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
-                to: token.get_id(&secp_address).unwrap(),
+                to: token.msg.resolve_id(&secp_address).unwrap(),
                 amount: TokenAmount::from_atto(1_000_000),
                 operator_data: Default::default(),
                 token_data: Default::default(),
@@ -1113,7 +1067,7 @@ mod test {
             FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
-                to: token.get_id(&bls_address).unwrap(),
+                to: token.msg.resolve_id(&bls_address).unwrap(),
                 amount: TokenAmount::from_atto(1_000_000),
                 operator_data: Default::default(),
                 token_data: Default::default(),
@@ -1506,7 +1460,7 @@ mod test {
             FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
-                to: token.get_id(secp_address).unwrap(),
+                to: token.msg.resolve_id(secp_address).unwrap(),
                 amount: TokenAmount::from_atto(10),
                 operator_data: Default::default(),
                 token_data: Default::default(),
@@ -1557,7 +1511,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::zero());
 
         // secp_address was initialized
-        assert!(token.get_id(secp_address).is_ok());
+        assert!(token.msg.resolve_id(secp_address).is_ok());
 
         let actor_address = &actor_address();
         // transfers from actors fail with uninitializable
@@ -1584,7 +1538,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::zero());
 
         // actor address was not initialized
-        assert!(token.get_id(actor_address).is_err());
+        assert!(token.msg.resolve_id(actor_address).is_err());
         token.check_invariants().unwrap();
     }
 
@@ -2527,13 +2481,13 @@ mod test {
         assert_eq!(allowance, TokenAmount::zero());
 
         // accounts were not initialized
-        let err = token.get_id(bls).unwrap_err();
+        let err = token.msg.resolve_id(bls).unwrap_err();
         if let MessagingError::AddressNotResolved(e) = err {
             assert_eq!(e, *bls);
         } else {
             panic!("expected AddressNotResolved error");
         }
-        let err = token.get_id(secp).unwrap_err();
+        let err = token.msg.resolve_id(secp).unwrap_err();
         if let MessagingError::AddressNotResolved(e) = err {
             assert_eq!(e, *secp);
         } else {
@@ -2547,13 +2501,13 @@ mod test {
         assert_eq!(balance, TokenAmount::zero());
 
         // accounts were not initialized
-        let err = token.get_id(bls).unwrap_err();
+        let err = token.msg.resolve_id(bls).unwrap_err();
         if let MessagingError::AddressNotResolved(e) = err {
             assert_eq!(e, *bls);
         } else {
             panic!("expected AddressNotResolved error");
         }
-        let err = token.get_id(secp).unwrap_err();
+        let err = token.msg.resolve_id(secp).unwrap_err();
         if let MessagingError::AddressNotResolved(e) = err {
             assert_eq!(e, *secp);
         } else {
@@ -2651,7 +2605,7 @@ mod test {
                 }
             };
 
-            if token.same_address(operator, from) {
+            if token.msg.same_address(operator, from) {
                 let res = token.transfer(
                     from,
                     operator,
