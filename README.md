@@ -25,7 +25,7 @@ A set of CLI utilities to generate method numbers is also available:
 
 A standard interface for native actor fungible tokens
 
-| FIP Spec                                                              | Reference Implementation                  | Examples                                                                                                                                                                   |
+| FRC Spec                                                              | Reference Implementation                  | Examples                                                                                                                                                                   |
 | --------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md | [frc42_dispatch](./frc46_token/README.md) | [basic_token](./testing/fil_token_integration/actors/basic_token_actor/README.md) [basic_receiver](./testing/fil_token_integration/actors/basic_receiving_actor/README.md) |
 
