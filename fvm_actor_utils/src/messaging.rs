@@ -311,8 +311,7 @@ mod test_fake_messenger {
     }
     use fvm_shared::address::{Address, BLS_PUB_LEN};
 
-    use super::FakeMessenger;
-    use crate::runtime::messaging::Messaging;
+    use crate::messaging::{FakeMessenger, Messaging};
 
     /// Simple test checking that the fake messenger uses the address resolver to resolve addresses
     /// The resolution of addresses is tested in the test_address_resolver module

@@ -90,12 +90,12 @@ impl<T: RecipientData> std::ops::Drop for ReceiverHook<T> {
 
 #[cfg(test)]
 mod test {
+    use fvm_actor_utils::messaging::FakeMessenger;
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::{address::Address, econ::TokenAmount};
     use num_traits::Zero;
 
     use super::{types::FRC46TokenReceived, ReceiverHook, RecipientData};
-    use crate::runtime::messaging::FakeMessenger;
 
     const TOKEN_ACTOR: Address = Address::new_id(1);
     const ALICE: Address = Address::new_id(2);

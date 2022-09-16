@@ -716,6 +716,7 @@ pub fn validate_allowance<'a>(a: &'a TokenAmount, name: &'static str) -> Result<
 mod test {
     use std::ops::Neg;
 
+    use fvm_actor_utils::messaging::{FakeMessenger, Messaging, MessagingError};
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::address::{Address, BLS_PUB_LEN};
@@ -723,7 +724,6 @@ mod test {
     use num_traits::Zero;
 
     use crate::receiver::types::{FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE};
-    use crate::runtime::messaging::{FakeMessenger, Messaging, MessagingError};
     use crate::token::state::StateError;
     use crate::token::state::TokenState;
     use crate::token::Token;
