@@ -1,7 +1,5 @@
 mod util;
 
-use frc46_token::runtime::blockstore::Blockstore;
-use frc46_token::runtime::messaging::FvmMessenger;
 use frc46_token::token::types::{
     AllowanceReturn, BalanceReturn, BurnFromReturn, BurnParams, BurnReturn,
     DecreaseAllowanceParams, FRC46Token, GetAllowanceParams, GranularityReturn,
@@ -9,6 +7,8 @@ use frc46_token::token::types::{
     TransferFromReturn, TransferParams, TransferReturn,
 };
 use frc46_token::token::Token;
+use fvm_actor_utils::blockstore::Blockstore;
+use fvm_actor_utils::messaging::FvmMessenger;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;

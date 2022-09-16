@@ -52,8 +52,8 @@ pub trait Messaging {
     fn initialize_account(&self, address: &Address) -> Result<ActorID>;
 }
 
-// the method number comes from taking the name as "Received" and applying
-// the transformation described in https://github.com/filecoin-project/FIPs/pull/399
+// the method number comes from taking the name as "Receive" and applying
+// the transformation described in [FRC-0042](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0042.md)
 pub const RECEIVER_HOOK_METHOD_NUM: u64 = method_hash!("Receive");
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -311,8 +311,7 @@ mod test_fake_messenger {
     }
     use fvm_shared::address::{Address, BLS_PUB_LEN};
 
-    use super::FakeMessenger;
-    use crate::runtime::messaging::Messaging;
+    use crate::messaging::{FakeMessenger, Messaging};
 
     /// Simple test checking that the fake messenger uses the address resolver to resolve addresses
     /// The resolution of addresses is tested in the test_address_resolver module

@@ -1,0 +1,17 @@
+[package]
+name = "fvm_actor_utils"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.56"
+cid = { version = "0.8.3", default-features = false, features = ["serde-codec"] }
+frc42_dispatch = { version = "0.3.0", path = "../frc42_dispatch" }
+fvm_ipld_blockstore = "0.1.1"
+fvm_ipld_encoding = "0.2.2"
+fvm_shared = "2.0.0-alpha.2"
+fvm_sdk = "2.0.0-alpha.2"
+num-traits = { version = "0.2.15" }
+thiserror = { version = "1.0.31" }

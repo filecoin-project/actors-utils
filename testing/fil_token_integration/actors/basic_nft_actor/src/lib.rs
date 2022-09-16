@@ -1,5 +1,5 @@
-use frc46_token::runtime::blockstore::Blockstore;
 use frcxx_nft::nft::state::{BatchMintReturn, NFTState};
+use fvm_actor_utils::blockstore::Blockstore;
 use fvm_ipld_encoding::{de::DeserializeOwned, ser, RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
 use fvm_shared::error::ExitCode;
