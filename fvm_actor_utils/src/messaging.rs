@@ -156,7 +156,7 @@ impl Messaging for FakeMessenger {
 }
 
 /// A fake address resolver that keeps track of addresses that keeps track of which addresses have
-/// been initialised and their corresponding IDs
+/// been initialized and their corresponding IDs
 #[derive(Debug)]
 pub struct FakeAddressResolver {
     next_actor_id: ActorID,
@@ -171,7 +171,7 @@ impl FakeAddressResolver {
     pub fn initialize_account(&mut self, address: &Address) -> Result<ActorID> {
         match address.payload() {
             fvm_shared::address::Payload::ID(id) => {
-                panic!("attempting to initialise an already resolved id {}", id)
+                panic!("attempting to initialize an already resolved id {}", id)
             }
             fvm_shared::address::Payload::Secp256k1(_) => Ok(self._initialize_address(address)?),
             fvm_shared::address::Payload::BLS(_) => Ok(self._initialize_address(address)?),
@@ -182,7 +182,7 @@ impl FakeAddressResolver {
     }
 
     pub fn resolve_id(&self, address: &Address) -> Result<ActorID> {
-        // return an initialised address if it has been initialized before
+        // return an initialized address if it has been initialized before
         if self.initialized_accounts.contains_key(address) {
             return Ok(self.initialized_accounts[address]);
         }
@@ -252,7 +252,7 @@ mod test_address_resolver {
     }
 
     #[test]
-    fn it_retrieves_initialised_addresses() {
+    fn it_retrieves_initialized_addresses() {
         let mut ar = FakeAddressResolver::new(1);
         let secp_1 = &secp_address(1);
 

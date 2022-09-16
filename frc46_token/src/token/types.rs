@@ -50,7 +50,7 @@ pub trait FRC46Token<E> {
 
     /// Returns the balance of an address
     ///
-    /// Balance is always non-negative. Uninitialised addresses have an implicit zero balance.
+    /// Balance is always non-negative. Uninitialized addresses have an implicit zero balance.
     fn balance_of(&self, params: Address) -> Result<BalanceReturn, E>;
 
     /// Returns the allowance approved for an operator on a spender's balance

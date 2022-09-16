@@ -79,7 +79,7 @@ where
         Self { bs, msg, granularity, state }
     }
 
-    /// For an already initialised state tree, loads the state tree from the blockstore at a Cid
+    /// For an already initialized state tree, loads the state tree from the blockstore at a Cid
     pub fn load_state(bs: &BS, state_cid: &Cid) -> Result<TokenState> {
         Ok(TokenState::load(bs, state_cid)?)
     }
@@ -236,7 +236,7 @@ where
     /// Increase the allowance that an operator can control of an owner's balance by the requested delta
     ///
     /// Returns an error if requested delta is negative or there are errors in (de)serialization of
-    /// state.If either owner or operator addresses are not resolvable and cannot be initialised, this
+    /// state.If either owner or operator addresses are not resolvable and cannot be initialized, this
     /// method returns MessagingError::AddressNotInitialized.
     ///
     /// Else returns the new allowance
@@ -487,7 +487,7 @@ where
     /// - The receiving actor MUST implement a method called `tokens_received`, corresponding to the
     /// interface specified for FRC-0046 token receiver. If the receiving hook aborts, when called,
     /// the transfer is discarded and this method returns an error
-    ///  - The operator MUST be initialised AND have an allowance not less than the requested value
+    ///  - The operator MUST be initialized AND have an allowance not less than the requested value
     ///
     /// Upon successful transfer:
     /// - The from balance decreases by the requested value
@@ -607,7 +607,7 @@ where
     BS: Blockstore,
     MSG: Messaging,
 {
-    /// Resolves an address to an ID address, sending a message to initialise an account there if
+    /// Resolves an address to an ID address, sending a message to initialize an account there if
     /// it doesn't exist
     ///
     /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
@@ -1120,7 +1120,7 @@ mod test {
             },
         );
 
-        // mint fails if actor address cannot be initialised
+        // mint fails if actor address cannot be initialized
         let actor_address: Address = actor_address();
         token
             .mint(
@@ -1932,15 +1932,15 @@ mod test {
         token.flush().unwrap();
         hook.call(token.msg()).unwrap();
 
-        let initialised_address = &secp_address();
-        token.msg.initialize_account(initialised_address).unwrap();
+        let initialized_address = &secp_address();
+        token.msg.initialize_account(initialized_address).unwrap();
 
-        // an initialised pubkey cannot transfer zero out of Alice balance without an allowance
+        // an initialized pubkey cannot transfer zero out of Alice balance without an allowance
         token
             .transfer_from(
-                initialised_address,
+                initialized_address,
                 ALICE,
-                initialised_address,
+                initialized_address,
                 &TokenAmount::zero(),
                 RawBytes::default(),
                 RawBytes::default(),
@@ -1949,16 +1949,16 @@ mod test {
 
         // balances remained same
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(100));
-        assert_eq!(token.balance_of(initialised_address).unwrap(), TokenAmount::zero());
+        assert_eq!(token.balance_of(initialized_address).unwrap(), TokenAmount::zero());
         // supply remains same
         assert_eq!(token.total_supply(), TokenAmount::from_atto(100));
 
-        // initialised pubkey can has zero-allowance, so cannot transfer non-zero amount
+        // initialized pubkey can has zero-allowance, so cannot transfer non-zero amount
         token
             .transfer_from(
-                initialised_address,
+                initialized_address,
                 ALICE,
-                initialised_address,
+                initialized_address,
                 &TokenAmount::from_atto(1),
                 RawBytes::default(),
                 RawBytes::default(),
@@ -1966,17 +1966,17 @@ mod test {
             .unwrap_err();
         // balances remained same
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(100));
-        assert_eq!(token.balance_of(initialised_address).unwrap(), TokenAmount::zero());
+        assert_eq!(token.balance_of(initialized_address).unwrap(), TokenAmount::zero());
         // supply remains same
         assert_eq!(token.total_supply(), TokenAmount::from_atto(100));
 
         // the pubkey can be given an allowance which it can use to transfer tokens
-        token.increase_allowance(ALICE, initialised_address, &TokenAmount::from_atto(100)).unwrap();
+        token.increase_allowance(ALICE, initialized_address, &TokenAmount::from_atto(100)).unwrap();
         let mut hook = token
             .transfer_from(
-                initialised_address,
+                initialized_address,
                 ALICE,
-                initialised_address,
+                initialized_address,
                 &TokenAmount::from_atto(1),
                 RawBytes::default(),
                 RawBytes::default(),
@@ -1987,9 +1987,9 @@ mod test {
 
         // balances and allowance changed
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(99));
-        assert_eq!(token.balance_of(initialised_address).unwrap(), TokenAmount::from_atto(1));
+        assert_eq!(token.balance_of(initialized_address).unwrap(), TokenAmount::from_atto(1));
         assert_eq!(
-            token.allowance(ALICE, initialised_address).unwrap(),
+            token.allowance(ALICE, initialized_address).unwrap(),
             TokenAmount::from_atto(99)
         );
         // supply remains same
@@ -1997,7 +1997,7 @@ mod test {
     }
 
     #[test]
-    fn it_disallows_delgated_transfer_by_uninitialised_pubkey() {
+    fn it_disallows_delgated_transfer_by_uninitialized_pubkey() {
         let bs = MemoryBlockstore::new();
         let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
         let mut token = new_token(bs, &mut token_state);
@@ -2216,7 +2216,7 @@ mod test {
     }
 
     #[test]
-    fn it_disallows_delegated_burns_by_uninitialised_pubkeys() {
+    fn it_disallows_delegated_burns_by_uninitialized_pubkeys() {
         let bs = MemoryBlockstore::new();
         let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
         let mut token = new_token(bs, &mut token_state);
@@ -2278,7 +2278,7 @@ mod test {
         assert_eq!(token.balance_of(TREASURY).unwrap(), mint_amount);
         assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
 
-        // account was not initialised
+        // account was not initialized
         assert!(token.msg.resolve_id(secp_address).is_err());
     }
 
@@ -2695,24 +2695,24 @@ mod test {
         assert_behaviour(ALICE, BOB, 1, 1, 0, "OK");
         assert_behaviour(ALICE, BOB, 1, 1, 1, "OK");
 
-        // initialisable (but uninitialised) address operates on resolved address
+        // initialisable (but uninitialized) address operates on resolved address
         assert_behaviour(&secp_address(), BOB, 0, 0, 0, "ALLOWANCE_ERR");
         assert_behaviour(&secp_address(), BOB, 0, 0, 1, "ALLOWANCE_ERR");
         assert_behaviour(&secp_address(), BOB, 0, 1, 0, "ALLOWANCE_ERR");
         assert_behaviour(&secp_address(), BOB, 0, 1, 1, "ALLOWANCE_ERR");
-        // impossible to have non-zero allowance specified for uninitialised address
+        // impossible to have non-zero allowance specified for uninitialized address
 
         // resolvable address operates on initialisable address
         assert_behaviour(BOB, &secp_address(), 0, 0, 0, "ALLOWANCE_ERR");
         assert_behaviour(BOB, &secp_address(), 0, 0, 1, "ALLOWANCE_ERR");
-        // impossible to have uninitialised address have a balance
-        // impossible to have non-zero allowance specified by an uninitialised address
+        // impossible to have uninitialized address have a balance
+        // impossible to have non-zero allowance specified by an uninitialized address
 
-        // distinct uninitialised address operates on uninitialised address
+        // distinct uninitialized address operates on uninitialized address
         assert_behaviour(&bls_address(), &secp_address(), 0, 0, 0, "ALLOWANCE_ERR");
         assert_behaviour(&bls_address(), &secp_address(), 0, 0, 1, "ALLOWANCE_ERR");
-        // impossible to have uninitialised address have a balance
-        // impossible to have non-zero allowance specified by an uninitialised address
+        // impossible to have uninitialized address have a balance
+        // impossible to have non-zero allowance specified by an uninitialized address
 
         // distinct actor address operates on actor address
         assert_behaviour(&Address::new_actor(&[1]), &actor_address(), 0, 0, 0, "ALLOWANCE_ERR");
