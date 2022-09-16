@@ -1,3 +1,4 @@
+use fvm_actor_utils::messaging::MessagingError;
 use fvm_ipld_encoding::Error as SerializationError;
 use fvm_sdk::sys::ErrorNumber;
 use fvm_shared::address::{Address, Error as AddressError};
@@ -6,7 +7,6 @@ use fvm_shared::error::ExitCode;
 use fvm_shared::ActorID;
 use thiserror::Error;
 
-use crate::runtime::messaging::MessagingError;
 use crate::token::state::StateError as TokenStateError;
 use crate::token::state::StateInvariantError;
 

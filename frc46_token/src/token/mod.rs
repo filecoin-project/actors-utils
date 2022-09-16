@@ -2,6 +2,9 @@ use std::ops::Neg;
 
 use cid::Cid;
 pub use error::TokenError;
+use fvm_actor_utils::messaging::{
+    Messaging, MessagingError, Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM,
+};
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
@@ -16,8 +19,6 @@ use self::types::BurnReturn;
 use self::types::TransferFromReturn;
 use self::types::TransferReturn;
 use crate::receiver::{types::FRC46TokenReceived, ReceiverHook};
-use crate::runtime::messaging::{Messaging, MessagingError};
-use crate::runtime::messaging::{Result as MessagingResult, RECEIVER_HOOK_METHOD_NUM};
 use crate::token::types::MintReturn;
 use crate::token::TokenError::InvalidGranularity;
 

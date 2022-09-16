@@ -1,9 +1,9 @@
+use fvm_actor_utils::messaging::{Messaging, RECEIVER_HOOK_METHOD_NUM};
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode};
 use num_traits::Zero;
 use types::{FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE};
 
-use crate::runtime::messaging::{Messaging, RECEIVER_HOOK_METHOD_NUM};
 use crate::token::TokenError;
 
 pub mod types;
