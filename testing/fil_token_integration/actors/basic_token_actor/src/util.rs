@@ -1,4 +1,4 @@
-use fil_fungible_token::token::TokenError;
+use frc46_token::token::TokenError;
 use fvm_ipld_encoding::{de::DeserializeOwned, RawBytes};
 use fvm_sdk as sdk;
 use fvm_shared::address::Address;

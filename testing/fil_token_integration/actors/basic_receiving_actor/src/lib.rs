@@ -1,7 +1,5 @@
-use fil_fungible_token::receiver::types::{
-    FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE,
-};
 use frc42_dispatch::match_method;
+use frc46_token::receiver::types::{FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE};
 use fvm_ipld_encoding::{de::DeserializeOwned, RawBytes};
 use fvm_sdk as sdk;
 use fvm_shared::error::ExitCode;

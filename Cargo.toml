@@ -8,7 +8,7 @@ members = [
     "frc42_dispatch/macros/example",
     "frcxx_nft",
     "fvm_dispatch_tools",
-    "fil_fungible_token",
+    "frc46_token",
     "testing/fil_token_integration",
     "testing/fil_token_integration/actors/basic_token_actor",
     "testing/fil_token_integration/actors/basic_receiving_actor",

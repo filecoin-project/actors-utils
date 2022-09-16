@@ -1,14 +1,14 @@
 mod util;
 
-use fil_fungible_token::runtime::blockstore::Blockstore;
-use fil_fungible_token::runtime::messaging::FvmMessenger;
-use fil_fungible_token::token::types::{
+use frc46_token::runtime::blockstore::Blockstore;
+use frc46_token::runtime::messaging::FvmMessenger;
+use frc46_token::token::types::{
     AllowanceReturn, BalanceReturn, BurnFromReturn, BurnParams, BurnReturn,
     DecreaseAllowanceParams, FRC46Token, GetAllowanceParams, GranularityReturn,
     IncreaseAllowanceParams, MintReturn, Result, RevokeAllowanceParams, TotalSupplyReturn,
     TransferFromReturn, TransferParams, TransferReturn,
 };
-use fil_fungible_token::token::Token;
+use frc46_token::token::Token;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
@@ -70,7 +70,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
     fn transfer_from(
         &mut self,
-        params: fil_fungible_token::token::types::TransferFromParams,
+        params: frc46_token::token::types::TransferFromParams,
     ) -> Result<TransferFromReturn, RuntimeError> {
         let operator = caller_address();
         let mut hook = self.util.transfer_from(
@@ -129,7 +129,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
     fn burn_from(
         &mut self,
-        params: fil_fungible_token::token::types::BurnFromParams,
+        params: frc46_token::token::types::BurnFromParams,
     ) -> Result<BurnFromReturn, RuntimeError> {
         let caller = caller_address();
         let res = self.util.burn_from(&caller, &params.owner, &params.amount)?;
