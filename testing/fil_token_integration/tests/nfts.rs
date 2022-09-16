@@ -1,9 +1,8 @@
 use std::env;
 
-use basic_token_actor::MintParams;
 use cid::Cid;
 use frc42_dispatch::method_hash;
-use frc46_token::token::{state::TokenState, types::MintReturn};
+use frcxx_nft::state::{NFTState, TokenID};
 use fvm::executor::{ApplyKind, Executor};
 use fvm_integration_tests::bundle;
 use fvm_integration_tests::dummy::DummyExterns;
@@ -17,13 +16,13 @@ use fvm_shared::message::Message;
 use fvm_shared::state::StateTreeVersion;
 use fvm_shared::version::NetworkVersion;
 
-const BASIC_TOKEN_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/basic_token_actor/basic_token_actor.compact.wasm";
+const BASIC_NFT_ACTOR_WASM: &str =
+    "../../target/debug/wbuild/basic_nft_actor/basic_nft_actor.compact.wasm";
 const BASIC_RECEIVER_ACTOR_WASM: &str =
     "../../target/debug/wbuild/basic_receiving_actor/basic_receiving_actor.compact.wasm";
 
 #[test]
-fn mint_tokens() {
+fn it_mints_nfts() {
     let blockstore = MemoryBlockstore::default();
     let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
     let mut tester =
@@ -33,20 +32,21 @@ fn mint_tokens() {
     let minter: [Account; 1] = tester.create_accounts().unwrap();
 
     // Get wasm bin
-    let wasm_path =
-        env::current_dir().unwrap().join(BASIC_TOKEN_ACTOR_WASM).canonicalize().unwrap();
+    let wasm_path = env::current_dir().unwrap().join(BASIC_NFT_ACTOR_WASM).canonicalize().unwrap();
     let wasm_bin = std::fs::read(wasm_path).expect("Unable to read token actor file");
     let rcvr_path =
         env::current_dir().unwrap().join(BASIC_RECEIVER_ACTOR_WASM).canonicalize().unwrap();
     let rcvr_bin = std::fs::read(rcvr_path).expect("Unable to read receiver actor file");
 
     // Set actor state
-    let actor_state = TokenState::new(&blockstore).unwrap(); // TODO: this should probably not be exported from the package
-    let state_cid = tester.set_state(&actor_state).unwrap();
+    let actor_state = NFTState::new(&blockstore).unwrap();
+    let _state_cid = tester.set_state(&actor_state).unwrap();
 
     let actor_address = Address::new_id(10000);
     let receive_address = Address::new_id(10010);
-    tester.set_actor_from_bin(&wasm_bin, state_cid, actor_address, TokenAmount::zero()).unwrap();
+    tester
+        .set_actor_from_bin(&wasm_bin, Cid::default(), actor_address, TokenAmount::zero())
+        .unwrap();
     tester
         .set_actor_from_bin(&rcvr_bin, Cid::default(), receive_address, TokenAmount::zero())
         .unwrap();
@@ -76,32 +76,18 @@ fn mint_tokens() {
     };
 
     // Construct the token actor
-    let ret_val = call_method(minter[0].1, actor_address, method_hash!("Constructor"), None);
-    println!("token actor constructor return data: {:#?}", &ret_val);
+    call_method(minter[0].1, actor_address, method_hash!("Constructor"), None);
 
-    let ret_val = call_method(minter[0].1, receive_address, method_hash!("Constructor"), None);
-    println!("receiving actor constructor return data: {:#?}", &ret_val);
+    // TODO: assert that minting calls out to hook
 
-    // Mint some tokens
-    let mint_params =
-        MintParams { initial_owner: receive_address, amount: TokenAmount::from_atto(100) };
-    let params = RawBytes::serialize(mint_params).unwrap();
-    let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(params));
-    println!("mint return data {:#?}", &ret_val);
-    let return_data = ret_val.msg_receipt.return_data;
-    if return_data.is_empty() {
-        println!("return data was empty");
-    } else {
-        let mint_result: MintReturn = return_data.deserialize().unwrap();
-        println!("new total supply: {:?}", &mint_result.supply);
-    }
+    // Mint a single token
+    let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), None);
+    assert!(ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
+    let mint_result = ret_val.msg_receipt.return_data.deserialize::<TokenID>().unwrap();
+    assert_eq!(mint_result, 0);
 
-    // Check balance
-    let params = RawBytes::serialize(receive_address).unwrap();
-    let ret_val = call_method(minter[0].1, actor_address, method_hash!("BalanceOf"), Some(params));
-    println!("balance return data {:#?}", &ret_val);
-
-    let return_data = ret_val.msg_receipt.return_data;
-    let balance: TokenAmount = return_data.deserialize().unwrap();
-    println!("balance: {:?}", balance);
+    let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), None);
+    assert!(ret_val.msg_receipt.exit_code.is_success());
+    let mint_result = ret_val.msg_receipt.return_data.deserialize::<TokenID>().unwrap();
+    assert_eq!(mint_result, 1);
 }

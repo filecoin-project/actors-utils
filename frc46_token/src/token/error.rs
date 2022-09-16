@@ -18,7 +18,7 @@ pub enum TokenError {
     InvalidNegative { name: &'static str, amount: TokenAmount },
     #[error("amount {amount:?} for {name:?} must be a multiple of {granularity:?}")]
     InvalidGranularity { name: &'static str, amount: TokenAmount, granularity: u64 },
-    #[error("error calling receiver hook: {0}")]
+    #[error("error calling other actor: {0}")]
     Messaging(#[from] MessagingError),
     #[error("receiver hook aborted when {operator:?} sent {amount:?} to {to:?} from {from:?} with exit code {exit_code:?}")]
     ReceiverHook {
