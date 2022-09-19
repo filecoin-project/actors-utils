@@ -2,26 +2,19 @@ use std::env;
 
 use basic_token_actor::MintParams;
 use cid::Cid;
-use fil_fungible_token::token::{state::TokenState, types::MintReturn};
 use frc42_dispatch::method_hash;
 use fvm::{
     executor::{ApplyKind, ApplyRet, Executor},
     externs::Externs,
 };
-use fvm_integration_tests::{
-    bundle,
-    dummy::DummyExterns,
-    tester::{Account, Tester},
-};
-use fvm_ipld_blockstore::{Blockstore, MemoryBlockstore};
+use fvm_integration_tests::{bundle, tester::Tester};
+use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
-use fvm_shared::address::Address;
-use fvm_shared::bigint::Zero;
-use fvm_shared::econ::TokenAmount;
-use fvm_shared::message::Message;
-use fvm_shared::state::StateTreeVersion;
-use fvm_shared::version::NetworkVersion;
-use serde::{Deserialize, Serialize};
+use fvm_shared::{
+    address::Address, bigint::Zero, econ::TokenAmount, message::Message, state::StateTreeVersion,
+    version::NetworkVersion,
+};
+use serde::Serialize;
 
 pub fn load_actor_wasm(path: &str) -> Vec<u8> {
     let wasm_path = env::current_dir().unwrap().join(path).canonicalize().unwrap();
@@ -29,6 +22,15 @@ pub fn load_actor_wasm(path: &str) -> Vec<u8> {
     std::fs::read(wasm_path).expect("unable to read actor file")
 }
 
+/// Construct a Tester with the provided blockstore
+/// mainly cuts down on noise with importing the built-in actor bundle and network/state tree versions
+pub fn construct_tester<BS: Blockstore + Clone, E: Externs>(blockstore: &BS) -> Tester<BS, E> {
+    let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
+
+    Tester::new(NetworkVersion::V15, StateTreeVersion::V4, bundle_root, blockstore.clone()).unwrap()
+}
+
+/// Helper routines to simplify common operations with a Tester
 pub trait TestHelpers {
     /// Call a method on an actor
     fn call_method(
@@ -38,15 +40,6 @@ pub trait TestHelpers {
         method_num: u64,
         params: Option<RawBytes>,
     ) -> ApplyRet;
-
-    /// Get balance from token actor for a given address
-    /// This is a very common thing to check during tests
-    fn get_balance(
-        &mut self,
-        operator: Address,
-        token_actor: Address,
-        target: Address,
-    ) -> TokenAmount;
 
     /// Install an actor with initial state and ID
     /// Returns the actor's address
@@ -60,6 +53,27 @@ pub trait TestHelpers {
     /// Install an actor with no initial state
     /// Takes ID and returns the new actor's address
     fn install_actor_stateless(&mut self, path: &str, actor_id: u64) -> Address;
+}
+
+/// Helper routines to simplify common token operations
+pub trait TokenHelpers {
+    /// Get balance from token actor for a given address
+    /// This is a very common thing to check during tests
+    fn get_balance(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        target: Address,
+    ) -> TokenAmount;
+
+    fn mint_tokens(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        target: Address,
+        amount: TokenAmount,
+        operator_data: RawBytes,
+    ) -> ApplyRet;
 }
 
 impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {
@@ -86,19 +100,6 @@ impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {
         self.executor.as_mut().unwrap().execute_message(message, ApplyKind::Explicit, 100).unwrap()
     }
 
-    fn get_balance(
-        &mut self,
-        operator: Address,
-        token_actor: Address,
-        target: Address,
-    ) -> TokenAmount {
-        let params = RawBytes::serialize(target).unwrap();
-        let ret_val =
-            self.call_method(operator, token_actor, method_hash!("BalanceOf"), Some(params));
-        println!("balance return data {:#?}", &ret_val);
-        ret_val.msg_receipt.return_data.deserialize::<TokenAmount>().unwrap()
-    }
-
     fn install_actor_with_state<S: Serialize>(
         &mut self,
         path: &str,
@@ -117,5 +118,32 @@ impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {
         let address = Address::new_id(actor_id);
         self.set_actor_from_bin(&code, Cid::default(), address, TokenAmount::zero()).unwrap();
         address
+    }
+}
+
+impl<B: Blockstore, E: Externs> TokenHelpers for Tester<B, E> {
+    fn get_balance(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        target: Address,
+    ) -> TokenAmount {
+        let params = RawBytes::serialize(target).unwrap();
+        let ret_val =
+            self.call_method(operator, token_actor, method_hash!("BalanceOf"), Some(params));
+        ret_val.msg_receipt.return_data.deserialize::<TokenAmount>().unwrap()
+    }
+
+    fn mint_tokens(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        target: Address,
+        amount: TokenAmount,
+        operator_data: RawBytes,
+    ) -> ApplyRet {
+        let mint_params = MintParams { initial_owner: target, amount, operator_data };
+        let params = RawBytes::serialize(mint_params).unwrap();
+        self.call_method(operator, token_actor, method_hash!("Mint"), Some(params))
     }
 }
