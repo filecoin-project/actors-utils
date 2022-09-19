@@ -2,54 +2,16 @@ use frc42_dispatch::method_hash;
 use frc46_token::token::{state::TokenState, types::MintReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
-use fvm_ipld_encoding::{
-    tuple::{Deserialize_tuple, Serialize_tuple},
-    RawBytes,
-};
-use fvm_shared::{address::Address, econ::TokenAmount};
-use serde::{Deserialize, Serialize};
+use fvm_ipld_encoding::RawBytes;
+use fvm_shared::econ::TokenAmount;
 
 mod common;
 use common::{construct_tester, TestHelpers, TokenHelpers};
+use test_actor::{action, ActionParams, TestAction};
 
 const BASIC_TOKEN_ACTOR_WASM: &str =
     "../../target/debug/wbuild/basic_token_actor/basic_token_actor.compact.wasm";
 const TEST_ACTOR_WASM: &str = "../../target/debug/wbuild/test_actor/test_actor.compact.wasm";
-
-/// Action to take in receiver hook or Action method
-/// This gets serialized and sent along as operator_data
-#[derive(Serialize, Deserialize, Debug)]
-pub enum TestAction {
-    /// Accept the tokens
-    Accept,
-    /// Reject the tokens (hook aborts)
-    Reject,
-    /// Transfer to another address (with operator_data that can provide further instructions)
-    Transfer(Address, RawBytes),
-    /// Burn incoming tokens
-    Burn,
-}
-
-/// Params for Action method call
-/// This gives us a way to supply the token address, since we won't get it as a sender like we do for hook calls
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
-pub struct ActionParams {
-    /// Address of the token actor
-    token_address: Address,
-    /// Action to take with our token balance. Only Transfer and Burn actions apply here.
-    action: TestAction,
-}
-
-/// Helper for nesting calls to create action sequences
-/// eg. transfer and then the receiver hook rejects:
-/// action(TestAction::Transfer(
-///         some_address,
-///         action(TestAction::Reject),
-///     ),
-/// )
-fn action(action: TestAction) -> RawBytes {
-    RawBytes::serialize(action).unwrap()
-}
 
 /// This covers several simpler tests, which all involve a single receiving actor
 /// They're combined because these integration tests take a long time to build and run

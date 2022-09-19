@@ -35,12 +35,24 @@ pub enum TestAction {
 }
 
 /// Params for Action method call
+/// This gives us a way to supply the token address, since we won't get it as a sender like we do for hook calls
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct ActionParams {
     /// Address of the token actor
-    token_address: Address,
+    pub token_address: Address,
     /// Action to take with our token balance. Only Transfer and Burn actions apply here.
-    action: TestAction,
+    pub action: TestAction,
+}
+
+/// Helper for nesting calls to create action sequences
+/// eg. transfer and then the receiver hook rejects:
+/// action(TestAction::Transfer(
+///         some_address,
+///         action(TestAction::Reject),
+///     ),
+/// )
+pub fn action(action: TestAction) -> RawBytes {
+    RawBytes::serialize(action).unwrap()
 }
 
 #[no_mangle]
