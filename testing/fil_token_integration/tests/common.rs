@@ -1,6 +1,5 @@
 use std::env;
 
-use basic_token_actor::MintParams;
 use cid::Cid;
 use frc42_dispatch::method_hash;
 use fvm::{
@@ -9,12 +8,27 @@ use fvm::{
 };
 use fvm_integration_tests::{bundle, tester::Tester};
 use fvm_ipld_blockstore::Blockstore;
-use fvm_ipld_encoding::RawBytes;
+use fvm_ipld_encoding::{
+    tuple::{Deserialize_tuple, Serialize_tuple},
+    Cbor, RawBytes,
+};
 use fvm_shared::{
     address::Address, bigint::Zero, econ::TokenAmount, message::Message, state::StateTreeVersion,
     version::NetworkVersion,
 };
 use serde::Serialize;
+
+// this is here so we don't need to link every test against the basic_token_actor
+// otherwise we can't link against test_actor or any other test/example actors,
+// because the invoke() functions will conflict at link time
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct MintParams {
+    pub initial_owner: Address,
+    pub amount: TokenAmount,
+    pub operator_data: RawBytes,
+}
+
+impl Cbor for MintParams {}
 
 pub fn load_actor_wasm(path: &str) -> Vec<u8> {
     let wasm_path = env::current_dir().unwrap().join(path).canonicalize().unwrap();
