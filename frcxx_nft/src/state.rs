@@ -30,8 +30,8 @@ pub enum StateError {
 pub struct TokenData {
     pub owner: ActorID,
     // operators on this token
-    pub approved: Vec<ActorID>, // or maybe as a Cid to an Amt
-    pub metadata_uri: String,
+    pub operators: Vec<ActorID>, // or maybe as a Cid to an Amt
+    pub metadata_id: String,
 }
 
 /// Each owner stores their own balance and other indexed data
@@ -82,7 +82,8 @@ impl NFTState {
     pub fn load<BS: Blockstore>(store: &BS, root: &Cid) -> Result<Self> {
         match store.get_cbor::<Self>(root) {
             Ok(Some(state)) => Ok(state),
-            _ => panic!(""),
+            Ok(None) => Err(StateError::Other("State root not found".into())),
+            Err(e) => Err(StateError::Other(e.to_string())),
         }
     }
 
@@ -99,7 +100,7 @@ impl NFTState {
         Ok(cid)
     }
 
-    fn get_token_data_amt<'bs, BS: Blockstore>(
+    pub fn get_token_data_amt<'bs, BS: Blockstore>(
         &self,
         store: &'bs BS,
     ) -> Result<Amt<TokenData, &'bs BS>> {
@@ -107,7 +108,7 @@ impl NFTState {
         Ok(res)
     }
 
-    fn get_owner_data_hamt<'bs, BS: Blockstore>(
+    pub fn get_owner_data_hamt<'bs, BS: Blockstore>(
         &self,
         store: &'bs BS,
     ) -> Result<Hamt<&'bs BS, OwnerData, ActorID>> {
@@ -125,14 +126,16 @@ impl NFTState {
         // update token data array
         let mut token_array = self.get_token_data_amt(bs)?;
         let token_id = self.next_token;
-        token_array.set(token_id, TokenData { owner, approved: vec![], metadata_uri })?;
+        token_array
+            .set(token_id, TokenData { owner, operators: vec![], metadata_id: metadata_uri })?;
 
         // update owner data map
         let mut owner_map = self.get_owner_data_hamt(bs)?;
-        let new_owner_data = match owner_map.delete(&owner) {
+        let new_owner_data = match owner_map.get(&owner) {
             Ok(entry) => {
-                if let Some((_, existing_data)) = entry {
-                    OwnerData { balance: existing_data.balance + 1, ..existing_data }
+                if let Some(existing_data) = entry {
+                    //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
+                    OwnerData { balance: existing_data.balance + 1, ..existing_data.clone() }
                 } else {
                     OwnerData { balance: 1, approved: vec![] }
                 }
@@ -147,6 +150,9 @@ impl NFTState {
 
         self.token_data = token_array.flush()?;
         self.owner_data = owner_map.flush()?;
+
+        // TODO: call receiver hook
+
         Ok(token_id)
     }
 

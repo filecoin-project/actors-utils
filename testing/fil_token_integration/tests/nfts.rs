@@ -2,7 +2,7 @@ use std::env;
 
 use cid::Cid;
 use frc42_dispatch::method_hash;
-use frcxx_nft::state::{NFTState, TokenID};
+use frcxx_nft::state::TokenID;
 use fvm::executor::{ApplyKind, Executor};
 use fvm_integration_tests::bundle;
 use fvm_integration_tests::dummy::DummyExterns;
@@ -26,8 +26,7 @@ fn it_mints_nfts() {
     let blockstore = MemoryBlockstore::default();
     let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
     let mut tester =
-        Tester::new(NetworkVersion::V15, StateTreeVersion::V4, bundle_root, blockstore.clone())
-            .unwrap();
+        Tester::new(NetworkVersion::V15, StateTreeVersion::V4, bundle_root, blockstore).unwrap();
 
     let minter: [Account; 1] = tester.create_accounts().unwrap();
 
