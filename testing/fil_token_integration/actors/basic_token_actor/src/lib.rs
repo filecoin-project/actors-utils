@@ -52,6 +52,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
     fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
         let operator = caller_address();
+        let to = params.to;
         let mut hook = self.util.transfer(
             &operator,
             &params.to,
@@ -65,6 +66,19 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
         let ret = hook.call(self.util.msg())?;
 
+        let new_cid = sdk::sself::root().unwrap();
+        let ret = if cid == new_cid {
+            ret
+        } else {
+            // state has changed, update return data with new balances
+            self.util.load_replace(&new_cid)?;
+            TransferReturn {
+                from_balance: self.balance_of(operator)?,
+                to_balance: self.balance_of(to)?,
+                recipient_data: ret.recipient_data,
+            }
+        };
+
         Ok(ret)
     }
 
@@ -73,6 +87,8 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         params: frc46_token::token::types::TransferFromParams,
     ) -> Result<TransferFromReturn, RuntimeError> {
         let operator = caller_address();
+        let from = params.from;
+        let to = params.to;
         let mut hook = self.util.transfer_from(
             &operator,
             &params.from,
@@ -86,6 +102,20 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         sdk::sself::set_root(&cid).unwrap();
 
         let ret = hook.call(self.util.msg())?;
+
+        let new_cid = sdk::sself::root().unwrap();
+        let ret = if cid == new_cid {
+            ret
+        } else {
+            // state has changed, update return data with new balances
+            self.util.load_replace(&new_cid)?;
+            TransferFromReturn {
+                from_balance: self.balance_of(from)?,
+                to_balance: self.balance_of(to)?,
+                allowance: ret.allowance, // allowance remains unchanged?
+                recipient_data: ret.recipient_data,
+            }
+        };
 
         Ok(ret)
     }
@@ -166,9 +196,10 @@ impl BasicToken<'_> {
         let ret = if cid == new_cid {
             ret
         } else {
-            self.util.load_replace(&new_cid).unwrap();
+            // state has changed, update return data with new amounts
+            self.util.load_replace(&new_cid)?;
             MintReturn {
-                balance: self.balance_of(owner).unwrap(),
+                balance: self.balance_of(owner)?,
                 supply: self.total_supply(),
                 recipient_data: ret.recipient_data,
             }
@@ -284,16 +315,12 @@ pub fn invoke(params: u32) -> u32 {
                     // TransferFrom
                     let params = deserialize_params(params);
                     let res = token_actor.transfer_from(params).unwrap();
-                    let cid = token_actor.util.flush().unwrap();
-                    sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&res).unwrap()
                 }
                 1303003700 => {
                     // Transfer
                     let params = deserialize_params(params);
                     let res = token_actor.transfer(params).unwrap();
-                    let cid = token_actor.util.flush().unwrap();
-                    sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&res).unwrap()
                 }
 
