@@ -3,7 +3,7 @@ use frc46_token::token::{state::TokenState, types::MintReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
-use fvm_shared::econ::TokenAmount;
+use fvm_shared::{econ::TokenAmount, receipt::Receipt};
 
 mod common;
 use common::{construct_tester, TestHelpers, TokenHelpers};
@@ -122,7 +122,11 @@ fn frc46_single_actor_tests() {
     let params = RawBytes::serialize(test_action).unwrap();
     let ret_val =
         tester.call_method(operator[0].1, test_actor, method_hash!("Action"), Some(params));
-    assert!(!ret_val.msg_receipt.exit_code.is_success());
+    // action call should succeed, we'll dig into the return data to see the transfer call failure
+    assert!(ret_val.msg_receipt.exit_code.is_success());
+    // return data is the Receipt from calling Transfer, which should show failure
+    let receipt: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
+    assert!(!receipt.exit_code.is_success());
     // check that our test actor balance hasn't changed
     let balance = tester.get_balance(operator[0].1, token_actor, test_actor);
     assert_eq!(balance, TokenAmount::from_atto(100));

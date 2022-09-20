@@ -3,7 +3,7 @@ use frc46_token::token::state::TokenState;
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
-use fvm_shared::{address::Address, econ::TokenAmount};
+use fvm_shared::{address::Address, econ::TokenAmount, receipt::Receipt};
 
 mod common;
 use common::{construct_tester, TestHelpers, TokenHelpers};
@@ -47,8 +47,11 @@ fn frc46_multi_actor_tests() {
     // first, tell bob to reject it
     let params = action_params(token_actor, TestAction::Transfer(bob, action(TestAction::Reject)));
     let ret_val = tester.call_method(operator[0].1, alice, method_hash!("Action"), Some(params));
-    // we told bob to reject, so transfer should fail
-    assert!(!ret_val.msg_receipt.exit_code.is_success());
+    // we told bob to reject, so the action call should return success but give us the error result as return data
+    assert!(ret_val.msg_receipt.exit_code.is_success());
+    // check the receipt we got in return data
+    let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
+    assert!(!receipt.exit_code.is_success());
 
     // this time tell bob to accept it
     let params = action_params(token_actor, TestAction::Transfer(bob, action(TestAction::Accept)));
@@ -77,7 +80,10 @@ fn frc46_multi_actor_tests() {
     // now send to bob, who will reject them
     let params = action_params(token_actor, TestAction::Transfer(bob, action(TestAction::Reject)));
     let ret_val = tester.call_method(operator[0].1, alice, method_hash!("Action"), Some(params));
-    assert!(!ret_val.msg_receipt.exit_code.is_success());
+    assert!(ret_val.msg_receipt.exit_code.is_success());
+    // check the receipt we got in return data
+    let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
+    assert!(!receipt.exit_code.is_success());
 
     // transfer to bob who will accept it this time
     let params = action_params(token_actor, TestAction::Transfer(bob, action(TestAction::Accept)));

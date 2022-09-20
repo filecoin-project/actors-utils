@@ -6,7 +6,7 @@ use frc46_token::{
 use fvm_ipld_encoding::{
     de::DeserializeOwned,
     tuple::{Deserialize_tuple, Serialize_tuple},
-    RawBytes,
+    RawBytes, DAG_CBOR,
 };
 use fvm_sdk as sdk;
 use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode};
@@ -18,6 +18,14 @@ pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
     let params = sdk::message::params_raw(params).unwrap().1;
     let params = RawBytes::new(params);
     params.deserialize().unwrap()
+}
+
+fn return_ipld<T>(value: &T) -> u32
+where
+    T: Serialize + ?Sized,
+{
+    let bytes = fvm_ipld_encoding::to_vec(value).unwrap();
+    sdk::ipld::put_block(DAG_CBOR, &bytes).unwrap()
 }
 
 /// Action to take in receiver hook or Action method
@@ -84,6 +92,7 @@ fn invoke(input: u32) -> u32 {
             match action {
                 TestAction::Accept => {
                     // do nothing, return success
+                    NO_DATA_BLOCK_ID
                 }
                 TestAction::Reject => {
                     // abort to reject transfer
@@ -99,8 +108,9 @@ fn invoke(input: u32) -> u32 {
                         amount: token_params.amount,
                         operator_data,
                     };
-                    let _receipt = sdk::send::send(&Address::new_id(sdk::message::caller()), method_hash!("Transfer"), RawBytes::serialize(&transfer_params).unwrap(), TokenAmount::zero()).unwrap();
-                    // transfer failures are ignored - we just keep the tokens here
+                    let receipt = sdk::send::send(&Address::new_id(sdk::message::caller()), method_hash!("Transfer"), RawBytes::serialize(&transfer_params).unwrap(), TokenAmount::zero()).unwrap();
+                    // ignore failures at this level and return the transfer call receipt so caller can decide what to do
+                    return_ipld(&receipt)
                 }
                 TestAction::Burn => {
                     // burn the tokens
@@ -111,11 +121,9 @@ fn invoke(input: u32) -> u32 {
                     if !receipt.exit_code.is_success() {
                         panic!("burn call failed");
                     }
+                    NO_DATA_BLOCK_ID
                 }
             }
-
-            // all good, don't need to return anything
-            NO_DATA_BLOCK_ID
         },
         "Action" => {
             // take action independent of the receiver hook
@@ -134,9 +142,11 @@ fn invoke(input: u32) -> u32 {
             match params.action {
                 TestAction::Accept => {
                     // nothing to do here
+                    NO_DATA_BLOCK_ID
                 }
                 TestAction::Reject => {
                     // nothing to do here
+                    NO_DATA_BLOCK_ID
                 }
                 TestAction::Transfer(to, operator_data) => {
                     // transfer to a target address
@@ -147,9 +157,8 @@ fn invoke(input: u32) -> u32 {
                         operator_data,
                     };
                     let receipt = sdk::send::send(&params.token_address, method_hash!("Transfer"), RawBytes::serialize(&transfer_params).unwrap(), TokenAmount::zero()).unwrap();
-                    if !receipt.exit_code.is_success() {
-                        panic!("transfer call failed");
-                    }
+                    // ignore failures at this level and return the transfer call receipt so caller can decide what to do
+                    return_ipld(&receipt)
                 }
                 TestAction::Burn => {
                     // burn the tokens
@@ -161,11 +170,9 @@ fn invoke(input: u32) -> u32 {
                     if !receipt.exit_code.is_success() {
                         panic!("burn call failed");
                     }
+                    NO_DATA_BLOCK_ID
                 }
             }
-
-            // all good, don't need to return anything
-            NO_DATA_BLOCK_ID
         }
         _ => {
             sdk::vm::abort(
