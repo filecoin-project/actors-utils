@@ -88,4 +88,37 @@ fn frc46_multi_actor_tests() {
     assert_eq!(balance, TokenAmount::from_atto(0));
     let balance = tester.get_balance(operator[0].1, token_actor, bob);
     assert_eq!(balance, TokenAmount::from_atto(100));
+
+    // TEST: mint to alice who transfers to bob inside receiver hook, bob accepts
+    let ret_val = tester.mint_tokens(
+        operator[0].1,
+        token_actor,
+        alice,
+        TokenAmount::from_atto(100),
+        action(TestAction::Transfer(bob, action(TestAction::Accept))),
+    );
+    assert!(ret_val.msg_receipt.exit_code.is_success());
+    let balance = tester.get_balance(operator[0].1, token_actor, alice);
+    assert_eq!(balance, TokenAmount::from_atto(0));
+    let balance = tester.get_balance(operator[0].1, token_actor, bob);
+    assert_eq!(balance, TokenAmount::from_atto(200));
+
+    // TEST: mint to alice who transfers to bob inside receiver hook, bob rejects
+    let ret_val = tester.mint_tokens(
+        operator[0].1,
+        token_actor,
+        alice,
+        TokenAmount::from_atto(100),
+        action(TestAction::Transfer(bob, action(TestAction::Reject))),
+    );
+    // mint succeeds but the transfer inside the receiver hook would have failed
+    assert!(ret_val.msg_receipt.exit_code.is_success());
+    // alice should keep tokens in this case
+    let balance = tester.get_balance(operator[0].1, token_actor, alice);
+    assert_eq!(balance, TokenAmount::from_atto(100));
+    // bob's balance should remain unchanged
+    let balance = tester.get_balance(operator[0].1, token_actor, bob);
+    assert_eq!(balance, TokenAmount::from_atto(200));
+
+
 }
