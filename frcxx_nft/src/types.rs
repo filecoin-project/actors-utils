@@ -1,3 +1,4 @@
+//! Interfaces and types for the FRCXX NFT standard
 use cid::Cid;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
@@ -6,6 +7,7 @@ use fvm_shared::ActorID;
 
 type TokenID = u64;
 
+/// A trait to be implemented by FRCXXX compliant actors
 pub trait FRCXXXNFT {
     /// A descriptive name for the collection of NFTs in this actor
     fn name(&self) -> String;
@@ -55,7 +57,6 @@ pub trait FRCXXXNFT {
 
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct TransferParams {
-    pub from: Address,
     pub to: Address,
     pub token_ids: Vec<TokenID>,
     pub operator_data: RawBytes,
@@ -67,7 +68,6 @@ impl Cbor for TransferParams {}
 pub struct TransferFromParams {
     pub from: Address,
     pub to: Address,
-    pub operator: Address,
     pub token_ids: Vec<TokenID>,
     pub operator_data: RawBytes,
 }

@@ -50,10 +50,47 @@ pub trait Messaging {
     ///
     /// Returns MessagingError::AddressNotInitialized if the address could not be created
     fn initialize_account(&self, address: &Address) -> Result<ActorID>;
+
+    /// Resolves an address to an ID address, sending a message to initialize an account there if
+    /// it doesn't exist
+    ///
+    /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
+    fn resolve_or_init(&self, address: &Address) -> Result<ActorID> {
+        let id = match self.resolve_id(address) {
+            Ok(addr) => addr,
+            Err(MessagingError::AddressNotResolved(_e)) => self.initialize_account(address)?,
+            Err(e) => return Err(e),
+        };
+        Ok(id)
+    }
+
+    /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without
+    /// actually instantiating accounts for them
+    ///
+    /// If a and b are of the same type, simply do an equality check. Otherwise, attempt to resolve
+    /// to an ActorID and compare
+    fn same_address(&self, address_a: &Address, address_b: &Address) -> bool {
+        let protocol_a = address_a.protocol();
+        let protocol_b = address_b.protocol();
+        if protocol_a == protocol_b {
+            address_a == address_b
+        } else {
+            // attempt to resolve both to ActorID
+            let id_a = match self.resolve_id(address_a) {
+                Ok(id) => id,
+                Err(_) => return false,
+            };
+            let id_b = match self.resolve_id(address_b) {
+                Ok(id) => id,
+                Err(_) => return false,
+            };
+            id_a == id_b
+        }
+    }
 }
 
-// the method number comes from taking the name as "Receive" and applying
-// the transformation described in [FRC-0042](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0042.md)
+/// This method number comes from taking the name as "Receive" and applying
+/// the transformation described in [FRC-0042](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0042.md)
 pub const RECEIVER_HOOK_METHOD_NUM: u64 = method_hash!("Receive");
 
 #[derive(Debug, Default, Clone, Copy)]

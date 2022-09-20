@@ -10,8 +10,11 @@ frc42_dispatch = { path = "../../../../frc42_dispatch" }
 fvm_actor_utils = { version = "0.1.0", path = "../../../../fvm_actor_utils" }
 fvm_ipld_blockstore = "0.1.1"
 fvm_ipld_encoding = "0.2.2"
-fvm_sdk = { version = "1.0.0" }
-fvm_shared = { version = "0.8.0" }
+fvm_sdk = { version = "2.0.0-alpha.2" }
+fvm_shared = "2.0.0-alpha.2"
+serde = { version = "1.0.136", features = ["derive"] }
+serde_tuple = { version = "0.5.0" }
+thiserror = { version = "1.0.31" }
 
 [build-dependencies]
 wasm-builder = "3.0"
