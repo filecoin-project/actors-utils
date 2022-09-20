@@ -99,10 +99,8 @@ fn invoke(input: u32) -> u32 {
                         amount: token_params.amount,
                         operator_data,
                     };
-                    let receipt = sdk::send::send(&Address::new_id(sdk::message::caller()), method_hash!("Transfer"), RawBytes::serialize(&transfer_params).unwrap(), TokenAmount::zero()).unwrap();
-                    if !receipt.exit_code.is_success() {
-                        panic!("transfer call failed");
-                    }
+                    let _receipt = sdk::send::send(&Address::new_id(sdk::message::caller()), method_hash!("Transfer"), RawBytes::serialize(&transfer_params).unwrap(), TokenAmount::zero()).unwrap();
+                    // transfer failures are ignored - we just keep the tokens here
                 }
                 TestAction::Burn => {
                     // burn the tokens
