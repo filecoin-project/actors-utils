@@ -108,6 +108,22 @@ pub trait TokenHelpers {
         amount: TokenAmount,
         operator_data: RawBytes,
     ) -> ApplyRet;
+
+    /// Check token balance, asserting that balance matches the provided amount
+    fn assert_token_balance(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        target: Address,
+        amount: TokenAmount,
+    );
+    /// Check token balance, asserting a zero balance
+    fn assert_token_balance_zero(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        target: Address,
+    );
 }
 
 impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {
@@ -204,5 +220,26 @@ impl<B: Blockstore, E: Externs> TokenHelpers for Tester<B, E> {
         let ret = self.mint_tokens(operator, token_actor, target, amount, operator_data);
         assert!(ret.msg_receipt.exit_code.is_success());
         ret
+    }
+
+    fn assert_token_balance(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        target: Address,
+        amount: TokenAmount,
+    ) {
+        let balance = self.token_balance(operator, token_actor, target);
+        assert_eq!(balance, amount);
+    }
+
+    fn assert_token_balance_zero(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        target: Address,
+    ) {
+        let balance = self.token_balance(operator, token_actor, target);
+        assert_eq!(balance, TokenAmount::zero());
     }
 }

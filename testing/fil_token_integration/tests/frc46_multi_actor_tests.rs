@@ -62,10 +62,8 @@ fn frc46_multi_actor_tests() {
         tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
 
         // balance should remain zero
-        let balance = tester.token_balance(operator[0].1, token_actor, alice);
-        assert_eq!(balance, TokenAmount::from_atto(0));
-        let balance = tester.token_balance(operator[0].1, token_actor, bob);
-        assert_eq!(balance, TokenAmount::from_atto(0));
+        tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
+        tester.assert_token_balance_zero(operator[0].1, token_actor, bob);
     }
     // TEST: alice sends bob a transfer of a non-zero amounnt. As before, we'll reject it the first time then accept
     {
@@ -77,8 +75,7 @@ fn frc46_multi_actor_tests() {
             TokenAmount::from_atto(100),
             action(TestAction::Accept),
         );
-        let balance = tester.token_balance(operator[0].1, token_actor, alice);
-        assert_eq!(balance, TokenAmount::from_atto(100));
+        tester.assert_token_balance(operator[0].1, token_actor, alice, TokenAmount::from_atto(100));
         // now send to bob, who will reject them
         let params =
             action_params(token_actor, TestAction::Transfer(bob, action(TestAction::Reject)));
@@ -94,10 +91,8 @@ fn frc46_multi_actor_tests() {
             action_params(token_actor, TestAction::Transfer(bob, action(TestAction::Accept)));
         tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
         // check balances
-        let balance = tester.token_balance(operator[0].1, token_actor, alice);
-        assert_eq!(balance, TokenAmount::from_atto(0));
-        let balance = tester.token_balance(operator[0].1, token_actor, bob);
-        assert_eq!(balance, TokenAmount::from_atto(100));
+        tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
+        tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(100));
     }
 
     // TEST: mint to alice who transfers to bob inside receiver hook, bob accepts
@@ -109,10 +104,8 @@ fn frc46_multi_actor_tests() {
             TokenAmount::from_atto(100),
             action(TestAction::Transfer(bob, action(TestAction::Accept))),
         );
-        let balance = tester.token_balance(operator[0].1, token_actor, alice);
-        assert_eq!(balance, TokenAmount::from_atto(0));
-        let balance = tester.token_balance(operator[0].1, token_actor, bob);
-        assert_eq!(balance, TokenAmount::from_atto(200));
+        tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
+        tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(200));
     }
 
     // TEST: mint to alice who transfers to bob inside receiver hook, bob rejects
@@ -126,11 +119,9 @@ fn frc46_multi_actor_tests() {
         );
         // mint succeeds but the transfer inside the receiver hook would have failed
         // alice should keep tokens in this case
-        let balance = tester.token_balance(operator[0].1, token_actor, alice);
-        assert_eq!(balance, TokenAmount::from_atto(100));
+        tester.assert_token_balance(operator[0].1, token_actor, alice, TokenAmount::from_atto(100));
         // bob's balance should remain unchanged
-        let balance = tester.token_balance(operator[0].1, token_actor, bob);
-        assert_eq!(balance, TokenAmount::from_atto(200));
+        tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(200));
     }
 
     // TEST: alice transfers to bob, bob transfers to carol (from hook), carol accepts
@@ -144,12 +135,9 @@ fn frc46_multi_actor_tests() {
         );
         tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
         // check balances - alice should be empty, bob should keep 200, carol sitting on 100
-        let balance = tester.token_balance(operator[0].1, token_actor, alice);
-        assert_eq!(balance, TokenAmount::from_atto(0));
-        let balance = tester.token_balance(operator[0].1, token_actor, bob);
-        assert_eq!(balance, TokenAmount::from_atto(200));
-        let balance = tester.token_balance(operator[0].1, token_actor, carol);
-        assert_eq!(balance, TokenAmount::from_atto(100));
+        tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
+        tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(200));
+        tester.assert_token_balance(operator[0].1, token_actor, carol, TokenAmount::from_atto(100));
     }
 
     // TEST: alice transfers to bob, bob transfers to carol (from hook), carol burns (from hook)
@@ -176,11 +164,8 @@ fn frc46_multi_actor_tests() {
         let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(receipt.exit_code.is_success());
         // check balances - alice should be empty, bob should keep 200, carol sitting on 100
-        let balance = tester.token_balance(operator[0].1, token_actor, alice);
-        assert_eq!(balance, TokenAmount::from_atto(0));
-        let balance = tester.token_balance(operator[0].1, token_actor, bob);
-        assert_eq!(balance, TokenAmount::from_atto(200));
-        let balance = tester.token_balance(operator[0].1, token_actor, carol);
-        assert_eq!(balance, TokenAmount::from_atto(100));
+        tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
+        tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(200));
+        tester.assert_token_balance(operator[0].1, token_actor, carol, TokenAmount::from_atto(100));
     }
 }
