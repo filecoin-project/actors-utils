@@ -243,7 +243,6 @@ pub fn invoke(params: u32) -> u32 {
             let root_cid = sdk::sself::root().unwrap();
 
             let bs = Blockstore::default();
-            // might want these to be done inside each handler as there's times we'll want to discard and reload it
             let mut token_state = Token::<_, FvmMessenger>::load_state(&bs, &root_cid).unwrap();
 
             let mut token_actor =
