@@ -1,9 +1,9 @@
 use frc42_dispatch::method_hash;
-use frc46_token::token::state::TokenState;
+use frc46_token::token::{state::TokenState, types::TransferReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
-use fvm_shared::{address::Address, econ::TokenAmount, receipt::Receipt};
+use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, receipt::Receipt};
 
 mod common;
 use common::{construct_tester, TestHelpers, TokenHelpers};
@@ -54,6 +54,8 @@ fn frc46_multi_actor_tests() {
         // check the receipt we got in return data
         let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(!receipt.exit_code.is_success());
+        tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
+        tester.assert_token_balance_zero(operator[0].1, token_actor, bob);
     }
     {
         // this time tell bob to accept it
@@ -84,6 +86,9 @@ fn frc46_multi_actor_tests() {
         // check the receipt we got in return data
         let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(!receipt.exit_code.is_success());
+        // alice should keep the tokens, while bob has nothing
+        tester.assert_token_balance(operator[0].1, token_actor, alice, TokenAmount::from_atto(100));
+        tester.assert_token_balance_zero(operator[0].1, token_actor, bob);
     }
     {
         // transfer to bob who will accept it this time
@@ -133,7 +138,21 @@ fn frc46_multi_actor_tests() {
                 action(TestAction::Transfer(carol, action(TestAction::Accept))),
             ),
         );
-        tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
+        let ret_val =
+            tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
+        // check the receipt we got in return data
+        let receipt: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
+        assert!(receipt.exit_code.is_success());
+        // check the transfer result (from alice to bob)
+        let bob_transfer: TransferReturn = receipt.return_data.deserialize().unwrap();
+        assert_eq!(bob_transfer.from_balance, TokenAmount::zero());
+        assert_eq!(bob_transfer.to_balance, TokenAmount::from_atto(200));
+        // now extract the bob->carol receipt and transfer data contained within
+        let bob_receipt: Receipt = bob_transfer.recipient_data.deserialize().unwrap();
+        let carol_transfer: TransferReturn = bob_receipt.return_data.deserialize().unwrap();
+        assert_eq!(carol_transfer.from_balance, TokenAmount::from_atto(200));
+        assert_eq!(carol_transfer.to_balance, TokenAmount::from_atto(100));
+
         // check balances - alice should be empty, bob should keep 200, carol sitting on 100
         tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
         tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(200));
@@ -142,7 +161,7 @@ fn frc46_multi_actor_tests() {
 
     // TEST: alice transfers to bob, bob transfers to carol (from hook), carol burns (from hook)
     {
-        // mint a bit to alice first
+        // mint some more to alice first
         tester.mint_tokens_ok(
             operator[0].1,
             token_actor,
@@ -160,9 +179,20 @@ fn frc46_multi_actor_tests() {
         );
         let ret_val =
             tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
+
         // check the receipt we got in return data
-        let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
+        let receipt: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
         assert!(receipt.exit_code.is_success());
+        // check the transfer result (from alice to bob)
+        let bob_transfer: TransferReturn = receipt.return_data.deserialize().unwrap();
+        assert_eq!(bob_transfer.from_balance, TokenAmount::zero());
+        assert_eq!(bob_transfer.to_balance, TokenAmount::from_atto(200));
+        // now extract the bob->carol receipt and transfer data contained within
+        let bob_receipt: Receipt = bob_transfer.recipient_data.deserialize().unwrap();
+        let carol_transfer: TransferReturn = bob_receipt.return_data.deserialize().unwrap();
+        assert_eq!(carol_transfer.from_balance, TokenAmount::from_atto(200));
+        assert_eq!(carol_transfer.to_balance, TokenAmount::from_atto(100));
+
         // check balances - alice should be empty, bob should keep 200, carol sitting on 100
         tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
         tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(200));
