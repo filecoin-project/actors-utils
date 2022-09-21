@@ -73,7 +73,7 @@ pub trait TestHelpers {
 pub trait TokenHelpers {
     /// Get balance from token actor for a given address
     /// This is a very common thing to check during tests
-    fn get_balance(
+    fn token_balance(
         &mut self,
         operator: Address,
         token_actor: Address,
@@ -136,7 +136,7 @@ impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {
 }
 
 impl<B: Blockstore, E: Externs> TokenHelpers for Tester<B, E> {
-    fn get_balance(
+    fn token_balance(
         &mut self,
         operator: Address,
         token_actor: Address,

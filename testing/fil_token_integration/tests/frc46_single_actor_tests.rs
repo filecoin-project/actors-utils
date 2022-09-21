@@ -57,7 +57,7 @@ fn frc46_single_actor_tests() {
     assert!(!ret_val.msg_receipt.exit_code.is_success());
 
     // check balance of test actor, should be zero
-    let balance = tester.get_balance(operator[0].1, token_actor, test_actor);
+    let balance = tester.token_balance(operator[0].1, token_actor, test_actor);
     assert_eq!(balance, TokenAmount::from_atto(0));
 
     // TEST: mint to self (token actor), should be rejected
@@ -84,7 +84,7 @@ fn frc46_single_actor_tests() {
     assert_eq!(mint_result.supply, TokenAmount::from_atto(0));
 
     // check balance of test actor, should also be zero
-    let balance = tester.get_balance(operator[0].1, token_actor, test_actor);
+    let balance = tester.token_balance(operator[0].1, token_actor, test_actor);
     assert_eq!(balance, TokenAmount::from_atto(0));
 
     // TEST: test actor transfers to self (zero amount)
@@ -98,7 +98,7 @@ fn frc46_single_actor_tests() {
     assert!(ret_val.msg_receipt.exit_code.is_success());
 
     // balance should remain zero
-    let balance = tester.get_balance(operator[0].1, token_actor, test_actor);
+    let balance = tester.token_balance(operator[0].1, token_actor, test_actor);
     assert_eq!(balance, TokenAmount::from_atto(0));
 
     // SETUP: we need a balance on the test actor for the next few tests
@@ -111,7 +111,7 @@ fn frc46_single_actor_tests() {
     );
     let mint_result: MintReturn = ret_val.msg_receipt.return_data.deserialize().unwrap();
     assert_eq!(mint_result.supply, TokenAmount::from_atto(100));
-    let balance = tester.get_balance(operator[0].1, token_actor, test_actor);
+    let balance = tester.token_balance(operator[0].1, token_actor, test_actor);
     assert_eq!(balance, TokenAmount::from_atto(100));
 
     // TEST: test actor transfers back to token actor (rejected, token actor has no hook)
@@ -128,7 +128,7 @@ fn frc46_single_actor_tests() {
     let receipt: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
     assert!(!receipt.exit_code.is_success());
     // check that our test actor balance hasn't changed
-    let balance = tester.get_balance(operator[0].1, token_actor, test_actor);
+    let balance = tester.token_balance(operator[0].1, token_actor, test_actor);
     assert_eq!(balance, TokenAmount::from_atto(100));
 
     // TEST: test actor transfers to self (non-zero amount)
@@ -141,6 +141,6 @@ fn frc46_single_actor_tests() {
         tester.call_method(operator[0].1, test_actor, method_hash!("Action"), Some(params));
     assert!(ret_val.msg_receipt.exit_code.is_success());
     // check that our test actor balance hasn't changed
-    let balance = tester.get_balance(operator[0].1, token_actor, test_actor);
+    let balance = tester.token_balance(operator[0].1, token_actor, test_actor);
     assert_eq!(balance, TokenAmount::from_atto(100));
 }
