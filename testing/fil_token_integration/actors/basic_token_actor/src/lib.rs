@@ -1,5 +1,6 @@
 mod util;
 
+use cid::Cid;
 use frc46_token::token::types::{
     AllowanceReturn, BalanceReturn, BurnFromReturn, BurnParams, BurnReturn,
     DecreaseAllowanceParams, FRC46Token, GetAllowanceParams, GranularityReturn,
@@ -177,8 +178,16 @@ pub struct MintParams {
 impl Cbor for MintParams {}
 
 impl BasicToken<'_> {
+    fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {
+        // todo: revise error type here so it plays nice with the result and doesn't need unwrap
+        let new_cid = sdk::sself::root().unwrap();
+        if new_cid != *initial_cid {
+            self.util.load_replace(&new_cid)?;
+        }
+        Ok(())
+    }
+
     fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
-        let owner = params.initial_owner;
         let mut hook = self.util.mint(
             &caller_address(),
             &params.initial_owner,
@@ -190,20 +199,10 @@ impl BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let ret = hook.call(self.util.msg())?;
+        let hook_ret = hook.call(self.util.msg())?;
 
-        let new_cid = sdk::sself::root().unwrap();
-        let ret = if cid == new_cid {
-            ret
-        } else {
-            // state has changed, update return data with new amounts
-            self.util.load_replace(&new_cid)?;
-            MintReturn {
-                balance: self.balance_of(owner)?,
-                supply: self.total_supply(),
-                recipient_data: ret.recipient_data,
-            }
-        };
+        self.reload(&cid)?;
+        let ret = self.util.mint_return(hook_ret)?;
 
         Ok(ret)
     }

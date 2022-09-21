@@ -129,7 +129,17 @@ pub struct MintReturn {
 }
 
 impl Cbor for MintReturn {}
-impl RecipientData for MintReturn {
+
+/// Intermediate data used by mint_return to construct the return data
+#[derive(Debug)]
+pub struct MintIntermediate {
+    /// Recipient address to use for querying balance
+    pub recipient: Address,
+    /// (Optional) data returned from receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl RecipientData for MintIntermediate {
     fn set_recipient_data(&mut self, data: RawBytes) {
         self.recipient_data = data;
     }

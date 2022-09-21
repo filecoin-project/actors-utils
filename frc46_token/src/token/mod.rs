@@ -16,7 +16,7 @@ use self::types::BurnReturn;
 use self::types::TransferFromReturn;
 use self::types::TransferReturn;
 use crate::receiver::{types::FRC46TokenReceived, ReceiverHook};
-use crate::token::types::MintReturn;
+use crate::token::types::{MintIntermediate, MintReturn};
 use crate::token::TokenError::InvalidGranularity;
 
 mod error;
@@ -147,6 +147,9 @@ where
     /// Returns a ReceiverHook to call the owner's token receiver hook,
     /// and the owner's new balance.
     /// ReceiverHook must be called or it will panic and abort the transaction.
+    ///
+    /// The hook call will return a MintIntermediate struct which must be passed to mint_return
+    /// to get the final return data
     pub fn mint(
         &mut self,
         operator: &Address,
@@ -154,7 +157,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<ReceiverHook<MintReturn>> {
+    ) -> Result<ReceiverHook<MintIntermediate>> {
         let amount = validate_amount_with_granularity(amount, "mint", self.granularity)?;
         // init the operator account so that its actor ID can be referenced in the receiver hook
         let operator_id = self.msg.resolve_or_init(operator)?;
@@ -163,9 +166,9 @@ where
 
         // Increase the balance of the actor and increase total supply
         let result = self.transaction(|state, bs| {
-            let balance = state.change_balance_by(&bs, owner_id, amount)?;
-            let supply = state.change_supply_by(amount)?;
-            Ok(MintReturn { balance, supply: supply.clone(), recipient_data: RawBytes::default() })
+            state.change_balance_by(&bs, owner_id, amount)?;
+            state.change_supply_by(amount)?;
+            Ok(MintIntermediate { recipient: *initial_owner, recipient_data: RawBytes::default() })
         })?;
 
         // return the params we'll send to the receiver hook
@@ -179,6 +182,17 @@ where
         };
 
         Ok(ReceiverHook::new(*initial_owner, params, result))
+    }
+
+    /// Finalise return data from MintIntermediate data returned by calling receiver hook after minting
+    /// This is done to allow reloading the state if it changed as a result of the hook call
+    /// so we can return an accurate balance even if the receiver transferred or burned tokens upon receipt
+    pub fn mint_return(&self, intermediate: MintIntermediate) -> Result<MintReturn> {
+        Ok(MintReturn {
+            balance: self.balance_of(&intermediate.recipient)?,
+            supply: self.total_supply(),
+            recipient_data: intermediate.recipient_data,
+        })
     }
 
     /// Gets the total number of tokens in existence
@@ -899,7 +913,8 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let result = hook.call(token.msg()).unwrap();
+        let hook_ret = hook.call(token.msg()).unwrap();
+        let result = token.mint_return(hook_ret).unwrap();
         assert_eq!(TokenAmount::from_atto(1_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(1_000_000), result.supply);
 
@@ -957,7 +972,8 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let result = hook.call(token.msg()).unwrap();
+        let hook_ret = hook.call(token.msg()).unwrap();
+        let result = token.mint_return(hook_ret).unwrap();
         assert_eq!(TokenAmount::from_atto(2_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(2_000_000), result.supply);
 
@@ -989,7 +1005,8 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let result = hook.call(token.msg()).unwrap();
+        let hook_ret = hook.call(token.msg()).unwrap();
+        let result = token.mint_return(hook_ret).unwrap();
         assert_eq!(TokenAmount::from_atto(1_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(3_000_000), result.supply);
 
