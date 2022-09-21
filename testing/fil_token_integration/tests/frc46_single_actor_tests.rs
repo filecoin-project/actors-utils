@@ -77,7 +77,7 @@ fn frc46_single_actor_tests() {
 
     // TEST: mint to test actor, hook burns tokens immediately
     {
-        let ret_val = tester.mint_tokens(
+        let ret_val = tester.mint_tokens_ok(
             operator[0].1,
             token_actor,
             test_actor,
@@ -100,9 +100,7 @@ fn frc46_single_actor_tests() {
             action: TestAction::Transfer(test_actor, action(TestAction::Accept)),
         };
         let params = RawBytes::serialize(test_action).unwrap();
-        let ret_val =
-            tester.call_method(operator[0].1, test_actor, method_hash!("Action"), Some(params));
-        assert!(ret_val.msg_receipt.exit_code.is_success());
+        tester.call_method_ok(operator[0].1, test_actor, method_hash!("Action"), Some(params));
 
         // balance should remain zero
         let balance = tester.token_balance(operator[0].1, token_actor, test_actor);
@@ -111,7 +109,7 @@ fn frc46_single_actor_tests() {
 
     // SETUP: we need a balance on the test actor for the next few tests
     {
-        let ret_val = tester.mint_tokens(
+        let ret_val = tester.mint_tokens_ok(
             operator[0].1,
             token_actor,
             test_actor,
@@ -132,9 +130,9 @@ fn frc46_single_actor_tests() {
         };
         let params = RawBytes::serialize(test_action).unwrap();
         let ret_val =
-            tester.call_method(operator[0].1, test_actor, method_hash!("Action"), Some(params));
+            tester.call_method_ok(operator[0].1, test_actor, method_hash!("Action"), Some(params));
         // action call should succeed, we'll dig into the return data to see the transfer call failure
-        assert!(ret_val.msg_receipt.exit_code.is_success());
+
         // return data is the Receipt from calling Transfer, which should show failure
         let receipt: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
         assert!(!receipt.exit_code.is_success());
@@ -150,9 +148,8 @@ fn frc46_single_actor_tests() {
             action: TestAction::Transfer(test_actor, action(TestAction::Accept)),
         };
         let params = RawBytes::serialize(test_action).unwrap();
-        let ret_val =
-            tester.call_method(operator[0].1, test_actor, method_hash!("Action"), Some(params));
-        assert!(ret_val.msg_receipt.exit_code.is_success());
+        tester.call_method_ok(operator[0].1, test_actor, method_hash!("Action"), Some(params));
+
         // check that our test actor balance hasn't changed
         let balance = tester.token_balance(operator[0].1, token_actor, test_actor);
         assert_eq!(balance, TokenAmount::from_atto(100));

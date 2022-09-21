@@ -49,9 +49,8 @@ fn frc46_multi_actor_tests() {
         let params =
             action_params(token_actor, TestAction::Transfer(bob, action(TestAction::Reject)));
         let ret_val =
-            tester.call_method(operator[0].1, alice, method_hash!("Action"), Some(params));
+            tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
         // we told bob to reject, so the action call should return success but give us the error result as return data
-        assert!(ret_val.msg_receipt.exit_code.is_success());
         // check the receipt we got in return data
         let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(!receipt.exit_code.is_success());
@@ -60,10 +59,7 @@ fn frc46_multi_actor_tests() {
         // this time tell bob to accept it
         let params =
             action_params(token_actor, TestAction::Transfer(bob, action(TestAction::Accept)));
-        let ret_val =
-            tester.call_method(operator[0].1, alice, method_hash!("Action"), Some(params));
-        // we told bob to accept this time, so transfer should succeed
-        assert!(ret_val.msg_receipt.exit_code.is_success());
+        tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
 
         // balance should remain zero
         let balance = tester.token_balance(operator[0].1, token_actor, alice);
@@ -74,22 +70,20 @@ fn frc46_multi_actor_tests() {
     // TEST: alice sends bob a transfer of a non-zero amounnt. As before, we'll reject it the first time then accept
     {
         // mint some tokens to alice first
-        let ret_val = tester.mint_tokens(
+        let _ = tester.mint_tokens_ok(
             operator[0].1,
             token_actor,
             alice,
             TokenAmount::from_atto(100),
             action(TestAction::Accept),
         );
-        assert!(ret_val.msg_receipt.exit_code.is_success());
         let balance = tester.token_balance(operator[0].1, token_actor, alice);
         assert_eq!(balance, TokenAmount::from_atto(100));
         // now send to bob, who will reject them
         let params =
             action_params(token_actor, TestAction::Transfer(bob, action(TestAction::Reject)));
         let ret_val =
-            tester.call_method(operator[0].1, alice, method_hash!("Action"), Some(params));
-        assert!(ret_val.msg_receipt.exit_code.is_success());
+            tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
         // check the receipt we got in return data
         let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(!receipt.exit_code.is_success());
@@ -98,9 +92,7 @@ fn frc46_multi_actor_tests() {
         // transfer to bob who will accept it this time
         let params =
             action_params(token_actor, TestAction::Transfer(bob, action(TestAction::Accept)));
-        let ret_val =
-            tester.call_method(operator[0].1, alice, method_hash!("Action"), Some(params));
-        assert!(ret_val.msg_receipt.exit_code.is_success());
+        tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
         // check balances
         let balance = tester.token_balance(operator[0].1, token_actor, alice);
         assert_eq!(balance, TokenAmount::from_atto(0));
@@ -110,14 +102,13 @@ fn frc46_multi_actor_tests() {
 
     // TEST: mint to alice who transfers to bob inside receiver hook, bob accepts
     {
-        let ret_val = tester.mint_tokens(
+        tester.mint_tokens_ok(
             operator[0].1,
             token_actor,
             alice,
             TokenAmount::from_atto(100),
             action(TestAction::Transfer(bob, action(TestAction::Accept))),
         );
-        assert!(ret_val.msg_receipt.exit_code.is_success());
         let balance = tester.token_balance(operator[0].1, token_actor, alice);
         assert_eq!(balance, TokenAmount::from_atto(0));
         let balance = tester.token_balance(operator[0].1, token_actor, bob);
@@ -126,7 +117,7 @@ fn frc46_multi_actor_tests() {
 
     // TEST: mint to alice who transfers to bob inside receiver hook, bob rejects
     {
-        let ret_val = tester.mint_tokens(
+        tester.mint_tokens_ok(
             operator[0].1,
             token_actor,
             alice,
@@ -134,7 +125,6 @@ fn frc46_multi_actor_tests() {
             action(TestAction::Transfer(bob, action(TestAction::Reject))),
         );
         // mint succeeds but the transfer inside the receiver hook would have failed
-        assert!(ret_val.msg_receipt.exit_code.is_success());
         // alice should keep tokens in this case
         let balance = tester.token_balance(operator[0].1, token_actor, alice);
         assert_eq!(balance, TokenAmount::from_atto(100));
@@ -152,9 +142,7 @@ fn frc46_multi_actor_tests() {
                 action(TestAction::Transfer(carol, action(TestAction::Accept))),
             ),
         );
-        let ret_val =
-            tester.call_method(operator[0].1, alice, method_hash!("Action"), Some(params));
-        assert!(ret_val.msg_receipt.exit_code.is_success());
+        tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
         // check balances - alice should be empty, bob should keep 200, carol sitting on 100
         let balance = tester.token_balance(operator[0].1, token_actor, alice);
         assert_eq!(balance, TokenAmount::from_atto(0));
@@ -167,14 +155,13 @@ fn frc46_multi_actor_tests() {
     // TEST: alice transfers to bob, bob transfers to carol (from hook), carol burns (from hook)
     {
         // mint a bit to alice first
-        let ret_val = tester.mint_tokens(
+        tester.mint_tokens_ok(
             operator[0].1,
             token_actor,
             alice,
             TokenAmount::from_atto(100),
             action(TestAction::Accept),
         );
-        assert!(ret_val.msg_receipt.exit_code.is_success());
         // now transfer alice->bob->carol and have carol burn the incoming balance
         let params = action_params(
             token_actor,
@@ -184,8 +171,7 @@ fn frc46_multi_actor_tests() {
             ),
         );
         let ret_val =
-            tester.call_method(operator[0].1, alice, method_hash!("Action"), Some(params));
-        assert!(ret_val.msg_receipt.exit_code.is_success());
+            tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
         // check the receipt we got in return data
         let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(receipt.exit_code.is_success());

@@ -55,6 +55,15 @@ pub trait TestHelpers {
         params: Option<RawBytes>,
     ) -> ApplyRet;
 
+    /// Call a method on an actor and assert a successful result
+    fn call_method_ok(
+        &mut self,
+        from: Address,
+        to: Address,
+        method_num: u64,
+        params: Option<RawBytes>,
+    ) -> ApplyRet;
+
     /// Install an actor with initial state and ID
     /// Returns the actor's address
     fn install_actor_with_state<S: Serialize>(
@@ -80,7 +89,18 @@ pub trait TokenHelpers {
         target: Address,
     ) -> TokenAmount;
 
+    /// Mint tokens from token_actor to target address
     fn mint_tokens(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        target: Address,
+        amount: TokenAmount,
+        operator_data: RawBytes,
+    ) -> ApplyRet;
+
+    /// Mint tokens from token_actor to target address and assert a successful result
+    fn mint_tokens_ok(
         &mut self,
         operator: Address,
         token_actor: Address,
@@ -112,6 +132,18 @@ impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {
             SEQUENCE += 1;
         }
         self.executor.as_mut().unwrap().execute_message(message, ApplyKind::Explicit, 100).unwrap()
+    }
+
+    fn call_method_ok(
+        &mut self,
+        from: Address,
+        to: Address,
+        method_num: u64,
+        params: Option<RawBytes>,
+    ) -> ApplyRet {
+        let ret = self.call_method(from, to, method_num, params);
+        assert!(ret.msg_receipt.exit_code.is_success());
+        ret
     }
 
     fn install_actor_with_state<S: Serialize>(
@@ -159,5 +191,18 @@ impl<B: Blockstore, E: Externs> TokenHelpers for Tester<B, E> {
         let mint_params = MintParams { initial_owner: target, amount, operator_data };
         let params = RawBytes::serialize(mint_params).unwrap();
         self.call_method(operator, token_actor, method_hash!("Mint"), Some(params))
+    }
+
+    fn mint_tokens_ok(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        target: Address,
+        amount: TokenAmount,
+        operator_data: RawBytes,
+    ) -> ApplyRet {
+        let ret = self.mint_tokens(operator, token_actor, target, amount, operator_data);
+        assert!(ret.msg_receipt.exit_code.is_success());
+        ret
     }
 }
