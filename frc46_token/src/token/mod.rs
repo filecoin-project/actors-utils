@@ -76,9 +76,22 @@ where
         Self { bs, msg, granularity, state }
     }
 
+    /// Replace the current state with another
+    /// The previous state is returned and can be safely dropped
+    pub fn replace(&mut self, state: TokenState) -> TokenState {
+        std::mem::replace(self.state, state)
+    }
+
     /// For an already initialised state tree, loads the state tree from the blockstore at a Cid
     pub fn load_state(bs: &BS, state_cid: &Cid) -> Result<TokenState> {
         Ok(TokenState::load(bs, state_cid)?)
+    }
+
+    /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing state
+    /// The old state is returned to enable comparisons and the like but can be safely dropped otherwise
+    pub fn load_replace(&mut self, cid: &Cid) -> Result<TokenState> {
+        let new_state = TokenState::load(&self.bs, cid)?;
+        Ok(std::mem::replace(self.state, new_state))
     }
 
     /// Flush state and return Cid for root
@@ -94,22 +107,6 @@ where
     /// Get a reference to the Messaging struct we're using
     pub fn msg(&self) -> &MSG {
         &self.msg
-    }
-
-    /// Replace the current state reference with another
-    /// This is intended for unit tests only (and enforced by the config and visibility limits)
-    /// The replacement state needs the same lifetime as the original so cloning it inside
-    /// actor method calls generally wouldn't work.
-    #[cfg(test)]
-    pub(in crate::token) fn replace(&mut self, state: &'st mut TokenState) {
-        self.state = state;
-    }
-
-    /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing state
-    /// The old state is returned to enable comparisons and the like but can be safely dropped otherwise
-    pub fn load_replace(&mut self, cid: &Cid) -> Result<TokenState> {
-        let new_state = TokenState::load(&self.bs, cid)?;
-        Ok(std::mem::replace(self.state, new_state))
     }
 
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
@@ -1109,7 +1106,7 @@ mod test {
 
         // force hook to abort
         token.msg.abort_next_send();
-        let mut original_state = token.state().clone();
+        let original_state = token.state().clone();
         let mut hook = token
             .mint(
                 TOKEN_ACTOR,
@@ -1131,7 +1128,7 @@ mod test {
                 assert_eq!(amount, TokenAmount::from_atto(1_000_000));
                 // restore original pre-mint state
                 // in actor code, we'd just abort and let the VM handle this
-                token.replace(&mut original_state);
+                token.replace(original_state);
             }
             _ => panic!("expected receiver hook error"),
         };
@@ -1570,7 +1567,7 @@ mod test {
 
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
         token.msg.abort_next_send();
-        let mut pre_transfer_state = token.state().clone();
+        let pre_transfer_state = token.state().clone();
         let mut hook = token
             .transfer(
                 ALICE,
@@ -1592,7 +1589,7 @@ mod test {
                 assert_eq!(amount, TokenAmount::from_atto(60));
                 // revert to pre-transfer state
                 // in actor code, we'd just abort and let the VM handle this
-                token.replace(&mut pre_transfer_state);
+                token.replace(pre_transfer_state);
             }
             _ => panic!("expected receiver hook error"),
         };
@@ -1603,7 +1600,7 @@ mod test {
 
         // transfer 60 from owner -> self, simulate receiver aborting the hook
         token.msg.abort_next_send();
-        let mut pre_transfer_state = token.state().clone();
+        let pre_transfer_state = token.state().clone();
         let mut hook = token
             .transfer(
                 ALICE,
@@ -1625,7 +1622,7 @@ mod test {
                 assert_eq!(amount, TokenAmount::from_atto(60));
                 // revert to pre-transfer state
                 // in actor code, we'd just abort and let the VM handle this
-                token.replace(&mut pre_transfer_state);
+                token.replace(pre_transfer_state);
             }
             _ => panic!("expected receiver hook error"),
         };
