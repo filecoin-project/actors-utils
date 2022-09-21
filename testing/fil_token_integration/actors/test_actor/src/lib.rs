@@ -141,12 +141,16 @@ fn invoke(input: u32) -> u32 {
 
             match params.action {
                 TestAction::Accept => {
-                    // nothing to do here
-                    NO_DATA_BLOCK_ID
+                    sdk::vm::abort(
+                        ExitCode::USR_ILLEGAL_ARGUMENT.value(),
+                        Some("invalid argument"),
+                    );
                 }
                 TestAction::Reject => {
-                    // nothing to do here
-                    NO_DATA_BLOCK_ID
+                    sdk::vm::abort(
+                        ExitCode::USR_ILLEGAL_ARGUMENT.value(),
+                        Some("invalid argument"),
+                    );
                 }
                 TestAction::Transfer(to, operator_data) => {
                     // transfer to a target address
