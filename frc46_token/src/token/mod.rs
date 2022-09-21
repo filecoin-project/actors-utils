@@ -13,7 +13,9 @@ use num_traits::Zero;
 use self::state::{StateError as TokenStateError, TokenState};
 use self::types::BurnFromReturn;
 use self::types::BurnReturn;
-use self::types::{TransferFromIntermediate, TransferFromReturn, TransferReturn};
+use self::types::{
+    TransferFromIntermediate, TransferFromReturn, TransferIntermediate, TransferReturn,
+};
 use crate::receiver::{types::FRC46TokenReceived, ReceiverHook};
 use crate::token::types::{MintIntermediate, MintReturn};
 use crate::token::TokenError::InvalidGranularity;
@@ -442,8 +444,11 @@ where
     /// - The to balance increases by the requested value
     ///
     /// Returns a ReceiverHook to call the recipient's token receiver hook,
-    /// and the updated balances.
+    /// and a TransferIntermediate struct
     /// ReceiverHook must be called or it will panic and abort the transaction.
+    ///
+    /// Return data from the hook should be passed to transfer_return which will generate
+    /// the Transfereturn struct
     pub fn transfer(
         &mut self,
         from: &Address,
@@ -451,40 +456,44 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<ReceiverHook<TransferReturn>> {
+    ) -> Result<ReceiverHook<TransferIntermediate>> {
         let amount = validate_amount_with_granularity(amount, "transfer", self.granularity)?;
 
         // owner-initiated transfer
-        let from = self.msg.resolve_or_init(from)?;
+        let from_id = self.msg.resolve_or_init(from)?;
         let to_id = self.msg.resolve_or_init(to)?;
         // skip allowance check for self-managed transfers
         let res = self.transaction(|state, bs| {
             // don't change balance if to == from, but must check that the transfer doesn't exceed balance
-            if to_id == from {
-                let balance = state.get_balance(&bs, from)?;
+            if to_id == from_id {
+                let balance = state.get_balance(&bs, from_id)?;
                 if balance.lt(amount) {
                     return Err(TokenStateError::InsufficientBalance {
-                        owner: from,
+                        owner: from_id,
                         balance,
                         delta: amount.clone().neg(),
                     }
                     .into());
                 }
-                Ok(TransferReturn {
-                    from_balance: balance.clone(),
-                    to_balance: balance,
+                Ok(TransferIntermediate {
+                    from: *from,
+                    to: *to,
                     recipient_data: RawBytes::default(),
                 })
             } else {
-                let to_balance = state.change_balance_by(&bs, to_id, amount)?;
-                let from_balance = state.change_balance_by(&bs, from, &amount.neg())?;
-                Ok(TransferReturn { from_balance, to_balance, recipient_data: RawBytes::default() })
+                state.change_balance_by(&bs, to_id, amount)?;
+                state.change_balance_by(&bs, from_id, &amount.neg())?;
+                Ok(TransferIntermediate {
+                    from: *from,
+                    to: *to,
+                    recipient_data: RawBytes::default(),
+                })
             }
         })?;
 
         let params = FRC46TokenReceived {
-            operator: from,
-            from,
+            operator: from_id,
+            from: from_id,
             to: to_id,
             amount: amount.clone(),
             operator_data,
@@ -492,6 +501,15 @@ where
         };
 
         Ok(ReceiverHook::new(*to, params, res))
+    }
+
+    /// Generate TransferReturn from the intermediate data returned by a receiver hook call
+    pub fn transfer_return(&self, intermediate: TransferIntermediate) -> Result<TransferReturn> {
+        Ok(TransferReturn {
+            from_balance: self.balance_of(&intermediate.from)?,
+            to_balance: self.balance_of(&intermediate.to)?,
+            recipient_data: intermediate.recipient_data,
+        })
     }
 
     /// Transfers an amount from one address to another

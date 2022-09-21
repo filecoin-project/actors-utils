@@ -53,7 +53,6 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
     fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
         let operator = caller_address();
-        let to = params.to;
         let mut hook = self.util.transfer(
             &operator,
             &params.to,
@@ -65,20 +64,10 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let ret = hook.call(self.util.msg())?;
+        let hook_ret = hook.call(self.util.msg())?;
 
-        let new_cid = sdk::sself::root().unwrap();
-        let ret = if cid == new_cid {
-            ret
-        } else {
-            // state has changed, update return data with new balances
-            self.util.load_replace(&new_cid)?;
-            TransferReturn {
-                from_balance: self.balance_of(operator)?,
-                to_balance: self.balance_of(to)?,
-                recipient_data: ret.recipient_data,
-            }
-        };
+        self.reload(&cid)?;
+        let ret = self.util.transfer_return(hook_ret)?;
 
         Ok(ret)
     }
