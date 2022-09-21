@@ -13,8 +13,7 @@ use num_traits::Zero;
 use self::state::{StateError as TokenStateError, TokenState};
 use self::types::BurnFromReturn;
 use self::types::BurnReturn;
-use self::types::TransferFromReturn;
-use self::types::TransferReturn;
+use self::types::{TransferFromIntermediate, TransferFromReturn, TransferReturn};
 use crate::receiver::{types::FRC46TokenReceived, ReceiverHook};
 use crate::token::types::{MintIntermediate, MintReturn};
 use crate::token::TokenError::InvalidGranularity;
@@ -510,8 +509,11 @@ where
     /// - The owner-operator allowance decreases by the requested value
     ///
     /// Returns a ReceiverHook to call the recipient's token receiver hook,
-    /// and the updated allowance and balances.
+    /// and a TransferFromIntermediate struct.
     /// ReceiverHook must be called or it will panic and abort the transaction.
+    ///
+    /// Return data from the hook should be passed to transfer_from_return which will generate
+    /// the TransferFromReturn struct
     pub fn transfer_from(
         &mut self,
         operator: &Address,
@@ -520,7 +522,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<ReceiverHook<TransferFromReturn>> {
+    ) -> Result<ReceiverHook<TransferFromIntermediate>> {
         let amount = validate_amount_with_granularity(amount, "transfer", self.granularity)?;
         if self.msg.same_address(operator, from) {
             return Err(TokenError::InvalidOperator(*operator));
@@ -543,7 +545,7 @@ where
         };
 
         // the owner must exist to have specified a non-zero allowance
-        let from = match self.msg.resolve_id(from) {
+        let from_id = match self.msg.resolve_id(from) {
             Ok(id) => id,
             Err(MessagingError::AddressNotResolved(from)) => {
                 return Err(TokenError::TokenState(TokenStateError::InsufficientAllowance {
@@ -561,32 +563,31 @@ where
 
         // update token state
         let ret = self.transaction(|state, bs| {
-            let remaining_allowance =
-                state.attempt_use_allowance(&bs, operator_id, from, amount)?;
+            state.attempt_use_allowance(&bs, operator_id, from_id, amount)?;
             // don't change balance if to == from, but must check that the transfer doesn't exceed balance
-            if to_id == from {
-                let balance = state.get_balance(&bs, from)?;
+            if to_id == from_id {
+                let balance = state.get_balance(&bs, from_id)?;
                 if balance.lt(amount) {
                     return Err(TokenStateError::InsufficientBalance {
-                        owner: from,
+                        owner: from_id,
                         balance,
                         delta: amount.clone().neg(),
                     }
                     .into());
                 }
-                Ok(TransferFromReturn {
-                    from_balance: balance.clone(),
-                    to_balance: balance,
-                    allowance: remaining_allowance,
+                Ok(TransferFromIntermediate {
+                    operator: *operator,
+                    from: *from,
+                    to: *to,
                     recipient_data: RawBytes::default(),
                 })
             } else {
-                let to_balance = state.change_balance_by(&bs, to_id, amount)?;
-                let from_balance = state.change_balance_by(&bs, from, &amount.neg())?;
-                Ok(TransferFromReturn {
-                    from_balance,
-                    to_balance,
-                    allowance: remaining_allowance,
+                state.change_balance_by(&bs, to_id, amount)?;
+                state.change_balance_by(&bs, from_id, &amount.neg())?;
+                Ok(TransferFromIntermediate {
+                    operator: *operator,
+                    from: *from,
+                    to: *to,
                     recipient_data: RawBytes::default(),
                 })
             }
@@ -594,7 +595,7 @@ where
 
         let params = FRC46TokenReceived {
             operator: operator_id,
-            from,
+            from: from_id,
             to: to_id,
             amount: amount.clone(),
             operator_data,
@@ -602,6 +603,19 @@ where
         };
 
         Ok(ReceiverHook::new(*to, params, ret))
+    }
+
+    /// Generate TransferReturn from the intermediate data returned by a receiver hook call
+    pub fn transfer_from_return(
+        &self,
+        intermediate: TransferFromIntermediate,
+    ) -> Result<TransferFromReturn> {
+        Ok(TransferFromReturn {
+            from_balance: self.balance_of(&intermediate.from)?,
+            to_balance: self.balance_of(&intermediate.to)?,
+            allowance: self.allowance(&intermediate.from, &intermediate.operator)?, // allowance remains unchanged?
+            recipient_data: intermediate.recipient_data,
+        })
     }
 
     /// Sets the balance of an account to a specific amount

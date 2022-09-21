@@ -200,7 +200,18 @@ pub struct TransferFromReturn {
 
 impl Cbor for TransferFromParams {}
 impl Cbor for TransferFromReturn {}
-impl RecipientData for TransferFromReturn {
+
+/// Intermediate data used by transfer_from_return to construct the return data
+#[derive(Debug)]
+pub struct TransferFromIntermediate {
+    pub operator: Address,
+    pub from: Address,
+    pub to: Address,
+    /// (Optional) data returned from receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl RecipientData for TransferFromIntermediate {
     fn set_recipient_data(&mut self, data: RawBytes) {
         self.recipient_data = data;
     }
