@@ -63,6 +63,36 @@ pub fn action(action: TestAction) -> RawBytes {
     RawBytes::serialize(action).unwrap()
 }
 
+/// Execute the Transfer action
+fn transfer(token: Address, to: Address, amount: TokenAmount, operator_data: RawBytes) -> u32 {
+    let transfer_params = TransferParams { to, amount, operator_data };
+    let receipt = sdk::send::send(
+        &token,
+        method_hash!("Transfer"),
+        RawBytes::serialize(&transfer_params).unwrap(),
+        TokenAmount::zero(),
+    )
+    .unwrap();
+    // ignore failures at this level and return the transfer call receipt so caller can decide what to do
+    return_ipld(&receipt)
+}
+
+/// Execute the Burn action
+fn burn(token: Address, amount: TokenAmount) -> u32 {
+    let burn_params = BurnParams { amount };
+    let receipt = sdk::send::send(
+        &token,
+        method_hash!("Burn"),
+        RawBytes::serialize(&burn_params).unwrap(),
+        TokenAmount::zero(),
+    )
+    .unwrap();
+    if !receipt.exit_code.is_success() {
+        panic!("burn call failed");
+    }
+    NO_DATA_BLOCK_ID
+}
+
 #[no_mangle]
 fn invoke(input: u32) -> u32 {
     std::panic::set_hook(Box::new(|info| {
@@ -103,25 +133,11 @@ fn invoke(input: u32) -> u32 {
                 }
                 TestAction::Transfer(to, operator_data) => {
                     // transfer to a target address
-                    let transfer_params = TransferParams {
-                        to,
-                        amount: token_params.amount,
-                        operator_data,
-                    };
-                    let receipt = sdk::send::send(&Address::new_id(sdk::message::caller()), method_hash!("Transfer"), RawBytes::serialize(&transfer_params).unwrap(), TokenAmount::zero()).unwrap();
-                    // ignore failures at this level and return the transfer call receipt so caller can decide what to do
-                    return_ipld(&receipt)
+                    transfer(Address::new_id(sdk::message::caller()), to, token_params.amount, operator_data)
                 }
                 TestAction::Burn => {
                     // burn the tokens
-                    let burn_params = BurnParams {
-                        amount: token_params.amount,
-                    };
-                    let receipt = sdk::send::send(&Address::new_id(sdk::message::caller()), method_hash!("Burn"), RawBytes::serialize(&burn_params).unwrap(), TokenAmount::zero()).unwrap();
-                    if !receipt.exit_code.is_success() {
-                        panic!("burn call failed");
-                    }
-                    NO_DATA_BLOCK_ID
+                    burn(Address::new_id(sdk::message::caller()), token_params.amount)
                 }
             }
         },
@@ -140,13 +156,7 @@ fn invoke(input: u32) -> u32 {
             };
 
             match params.action {
-                TestAction::Accept => {
-                    sdk::vm::abort(
-                        ExitCode::USR_ILLEGAL_ARGUMENT.value(),
-                        Some("invalid argument"),
-                    );
-                }
-                TestAction::Reject => {
+                TestAction::Accept | TestAction::Reject => {
                     sdk::vm::abort(
                         ExitCode::USR_ILLEGAL_ARGUMENT.value(),
                         Some("invalid argument"),
@@ -155,26 +165,12 @@ fn invoke(input: u32) -> u32 {
                 TestAction::Transfer(to, operator_data) => {
                     // transfer to a target address
                     let balance = get_balance();
-                    let transfer_params = TransferParams {
-                        to,
-                        amount: balance,
-                        operator_data,
-                    };
-                    let receipt = sdk::send::send(&params.token_address, method_hash!("Transfer"), RawBytes::serialize(&transfer_params).unwrap(), TokenAmount::zero()).unwrap();
-                    // ignore failures at this level and return the transfer call receipt so caller can decide what to do
-                    return_ipld(&receipt)
+                    transfer(params.token_address, to, balance, operator_data)
                 }
                 TestAction::Burn => {
                     // burn the tokens
                     let balance = get_balance();
-                    let burn_params = BurnParams {
-                        amount: balance,
-                    };
-                    let receipt = sdk::send::send(&params.token_address, method_hash!("Burn"), RawBytes::serialize(&burn_params).unwrap(), TokenAmount::zero()).unwrap();
-                    if !receipt.exit_code.is_success() {
-                        panic!("burn call failed");
-                    }
-                    NO_DATA_BLOCK_ID
+                    burn(params.token_address, balance)
                 }
             }
         }
