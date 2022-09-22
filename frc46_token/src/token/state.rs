@@ -14,6 +14,7 @@ use fvm_ipld_hamt::Hamt;
 use fvm_shared::address::Address;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
+use fvm_shared::error::ExitCode;
 use fvm_shared::ActorID;
 use thiserror::Error;
 
@@ -48,6 +49,22 @@ pub enum StateError {
     NegativeAllowance { amount: TokenAmount, owner: ActorID, operator: ActorID },
     #[error("balance cannot be negative, cannot set balance of {owner:?} to {amount:?}")]
     NegativeBalance { amount: TokenAmount, owner: ActorID },
+}
+
+impl From<&StateError> for ExitCode {
+    fn from(error: &StateError) -> Self {
+        match error {
+            StateError::IpldHamt(_) | StateError::Serialization(_) => ExitCode::USR_SERIALIZATION,
+            StateError::NegativeBalance { amount: _, owner: _ }
+            | StateError::NegativeAllowance { amount: _, owner: _, operator: _ }
+            | StateError::NegativeTotalSupply { supply: _, delta: _ }
+            | StateError::MissingState(_) => ExitCode::USR_ILLEGAL_STATE,
+            StateError::InsufficientBalance { balance: _, delta: _, owner: _ }
+            | StateError::InsufficientAllowance { owner: _, operator: _, allowance: _, delta: _ } => {
+                ExitCode::USR_INSUFFICIENT_FUNDS
+            }
+        }
+    }
 }
 
 #[derive(Error, Debug)]

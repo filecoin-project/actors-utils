@@ -27,6 +27,30 @@ pub enum MessagingError {
     Ipld(#[from] IpldError),
 }
 
+impl From<&MessagingError> for ExitCode {
+    fn from(error: &MessagingError) -> Self {
+        match error {
+            MessagingError::Syscall(e) => match e {
+                ErrorNumber::IllegalArgument => ExitCode::USR_ILLEGAL_ARGUMENT,
+                ErrorNumber::Forbidden | ErrorNumber::IllegalOperation => ExitCode::USR_FORBIDDEN,
+                ErrorNumber::AssertionFailed => ExitCode::USR_ASSERTION_FAILED,
+                ErrorNumber::InsufficientFunds => ExitCode::USR_INSUFFICIENT_FUNDS,
+                ErrorNumber::IllegalCid | ErrorNumber::NotFound | ErrorNumber::InvalidHandle => {
+                    ExitCode::USR_NOT_FOUND
+                }
+                ErrorNumber::Serialization | ErrorNumber::IllegalCodec => {
+                    ExitCode::USR_SERIALIZATION
+                }
+                _ => ExitCode::USR_UNSPECIFIED,
+            },
+            MessagingError::AddressNotResolved(_) | MessagingError::AddressNotInitialized(_) => {
+                ExitCode::USR_NOT_FOUND
+            }
+            MessagingError::Ipld(_) => ExitCode::USR_SERIALIZATION,
+        }
+    }
+}
+
 /// An abstraction used to send messages to other actors
 pub trait Messaging {
     /// Returns the address of the current actor as an ActorID

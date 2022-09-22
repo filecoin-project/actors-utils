@@ -44,6 +44,24 @@ pub enum ReceiverHookError {
     },
 }
 
+impl From<&ReceiverHookError> for ExitCode {
+    fn from(error: &ReceiverHookError) -> Self {
+        match error {
+            ReceiverHookError::NotCalled | ReceiverHookError::AlreadyCalled => {
+                ExitCode::USR_ASSERTION_FAILED
+            }
+            ReceiverHookError::IpldEncoding(_) => ExitCode::USR_SERIALIZATION,
+            ReceiverHookError::Receiver {
+                address: _,
+                return_data: _,
+                receiver_params: _,
+                exit_code,
+            } => *exit_code,
+            ReceiverHookError::Messaging(e) => e.into(),
+        }
+    }
+}
+
 /// Parameters for universal receiver
 ///
 /// Actual payload varies with asset type

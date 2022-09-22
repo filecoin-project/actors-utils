@@ -3,7 +3,7 @@ mod util;
 use frc46_token::token::types::{
     AllowanceReturn, BalanceReturn, BurnFromReturn, BurnParams, BurnReturn,
     DecreaseAllowanceParams, FRC46Token, GetAllowanceParams, GranularityReturn,
-    IncreaseAllowanceParams, MintReturn, Result, RevokeAllowanceParams, TotalSupplyReturn,
+    IncreaseAllowanceParams, MintReturn, RevokeAllowanceParams, TotalSupplyReturn,
     TransferFromReturn, TransferParams, TransferReturn,
 };
 use frc46_token::token::Token;
@@ -63,8 +63,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let ret = hook.call(self.util.msg())?;
-
+        let ret = hook.call(self.util.msg()).unwrap();
         Ok(ret)
     }
 

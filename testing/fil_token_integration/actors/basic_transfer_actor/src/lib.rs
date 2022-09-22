@@ -1,9 +1,8 @@
 use cid::{multihash::Code, Cid};
 use frc42_dispatch::{match_method, method_hash};
-use frc46_token::{
-    receiver::types::{FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE},
-    token::types::TransferParams,
-};
+use frc46_token::token::types::TransferParams;
+use fvm_actor_utils::receiver::frc46::{FRC46TokenReceived, FRC46_TOKEN_TYPE};
+use fvm_actor_utils::receiver::UniversalReceiverParams;
 use fvm_ipld_blockstore::Block;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{de::DeserializeOwned, RawBytes, DAG_CBOR};
