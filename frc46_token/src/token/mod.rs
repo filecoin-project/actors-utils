@@ -77,6 +77,11 @@ where
         Self { bs, msg, granularity, state }
     }
 
+    /// Re-wrap this Token around a new token state by swapping the references
+    pub fn rewrap(&mut self, new_state: &mut TokenState) {
+        std::mem::swap(self.state, new_state);
+    }
+
     /// Replace the current state with another
     /// The previous state is returned and can be safely dropped
     pub fn replace(&mut self, state: TokenState) -> TokenState {
