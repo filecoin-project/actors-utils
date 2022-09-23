@@ -13,10 +13,11 @@ use num_traits::Zero;
 use self::state::{StateError as TokenStateError, TokenState};
 use self::types::BurnFromReturn;
 use self::types::BurnReturn;
-use self::types::TransferFromReturn;
-use self::types::TransferReturn;
+use self::types::{
+    TransferFromIntermediate, TransferFromReturn, TransferIntermediate, TransferReturn,
+};
 use crate::receiver::{types::FRC46TokenReceived, ReceiverHook};
-use crate::token::types::MintReturn;
+use crate::token::types::{MintIntermediate, MintReturn};
 use crate::token::TokenError::InvalidGranularity;
 
 mod error;
@@ -76,9 +77,22 @@ where
         Self { bs, msg, granularity, state }
     }
 
+    /// Replace the current state with another
+    /// The previous state is returned and can be safely dropped
+    pub fn replace(&mut self, state: TokenState) -> TokenState {
+        std::mem::replace(self.state, state)
+    }
+
     /// For an already initialised state tree, loads the state tree from the blockstore at a Cid
     pub fn load_state(bs: &BS, state_cid: &Cid) -> Result<TokenState> {
         Ok(TokenState::load(bs, state_cid)?)
+    }
+
+    /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing state
+    /// The old state is returned to enable comparisons and the like but can be safely dropped otherwise
+    pub fn load_replace(&mut self, cid: &Cid) -> Result<TokenState> {
+        let new_state = TokenState::load(&self.bs, cid)?;
+        Ok(std::mem::replace(self.state, new_state))
     }
 
     /// Flush state and return Cid for root
@@ -94,15 +108,6 @@ where
     /// Get a reference to the Messaging struct we're using
     pub fn msg(&self) -> &MSG {
         &self.msg
-    }
-
-    /// Replace the current state reference with another
-    /// This is intended for unit tests only (and enforced by the config and visibility limits)
-    /// The replacement state needs the same lifetime as the original so cloning it inside
-    /// actor method calls generally wouldn't work.
-    #[cfg(test)]
-    pub(in crate::token) fn replace(&mut self, state: &'st mut TokenState) {
-        self.state = state;
     }
 
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
@@ -143,6 +148,9 @@ where
     /// Returns a ReceiverHook to call the owner's token receiver hook,
     /// and the owner's new balance.
     /// ReceiverHook must be called or it will panic and abort the transaction.
+    ///
+    /// The hook call will return a MintIntermediate struct which must be passed to mint_return
+    /// to get the final return data
     pub fn mint(
         &mut self,
         operator: &Address,
@@ -150,7 +158,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<ReceiverHook<MintReturn>> {
+    ) -> Result<ReceiverHook<MintIntermediate>> {
         let amount = validate_amount_with_granularity(amount, "mint", self.granularity)?;
         // init the operator account so that its actor ID can be referenced in the receiver hook
         let operator_id = self.msg.resolve_or_init(operator)?;
@@ -159,9 +167,9 @@ where
 
         // Increase the balance of the actor and increase total supply
         let result = self.transaction(|state, bs| {
-            let balance = state.change_balance_by(&bs, owner_id, amount)?;
-            let supply = state.change_supply_by(amount)?;
-            Ok(MintReturn { balance, supply: supply.clone(), recipient_data: RawBytes::default() })
+            state.change_balance_by(&bs, owner_id, amount)?;
+            state.change_supply_by(amount)?;
+            Ok(MintIntermediate { recipient: *initial_owner, recipient_data: RawBytes::default() })
         })?;
 
         // return the params we'll send to the receiver hook
@@ -175,6 +183,17 @@ where
         };
 
         Ok(ReceiverHook::new(*initial_owner, params, result))
+    }
+
+    /// Finalise return data from MintIntermediate data returned by calling receiver hook after minting
+    /// This is done to allow reloading the state if it changed as a result of the hook call
+    /// so we can return an accurate balance even if the receiver transferred or burned tokens upon receipt
+    pub fn mint_return(&self, intermediate: MintIntermediate) -> Result<MintReturn> {
+        Ok(MintReturn {
+            balance: self.balance_of(&intermediate.recipient)?,
+            supply: self.total_supply(),
+            recipient_data: intermediate.recipient_data,
+        })
     }
 
     /// Gets the total number of tokens in existence
@@ -425,8 +444,11 @@ where
     /// - The to balance increases by the requested value
     ///
     /// Returns a ReceiverHook to call the recipient's token receiver hook,
-    /// and the updated balances.
+    /// and a TransferIntermediate struct
     /// ReceiverHook must be called or it will panic and abort the transaction.
+    ///
+    /// Return data from the hook should be passed to transfer_return which will generate
+    /// the Transfereturn struct
     pub fn transfer(
         &mut self,
         from: &Address,
@@ -434,40 +456,44 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<ReceiverHook<TransferReturn>> {
+    ) -> Result<ReceiverHook<TransferIntermediate>> {
         let amount = validate_amount_with_granularity(amount, "transfer", self.granularity)?;
 
         // owner-initiated transfer
-        let from = self.msg.resolve_or_init(from)?;
+        let from_id = self.msg.resolve_or_init(from)?;
         let to_id = self.msg.resolve_or_init(to)?;
         // skip allowance check for self-managed transfers
         let res = self.transaction(|state, bs| {
             // don't change balance if to == from, but must check that the transfer doesn't exceed balance
-            if to_id == from {
-                let balance = state.get_balance(&bs, from)?;
+            if to_id == from_id {
+                let balance = state.get_balance(&bs, from_id)?;
                 if balance.lt(amount) {
                     return Err(TokenStateError::InsufficientBalance {
-                        owner: from,
+                        owner: from_id,
                         balance,
                         delta: amount.clone().neg(),
                     }
                     .into());
                 }
-                Ok(TransferReturn {
-                    from_balance: balance.clone(),
-                    to_balance: balance,
+                Ok(TransferIntermediate {
+                    from: *from,
+                    to: *to,
                     recipient_data: RawBytes::default(),
                 })
             } else {
-                let to_balance = state.change_balance_by(&bs, to_id, amount)?;
-                let from_balance = state.change_balance_by(&bs, from, &amount.neg())?;
-                Ok(TransferReturn { from_balance, to_balance, recipient_data: RawBytes::default() })
+                state.change_balance_by(&bs, to_id, amount)?;
+                state.change_balance_by(&bs, from_id, &amount.neg())?;
+                Ok(TransferIntermediate {
+                    from: *from,
+                    to: *to,
+                    recipient_data: RawBytes::default(),
+                })
             }
         })?;
 
         let params = FRC46TokenReceived {
-            operator: from,
-            from,
+            operator: from_id,
+            from: from_id,
             to: to_id,
             amount: amount.clone(),
             operator_data,
@@ -475,6 +501,15 @@ where
         };
 
         Ok(ReceiverHook::new(*to, params, res))
+    }
+
+    /// Generate TransferReturn from the intermediate data returned by a receiver hook call
+    pub fn transfer_return(&self, intermediate: TransferIntermediate) -> Result<TransferReturn> {
+        Ok(TransferReturn {
+            from_balance: self.balance_of(&intermediate.from)?,
+            to_balance: self.balance_of(&intermediate.to)?,
+            recipient_data: intermediate.recipient_data,
+        })
     }
 
     /// Transfers an amount from one address to another
@@ -492,8 +527,11 @@ where
     /// - The owner-operator allowance decreases by the requested value
     ///
     /// Returns a ReceiverHook to call the recipient's token receiver hook,
-    /// and the updated allowance and balances.
+    /// and a TransferFromIntermediate struct.
     /// ReceiverHook must be called or it will panic and abort the transaction.
+    ///
+    /// Return data from the hook should be passed to transfer_from_return which will generate
+    /// the TransferFromReturn struct
     pub fn transfer_from(
         &mut self,
         operator: &Address,
@@ -502,7 +540,7 @@ where
         amount: &TokenAmount,
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<ReceiverHook<TransferFromReturn>> {
+    ) -> Result<ReceiverHook<TransferFromIntermediate>> {
         let amount = validate_amount_with_granularity(amount, "transfer", self.granularity)?;
         if self.msg.same_address(operator, from) {
             return Err(TokenError::InvalidOperator(*operator));
@@ -525,7 +563,7 @@ where
         };
 
         // the owner must exist to have specified a non-zero allowance
-        let from = match self.msg.resolve_id(from) {
+        let from_id = match self.msg.resolve_id(from) {
             Ok(id) => id,
             Err(MessagingError::AddressNotResolved(from)) => {
                 return Err(TokenError::TokenState(TokenStateError::InsufficientAllowance {
@@ -543,32 +581,31 @@ where
 
         // update token state
         let ret = self.transaction(|state, bs| {
-            let remaining_allowance =
-                state.attempt_use_allowance(&bs, operator_id, from, amount)?;
+            state.attempt_use_allowance(&bs, operator_id, from_id, amount)?;
             // don't change balance if to == from, but must check that the transfer doesn't exceed balance
-            if to_id == from {
-                let balance = state.get_balance(&bs, from)?;
+            if to_id == from_id {
+                let balance = state.get_balance(&bs, from_id)?;
                 if balance.lt(amount) {
                     return Err(TokenStateError::InsufficientBalance {
-                        owner: from,
+                        owner: from_id,
                         balance,
                         delta: amount.clone().neg(),
                     }
                     .into());
                 }
-                Ok(TransferFromReturn {
-                    from_balance: balance.clone(),
-                    to_balance: balance,
-                    allowance: remaining_allowance,
+                Ok(TransferFromIntermediate {
+                    operator: *operator,
+                    from: *from,
+                    to: *to,
                     recipient_data: RawBytes::default(),
                 })
             } else {
-                let to_balance = state.change_balance_by(&bs, to_id, amount)?;
-                let from_balance = state.change_balance_by(&bs, from, &amount.neg())?;
-                Ok(TransferFromReturn {
-                    from_balance,
-                    to_balance,
-                    allowance: remaining_allowance,
+                state.change_balance_by(&bs, to_id, amount)?;
+                state.change_balance_by(&bs, from_id, &amount.neg())?;
+                Ok(TransferFromIntermediate {
+                    operator: *operator,
+                    from: *from,
+                    to: *to,
                     recipient_data: RawBytes::default(),
                 })
             }
@@ -576,7 +613,7 @@ where
 
         let params = FRC46TokenReceived {
             operator: operator_id,
-            from,
+            from: from_id,
             to: to_id,
             amount: amount.clone(),
             operator_data,
@@ -584,6 +621,19 @@ where
         };
 
         Ok(ReceiverHook::new(*to, params, ret))
+    }
+
+    /// Generate TransferReturn from the intermediate data returned by a receiver hook call
+    pub fn transfer_from_return(
+        &self,
+        intermediate: TransferFromIntermediate,
+    ) -> Result<TransferFromReturn> {
+        Ok(TransferFromReturn {
+            from_balance: self.balance_of(&intermediate.from)?,
+            to_balance: self.balance_of(&intermediate.to)?,
+            allowance: self.allowance(&intermediate.from, &intermediate.operator)?, // allowance remains unchanged?
+            recipient_data: intermediate.recipient_data,
+        })
     }
 
     /// Sets the balance of an account to a specific amount
@@ -895,7 +945,8 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let result = hook.call(token.msg()).unwrap();
+        let hook_ret = hook.call(token.msg()).unwrap();
+        let result = token.mint_return(hook_ret).unwrap();
         assert_eq!(TokenAmount::from_atto(1_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(1_000_000), result.supply);
 
@@ -953,7 +1004,8 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let result = hook.call(token.msg()).unwrap();
+        let hook_ret = hook.call(token.msg()).unwrap();
+        let result = token.mint_return(hook_ret).unwrap();
         assert_eq!(TokenAmount::from_atto(2_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(2_000_000), result.supply);
 
@@ -985,7 +1037,8 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let result = hook.call(token.msg()).unwrap();
+        let hook_ret = hook.call(token.msg()).unwrap();
+        let result = token.mint_return(hook_ret).unwrap();
         assert_eq!(TokenAmount::from_atto(1_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(3_000_000), result.supply);
 
@@ -1102,7 +1155,7 @@ mod test {
 
         // force hook to abort
         token.msg.abort_next_send();
-        let mut original_state = token.state().clone();
+        let original_state = token.state().clone();
         let mut hook = token
             .mint(
                 TOKEN_ACTOR,
@@ -1124,7 +1177,7 @@ mod test {
                 assert_eq!(amount, TokenAmount::from_atto(1_000_000));
                 // restore original pre-mint state
                 // in actor code, we'd just abort and let the VM handle this
-                token.replace(&mut original_state);
+                token.replace(original_state);
             }
             _ => panic!("expected receiver hook error"),
         };
@@ -1563,7 +1616,7 @@ mod test {
 
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
         token.msg.abort_next_send();
-        let mut pre_transfer_state = token.state().clone();
+        let pre_transfer_state = token.state().clone();
         let mut hook = token
             .transfer(
                 ALICE,
@@ -1585,7 +1638,7 @@ mod test {
                 assert_eq!(amount, TokenAmount::from_atto(60));
                 // revert to pre-transfer state
                 // in actor code, we'd just abort and let the VM handle this
-                token.replace(&mut pre_transfer_state);
+                token.replace(pre_transfer_state);
             }
             _ => panic!("expected receiver hook error"),
         };
@@ -1596,7 +1649,7 @@ mod test {
 
         // transfer 60 from owner -> self, simulate receiver aborting the hook
         token.msg.abort_next_send();
-        let mut pre_transfer_state = token.state().clone();
+        let pre_transfer_state = token.state().clone();
         let mut hook = token
             .transfer(
                 ALICE,
@@ -1618,7 +1671,7 @@ mod test {
                 assert_eq!(amount, TokenAmount::from_atto(60));
                 // revert to pre-transfer state
                 // in actor code, we'd just abort and let the VM handle this
-                token.replace(&mut pre_transfer_state);
+                token.replace(pre_transfer_state);
             }
             _ => panic!("expected receiver hook error"),
         };

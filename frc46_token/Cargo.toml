@@ -1,7 +1,7 @@
 [package]
 name = "frc46_token"
 description = "Filecoin FRC-0046 fungible token reference implementation"
-version = "0.1.0"
+version = "0.2.0"
 license = "MIT OR Apache-2.0"
 keywords = ["filecoin", "fvm", "token", "frc-0046"]
 repository = "https://github.com/helix-onchain/filecoin/"

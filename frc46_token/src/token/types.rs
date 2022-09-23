@@ -129,7 +129,17 @@ pub struct MintReturn {
 }
 
 impl Cbor for MintReturn {}
-impl RecipientData for MintReturn {
+
+/// Intermediate data used by mint_return to construct the return data
+#[derive(Debug)]
+pub struct MintIntermediate {
+    /// Recipient address to use for querying balance
+    pub recipient: Address,
+    /// (Optional) data returned from receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl RecipientData for MintIntermediate {
     fn set_recipient_data(&mut self, data: RawBytes) {
         self.recipient_data = data;
     }
@@ -158,7 +168,17 @@ pub struct TransferReturn {
 
 impl Cbor for TransferParams {}
 impl Cbor for TransferReturn {}
-impl RecipientData for TransferReturn {
+
+/// Intermediate data used by transfer_return to construct the return data
+#[derive(Debug)]
+pub struct TransferIntermediate {
+    pub from: Address,
+    pub to: Address,
+    /// (Optional) data returned from receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl RecipientData for TransferIntermediate {
     fn set_recipient_data(&mut self, data: RawBytes) {
         self.recipient_data = data;
     }
@@ -190,7 +210,18 @@ pub struct TransferFromReturn {
 
 impl Cbor for TransferFromParams {}
 impl Cbor for TransferFromReturn {}
-impl RecipientData for TransferFromReturn {
+
+/// Intermediate data used by transfer_from_return to construct the return data
+#[derive(Debug)]
+pub struct TransferFromIntermediate {
+    pub operator: Address,
+    pub from: Address,
+    pub to: Address,
+    /// (Optional) data returned from receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl RecipientData for TransferFromIntermediate {
     fn set_recipient_data(&mut self, data: RawBytes) {
         self.recipient_data = data;
     }
