@@ -9,12 +9,13 @@ use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::Cbor;
 use fvm_ipld_encoding::CborStore;
 use fvm_ipld_encoding::DAG_CBOR;
-use fvm_ipld_hamt::Error as HamtError;
 use fvm_ipld_hamt::Hamt;
+use fvm_ipld_hamt::{BytesKey, Error as HamtError};
 use fvm_shared::address::Address;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
+use integer_encoding::VarInt;
 use thiserror::Error;
 
 /// This value has been chosen to optimise to reduce gas-costs when accessing the balances map. Non-
@@ -153,7 +154,7 @@ impl TokenState {
     pub fn get_balance<BS: Blockstore>(&self, bs: &BS, owner: ActorID) -> Result<TokenAmount> {
         let balances = self.get_balance_map(bs)?;
 
-        let balance = match balances.get(&owner)? {
+        let balance = match balances.get(&actor_id_key(owner))? {
             Some(amount) => amount.clone(),
             None => TokenAmount::zero(),
         };
@@ -177,7 +178,8 @@ impl TokenState {
         }
 
         let mut balance_map = self.get_balance_map(bs)?;
-        let balance = balance_map.get(&owner)?;
+        let owner_key = actor_id_key(owner);
+        let balance = balance_map.get(&owner_key)?;
         let balance = match balance {
             Some(amount) => amount.clone(),
             None => TokenAmount::zero(),
@@ -191,9 +193,9 @@ impl TokenState {
         }
 
         if new_balance.is_zero() {
-            balance_map.delete(&owner)?;
+            balance_map.delete(&owner_key)?;
         } else {
-            balance_map.set(owner, new_balance.clone())?;
+            balance_map.set(owner_key, new_balance.clone())?;
         }
 
         self.balances = balance_map.flush()?;
@@ -214,20 +216,21 @@ impl TokenState {
         }
 
         let mut balance_map = self.get_balance_map(bs)?;
-        let old_balance = match balance_map.get(&owner)? {
+        let owner_key = actor_id_key(owner);
+        let old_balance = match balance_map.get(&owner_key)? {
             Some(amount) => amount.clone(),
             None => TokenAmount::zero(),
         };
 
         // if the new balance is zero, remove from balance map
         if new_balance.is_zero() {
-            balance_map.delete(&owner)?;
+            balance_map.delete(&owner_key)?;
             self.balances = balance_map.flush()?;
             return Ok(old_balance);
         }
 
         // else, set the new balance
-        balance_map.set(owner, new_balance.clone())?;
+        balance_map.set(owner_key, new_balance.clone())?;
         self.balances = balance_map.flush()?;
         Ok(old_balance)
     }
@@ -236,7 +239,7 @@ impl TokenState {
     pub fn get_balance_map<'bs, BS: Blockstore>(
         &self,
         bs: &'bs BS,
-    ) -> Result<Map<'bs, BS, ActorID, TokenAmount>> {
+    ) -> Result<Map<'bs, BS, BytesKey, TokenAmount>> {
         Ok(Hamt::load_with_bit_width(&self.balances, bs, self.hamt_bit_width)?)
     }
 
@@ -509,18 +512,24 @@ impl TokenState {
         let mut balance_sum = TokenAmount::zero();
         let mut maybe_err: Option<StateInvariantError> = None;
         let balances = self.get_balance_map(bs)?;
-        let res = balances.for_each(|owner, balance| {
+        let res = balances.for_each(|owner_key, balance| {
+            let owner = match decode_actor_id(owner_key) {
+                None => {
+                    bail!("invalid key in balances map")
+                }
+                Some(a) => a,
+            };
             // all balances must be positive
             if balance.is_negative() {
                 maybe_err = Some(StateInvariantError::BalanceNegative {
-                    account: *owner,
+                    account: owner,
                     balance: balance.clone(),
                 });
                 bail!("invariant failed")
             }
             // zero balances should not be stored in the Hamt
             if balance.is_zero() {
-                maybe_err = Some(StateInvariantError::ExplicitZeroBalance(*owner));
+                maybe_err = Some(StateInvariantError::ExplicitZeroBalance(owner));
                 bail!("invariant failed")
             }
             balance_sum = balance_sum.clone() + balance.clone();
@@ -587,6 +596,14 @@ impl TokenState {
 
         Ok(())
     }
+}
+
+pub fn actor_id_key(a: ActorID) -> BytesKey {
+    a.encode_var_vec().into()
+}
+
+pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
+    u64::decode_var(key.0.as_slice()).map(|a| a.0)
 }
 
 impl Cbor for TokenState {}
