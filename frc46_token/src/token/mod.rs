@@ -1093,13 +1093,7 @@ mod test {
         let err = hook.call(token.msg()).unwrap_err();
 
         // check error shape
-        if let ReceiverHookError::Receiver {
-            address,
-            exit_code,
-            receiver_params: _,
-            return_data: _,
-        } = err
-        {
+        if let ReceiverHookError::Receiver { address, exit_code, return_data: _ } = err {
             assert_eq!(address, *TREASURY);
             assert_eq!(exit_code, ExitCode::USR_UNSPECIFIED);
         } else {
@@ -1558,13 +1552,7 @@ mod test {
         let err = hook.call(token.msg()).unwrap_err();
 
         // check error shape
-        if let ReceiverHookError::Receiver {
-            address,
-            exit_code,
-            receiver_params: _,
-            return_data: _,
-        } = err
-        {
+        if let ReceiverHookError::Receiver { address, exit_code, return_data: _ } = err {
             assert_eq!(address, *BOB);
             assert_eq!(exit_code, ExitCode::USR_UNSPECIFIED);
         } else {
@@ -1595,13 +1583,7 @@ mod test {
         let err = hook.call(token.msg()).unwrap_err();
 
         // check error shape
-        if let ReceiverHookError::Receiver {
-            address,
-            exit_code,
-            receiver_params: _,
-            return_data: _,
-        } = err
-        {
+        if let ReceiverHookError::Receiver { address, exit_code, return_data: _ } = err {
             assert_eq!(address, *ALICE);
             assert_eq!(exit_code, ExitCode::USR_UNSPECIFIED);
         } else {

@@ -35,13 +35,8 @@ pub enum ReceiverHookError {
     IpldEncoding(#[from] fvm_ipld_encoding::Error),
     #[error("error sending message")]
     Messaging(#[from] MessagingError),
-    #[error("receiver hook error from {address:?} when called with {receiver_params:?}: exit_code={exit_code:?}, return_data={return_data:?}")]
-    Receiver {
-        address: Address,
-        exit_code: ExitCode,
-        return_data: RawBytes,
-        receiver_params: UniversalReceiverParams,
-    },
+    #[error("receiver hook error from {address:?}: exit_code={exit_code:?}, return_data={return_data:?}")]
+    Receiver { address: Address, exit_code: ExitCode, return_data: RawBytes },
 }
 
 impl From<&ReceiverHookError> for ExitCode {
@@ -51,12 +46,7 @@ impl From<&ReceiverHookError> for ExitCode {
                 ExitCode::USR_ASSERTION_FAILED
             }
             ReceiverHookError::IpldEncoding(_) => ExitCode::USR_SERIALIZATION,
-            ReceiverHookError::Receiver {
-                address: _,
-                return_data: _,
-                receiver_params: _,
-                exit_code,
-            } => *exit_code,
+            ReceiverHookError::Receiver { address: _, return_data: _, exit_code } => *exit_code,
             ReceiverHookError::Messaging(e) => e.into(),
         }
     }
@@ -164,7 +154,6 @@ impl<T: RecipientData> ReceiverHook<T> {
                 address: self.address,
                 exit_code: abort_code,
                 return_data: receipt.return_data,
-                receiver_params: params,
             }),
         }
     }
