@@ -226,34 +226,34 @@ pub fn invoke(params: u32) -> u32 {
             // Method numbers calculated via fvm_dispatch_tools using CamelCase names derived from
             // the corresponding FRC46Token trait methods.
             match rest {
-                4244593718 => {
+                0x02ea015c => {
                     // Name
                     let name = token_actor.name();
                     return_ipld(&name).unwrap()
                 }
-                3551111368 => {
+                0x7adab63e => {
                     // Symbol
                     let symbol = token_actor.symbol();
                     return_ipld(&symbol).unwrap()
                 }
-                2511420746 => {
+                0x06da7a35 => {
                     // TotalSupply
                     let total_supply = token_actor.total_supply();
                     return_ipld(&total_supply).unwrap()
                 }
-                1568445334 => {
+                0x8710e1ac => {
                     //BalanceOf
                     let params = deserialize_params(params);
                     let res = token_actor.balance_of(params).unwrap();
                     return_ipld(&res).unwrap()
                 }
-                2804639308 => {
+                0xfaa45236 => {
                     // Allowance
                     let params = deserialize_params(params);
                     let res = token_actor.allowance(params).unwrap();
                     return_ipld(&res).unwrap()
                 }
-                991449938 => {
+                0x69ecb918 => {
                     // IncreaseAllowance
                     let params = deserialize_params(params);
                     let res = token_actor.increase_allowance(params).unwrap();
@@ -261,7 +261,7 @@ pub fn invoke(params: u32) -> u32 {
                     sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&res).unwrap()
                 }
-                4218751446 => {
+                0x5b286f21 => {
                     // DecreaseAllowance
                     let params = deserialize_params(params);
                     let res = token_actor.decrease_allowance(params).unwrap();
@@ -269,7 +269,7 @@ pub fn invoke(params: u32) -> u32 {
                     sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&res).unwrap()
                 }
-                1691518633 => {
+                0xa4d840b1 => {
                     // RevokeAllowance
                     let params = deserialize_params(params);
                     token_actor.revoke_allowance(params).unwrap();
@@ -277,7 +277,7 @@ pub fn invoke(params: u32) -> u32 {
                     sdk::sself::set_root(&cid).unwrap();
                     NO_DATA_BLOCK_ID
                 }
-                1924391931 => {
+                0x5584159a => {
                     // Burn
                     let params = deserialize_params(params);
                     let res = token_actor.burn(params).unwrap();
@@ -285,13 +285,13 @@ pub fn invoke(params: u32) -> u32 {
                     sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&res).unwrap()
                 }
-                401872942 => {
+                0xd7d4deed => {
                     // TransferFrom
                     let params = deserialize_params(params);
                     let res = token_actor.transfer_from(params).unwrap();
                     return_ipld(&res).unwrap()
                 }
-                1303003700 => {
+                0x04cbf732 => {
                     // Transfer
                     let params = deserialize_params(params);
                     let res = token_actor.transfer(params).unwrap();
@@ -300,7 +300,7 @@ pub fn invoke(params: u32) -> u32 {
 
                 // Custom actor interface, these are author-defined methods that extend beyond the
                 // FRC46 Token standard
-                3839021839 => {
+                0x06f84ab2 => {
                     // Mint
                     let params: MintParams = deserialize_params(params);
                     let res = token_actor.mint(params).unwrap();
