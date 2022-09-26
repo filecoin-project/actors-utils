@@ -8,9 +8,11 @@ use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::CborStore;
 use fvm_ipld_encoding::DAG_CBOR;
+use fvm_ipld_hamt::BytesKey;
 use fvm_ipld_hamt::Error as HamtError;
 use fvm_ipld_hamt::Hamt;
 use fvm_shared::ActorID;
+use integer_encoding::VarInt;
 use thiserror::Error;
 
 pub type TokenID = u64;
@@ -111,7 +113,7 @@ impl NFTState {
     pub fn get_owner_data_hamt<'bs, BS: Blockstore>(
         &self,
         store: &'bs BS,
-    ) -> Result<Hamt<&'bs BS, OwnerData, ActorID>> {
+    ) -> Result<Hamt<&'bs BS, OwnerData, BytesKey>> {
         let res = Hamt::load_with_bit_width(&self.owner_data, store, HAMT_BIT_WIDTH)?;
         Ok(res)
     }
@@ -131,7 +133,7 @@ impl NFTState {
 
         // update owner data map
         let mut owner_map = self.get_owner_data_hamt(bs)?;
-        let new_owner_data = match owner_map.get(&owner) {
+        let new_owner_data = match owner_map.get(&actor_id_key(owner)) {
             Ok(entry) => {
                 if let Some(existing_data) = entry {
                     //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
@@ -142,7 +144,7 @@ impl NFTState {
             }
             Err(e) => return Err(e.into()),
         };
-        owner_map.set(owner, new_owner_data)?;
+        owner_map.set(actor_id_key(owner), new_owner_data)?;
 
         // update global trackers
         self.next_token += 1;
@@ -159,13 +161,17 @@ impl NFTState {
     /// Get the number of tokens owned by a particular address
     pub fn get_balance<BS: Blockstore>(&mut self, bs: &BS, owner: ActorID) -> Result<u64> {
         let owner_data = self.get_owner_data_hamt(bs)?;
-        let balance = match owner_data.get(&owner)? {
+        let balance = match owner_data.get(&actor_id_key(owner))? {
             Some(data) => data.balance,
             None => 0,
         };
 
         Ok(balance)
     }
+}
+
+pub fn actor_id_key(a: ActorID) -> BytesKey {
+    a.encode_var_vec().into()
 }
 
 #[cfg(test)]
