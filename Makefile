@@ -36,3 +36,4 @@ install-toolchain:
 clean:
 	cargo clean
 	find . -name '*.profraw' -delete
+	rm Cargo.lock
