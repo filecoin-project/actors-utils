@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-frc46_token = { version = "0.1.0", path = "../../../../frc46_token" }
+frc46_token = { version = "0.2.0", path = "../../../../frc46_token" }
 frc42_dispatch = { path = "../../../../frc42_dispatch" }
 fvm_actor_utils = { version = "0.1.0", path = "../../../../fvm_actor_utils" }
 fvm_ipld_blockstore = "0.1.1"

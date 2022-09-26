@@ -1,5 +1,6 @@
 mod util;
 
+use cid::Cid;
 use frc46_token::token::types::{
     AllowanceReturn, BalanceReturn, BurnFromReturn, BurnParams, BurnReturn,
     DecreaseAllowanceParams, FRC46Token, GetAllowanceParams, GranularityReturn,
@@ -63,7 +64,11 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let ret = hook.call(self.util.msg()).unwrap();
+        let hook_ret = hook.call(self.util.msg())?;
+
+        self.reload(&cid)?;
+        let ret = self.util.transfer_return(hook_ret)?;
+
         Ok(ret)
     }
 
@@ -84,7 +89,10 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let ret = hook.call(self.util.msg())?;
+        let hook_ret = hook.call(self.util.msg())?;
+
+        self.reload(&cid)?;
+        let ret = self.util.transfer_from_return(hook_ret)?;
 
         Ok(ret)
     }
@@ -140,24 +148,37 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 pub struct MintParams {
     pub initial_owner: Address,
     pub amount: TokenAmount,
+    pub operator_data: RawBytes,
 }
 
 impl Cbor for MintParams {}
 
 impl BasicToken<'_> {
+    fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {
+        // todo: revise error type here so it plays nice with the result and doesn't need unwrap
+        let new_cid = sdk::sself::root().unwrap();
+        if new_cid != *initial_cid {
+            self.util.load_replace(&new_cid)?;
+        }
+        Ok(())
+    }
+
     fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
         let mut hook = self.util.mint(
             &caller_address(),
             &params.initial_owner,
             &params.amount,
-            Default::default(),
+            params.operator_data,
             Default::default(),
         )?;
 
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let ret = hook.call(self.util.msg())?;
+        let hook_ret = hook.call(self.util.msg())?;
+
+        self.reload(&cid)?;
+        let ret = self.util.mint_return(hook_ret)?;
 
         Ok(ret)
     }
@@ -268,16 +289,12 @@ pub fn invoke(params: u32) -> u32 {
                     // TransferFrom
                     let params = deserialize_params(params);
                     let res = token_actor.transfer_from(params).unwrap();
-                    let cid = token_actor.util.flush().unwrap();
-                    sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&res).unwrap()
                 }
                 1303003700 => {
                     // Transfer
                     let params = deserialize_params(params);
                     let res = token_actor.transfer(params).unwrap();
-                    let cid = token_actor.util.flush().unwrap();
-                    sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&res).unwrap()
                 }
 
@@ -285,11 +302,8 @@ pub fn invoke(params: u32) -> u32 {
                 // FRC46 Token standard
                 3839021839 => {
                     // Mint
-                    let params = deserialize_params(params);
+                    let params: MintParams = deserialize_params(params);
                     let res = token_actor.mint(params).unwrap();
-
-                    let cid = token_actor.util.flush().unwrap();
-                    sdk::sself::set_root(&cid).unwrap();
                     return_ipld(&res).unwrap()
                 }
                 _ => {
