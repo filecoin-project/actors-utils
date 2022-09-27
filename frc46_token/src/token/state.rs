@@ -15,7 +15,6 @@ use fvm_shared::address::Address;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
-use integer_encoding::VarInt;
 use thiserror::Error;
 
 /// This value has been chosen to optimise to reduce gas-costs when accessing the balances map. Non-
@@ -599,11 +598,11 @@ impl TokenState {
 }
 
 pub fn actor_id_key(a: ActorID) -> BytesKey {
-    a.encode_var_vec().into()
+    BytesKey::from(Address::new_id(a).to_bytes())
 }
 
 pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
-    u64::decode_var(key.0.as_slice()).map(|a| a.0)
+    Address::from_bytes(key).ok().and_then(|i| i.id().ok())
 }
 
 impl Cbor for TokenState {}
@@ -611,11 +610,12 @@ impl Cbor for TokenState {}
 #[cfg(test)]
 mod test {
     use fvm_ipld_blockstore::MemoryBlockstore;
+    use fvm_ipld_hamt::BytesKey;
     use fvm_shared::econ::TokenAmount;
     use fvm_shared::{bigint::Zero, ActorID};
 
     use super::TokenState;
-    use crate::token::state::StateError;
+    use crate::token::state::{actor_id_key, decode_actor_id, StateError};
 
     #[test]
     fn it_instantiates() {
@@ -821,5 +821,24 @@ mod test {
             let balance = loaded_state.get_balance(&bs, owner).unwrap();
             assert_eq!(balance, amount);
         }
+    }
+
+    #[test]
+    fn it_keys_addresses_correctly() {
+        let addr = 102 as ActorID;
+        let addr_key = actor_id_key(addr);
+
+        // Taken from on-chain Filecoin encoding today
+        let expected_key = BytesKey::from(vec![0, 102]);
+        assert_eq!(addr_key, expected_key);
+
+        let mut decoded_key = decode_actor_id(&addr_key);
+        assert!(decoded_key.is_some());
+        assert_eq!(decoded_key.unwrap(), addr);
+
+        // cannot be a valid key, since first byte 1 indicates it isn't an ID address
+        let invalid_key = BytesKey::from(vec![1, 102]);
+        decoded_key = decode_actor_id(&invalid_key);
+        assert!(decoded_key.is_none());
     }
 }
