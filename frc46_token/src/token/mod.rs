@@ -638,13 +638,21 @@ where
 
     /// Sets the balance of an account to a specific amount
     ///
-    /// Using this library method obeys granularity and sign checks but does not invoke the receiver
+    /// Using this library method obeys internal invariants but does not invoke the receiver
     /// hook on recipient accounts. Returns the old balance.
     pub fn set_balance(&mut self, owner: &Address, amount: &TokenAmount) -> Result<TokenAmount> {
         let amount = validate_amount_with_granularity(amount, "set_balance", self.granularity)?;
+
         let owner = self.msg.resolve_or_init(owner)?;
-        let old_balance =
-            self.transaction(|state, bs| Ok(state.set_balance(bs, owner, amount)?))?;
+        let old_balance = self.transaction(|state, bs| {
+            // update the account's balance
+            let old_balance = state.set_balance(bs, owner, amount)?;
+            // update the total supply accordingly
+            let supply_change = amount - old_balance.clone();
+            state.supply += supply_change;
+            Ok(old_balance)
+        })?;
+
         Ok(old_balance)
     }
 }
@@ -1271,30 +1279,35 @@ mod test {
         // check that it obeys granularity
         token.granularity = 50;
         token.set_balance(ALICE, &TokenAmount::from_atto(49)).unwrap_err();
+        assert_eq!(token.total_supply(), TokenAmount::zero());
 
         // set balance for Alice to 100
         let old_balance = token.set_balance(ALICE, &TokenAmount::from_atto(100)).unwrap();
         assert_eq!(old_balance, TokenAmount::zero());
         let new_balance = token.balance_of(ALICE).unwrap();
         assert_eq!(new_balance, TokenAmount::from_atto(100));
+        assert_eq!(token.total_supply(), TokenAmount::from_atto(100));
 
         // set balance for Alice to 50
         let old_balance = token.set_balance(ALICE, &TokenAmount::from_atto(50)).unwrap();
         assert_eq!(old_balance, TokenAmount::from_atto(100));
         let new_balance = token.balance_of(ALICE).unwrap();
         assert_eq!(new_balance, TokenAmount::from_atto(50));
+        assert_eq!(token.total_supply(), TokenAmount::from_atto(50));
 
         // attempt to set balance for Alice to negative
         token.set_balance(ALICE, &TokenAmount::from_atto(-50)).unwrap_err();
         // see that balance was not changed
         let new_balance = token.balance_of(ALICE).unwrap();
         assert_eq!(new_balance, TokenAmount::from_atto(50));
+        assert_eq!(token.total_supply(), TokenAmount::from_atto(50));
 
         // set balance for Alice to 0
         let old_balance = token.set_balance(ALICE, &TokenAmount::from_atto(0)).unwrap();
         assert_eq!(old_balance, TokenAmount::from_atto(50));
         let new_balance = token.balance_of(ALICE).unwrap();
         assert_eq!(new_balance, TokenAmount::from_atto(0));
+        assert_eq!(token.total_supply(), TokenAmount::from_atto(0));
 
         // check that the balance map was emptied
         token.check_invariants().unwrap();
