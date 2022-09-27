@@ -8,8 +8,9 @@ use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::CborStore;
 use fvm_ipld_encoding::DAG_CBOR;
-use fvm_ipld_hamt::Error as HamtError;
 use fvm_ipld_hamt::Hamt;
+use fvm_ipld_hamt::{BytesKey, Error as HamtError};
+use fvm_shared::address::Address;
 use fvm_shared::ActorID;
 use thiserror::Error;
 
@@ -111,7 +112,7 @@ impl NFTState {
     pub fn get_owner_data_hamt<'bs, BS: Blockstore>(
         &self,
         store: &'bs BS,
-    ) -> Result<Hamt<&'bs BS, OwnerData, ActorID>> {
+    ) -> Result<Hamt<&'bs BS, OwnerData, BytesKey>> {
         let res = Hamt::load_with_bit_width(&self.owner_data, store, HAMT_BIT_WIDTH)?;
         Ok(res)
     }
@@ -131,7 +132,7 @@ impl NFTState {
 
         // update owner data map
         let mut owner_map = self.get_owner_data_hamt(bs)?;
-        let new_owner_data = match owner_map.get(&owner) {
+        let new_owner_data = match owner_map.get(&actor_id_key(owner)) {
             Ok(entry) => {
                 if let Some(existing_data) = entry {
                     //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
@@ -142,7 +143,7 @@ impl NFTState {
             }
             Err(e) => return Err(e.into()),
         };
-        owner_map.set(owner, new_owner_data)?;
+        owner_map.set(actor_id_key(owner), new_owner_data)?;
 
         // update global trackers
         self.next_token += 1;
@@ -159,7 +160,7 @@ impl NFTState {
     /// Get the number of tokens owned by a particular address
     pub fn get_balance<BS: Blockstore>(&mut self, bs: &BS, owner: ActorID) -> Result<u64> {
         let owner_data = self.get_owner_data_hamt(bs)?;
-        let balance = match owner_data.get(&owner)? {
+        let balance = match owner_data.get(&actor_id_key(owner))? {
             Some(data) => data.balance,
             None => 0,
         };
@@ -168,11 +169,21 @@ impl NFTState {
     }
 }
 
+pub fn actor_id_key(a: ActorID) -> BytesKey {
+    BytesKey::from(Address::new_id(a).to_bytes())
+}
+
+pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
+    Address::from_bytes(key).ok().and_then(|i| i.id().ok())
+}
+
 #[cfg(test)]
 mod test {
     use fvm_ipld_blockstore::MemoryBlockstore;
+    use fvm_ipld_hamt::BytesKey;
     use fvm_shared::ActorID;
 
+    use crate::state::{actor_id_key, decode_actor_id};
     use crate::NFTState;
 
     const ALICE_ID: ActorID = 1;
@@ -209,5 +220,24 @@ mod test {
         assert_eq!(token_id, 2);
         assert_eq!(bob_balance, 1);
         assert_eq!(alice_balance, 2);
+    }
+
+    #[test]
+    fn it_keys_addresses_correctly() {
+        let addr = 102 as ActorID;
+        let addr_key = actor_id_key(addr);
+
+        // Taken from on-chain Filecoin encoding today
+        let expected_key = BytesKey::from(vec![0, 102]);
+        assert_eq!(addr_key, expected_key);
+
+        let mut decoded_key = decode_actor_id(&addr_key);
+        assert!(decoded_key.is_some());
+        assert_eq!(decoded_key.unwrap(), addr);
+
+        // cannot be a valid key, since first byte 1 indicates it isn't an ID address
+        let invalid_key = BytesKey::from(vec![1, 102]);
+        decoded_key = decode_actor_id(&invalid_key);
+        assert!(decoded_key.is_none());
     }
 }
