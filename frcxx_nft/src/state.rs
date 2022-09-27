@@ -23,8 +23,11 @@ pub enum StateError {
     IpldAmt(#[from] AmtError),
     #[error("ipld hamt error: {0}")]
     IpldHamt(#[from] HamtError),
-    #[error("other error: {0}")]
-    Other(String),
+    #[error("token id not found: {0}")]
+    TokenNotFound(TokenID),
+    /// This error is returned for errors that should never happen
+    #[error("invariant failed: {0}")]
+    InvariantFailed(String),
 }
 
 /// Each token stores its owner, approved operators etc.
@@ -84,20 +87,20 @@ impl NFTState {
     pub fn load<BS: Blockstore>(store: &BS, root: &Cid) -> Result<Self> {
         match store.get_cbor::<Self>(root) {
             Ok(Some(state)) => Ok(state),
-            Ok(None) => Err(StateError::Other("State root not found".into())),
-            Err(e) => Err(StateError::Other(e.to_string())),
+            Ok(None) => Err(StateError::InvariantFailed("State root not found".into())),
+            Err(e) => Err(StateError::InvariantFailed(e.to_string())),
         }
     }
 
     pub fn save<BS: Blockstore>(&self, store: &BS) -> Result<Cid> {
         let serialized = match fvm_ipld_encoding::to_vec(self) {
             Ok(s) => s,
-            Err(err) => return Err(StateError::Other(err.to_string())),
+            Err(err) => return Err(StateError::InvariantFailed(err.to_string())),
         };
         let block = Block { codec: DAG_CBOR, data: serialized };
         let cid = match store.put(Code::Blake2b256, &block) {
             Ok(cid) => cid,
-            Err(err) => return Err(StateError::Other(err.to_string())),
+            Err(err) => return Err(StateError::InvariantFailed(err.to_string())),
         };
         Ok(cid)
     }
@@ -123,13 +126,12 @@ impl NFTState {
         &mut self,
         bs: &BS,
         owner: ActorID,
-        metadata_uri: String,
+        metadata_id: String,
     ) -> Result<TokenID> {
         // update token data array
         let mut token_array = self.get_token_data_amt(bs)?;
         let token_id = self.next_token;
-        token_array
-            .set(token_id, TokenData { owner, operators: vec![], metadata_id: metadata_uri })?;
+        token_array.set(token_id, TokenData { owner, operators: vec![], metadata_id })?;
 
         // update owner data map
         let mut owner_map = self.get_owner_data_hamt(bs)?;
@@ -168,6 +170,30 @@ impl NFTState {
 
         Ok(balance)
     }
+
+    /// Burns a token, removing it from circulation and deleting associated metadata
+    pub fn burn_token<BS: Blockstore>(&mut self, bs: &BS, token_id: TokenID) -> Result<()> {
+        let mut token_array = self.get_token_data_amt(bs)?;
+        let token_data = token_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
+
+        let owner_key = actor_id_key(token_data.owner);
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
+        let owner_data = owner_map.get(&owner_key)?.ok_or_else(|| {
+            StateError::InvariantFailed(format!("owner of token {} not found", token_id))
+        })?;
+
+        // TODO: if balance goes to zero AND approved array is empty, delete the owner entry
+        owner_map.set(
+            owner_key,
+            OwnerData { balance: owner_data.balance - 1, approved: owner_data.approved.clone() },
+        )?;
+        token_array.delete(token_id)?;
+
+        self.total_supply -= 1;
+        self.token_data = token_array.flush()?;
+        self.owner_data = owner_map.flush()?;
+        Ok(())
+    }
 }
 
 pub fn actor_id_key(a: ActorID) -> BytesKey {
@@ -179,7 +205,7 @@ mod test {
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_shared::ActorID;
 
-    use crate::NFTState;
+    use crate::{state::StateError, NFTState};
 
     const ALICE_ID: ActorID = 1;
     const BOB_ID: ActorID = 2;
@@ -195,6 +221,7 @@ mod test {
         // expect balance increase, token id increment
         assert_eq!(token_id, 0);
         assert_eq!(balance, 1);
+        assert_eq!(state.total_supply, 1);
 
         // mint another token
         let token_id = state.mint_token(bs, ALICE_ID, "".into()).unwrap();
@@ -202,6 +229,7 @@ mod test {
         // expect balance increase, token id increment
         assert_eq!(token_id, 1);
         assert_eq!(balance, 2);
+        assert_eq!(state.total_supply, 2);
 
         // expect another actor to have zero balance by default
         let balance = state.get_balance(bs, BOB_ID).unwrap();
@@ -215,5 +243,36 @@ mod test {
         assert_eq!(token_id, 2);
         assert_eq!(bob_balance, 1);
         assert_eq!(alice_balance, 2);
+        assert_eq!(state.total_supply, 3);
+    }
+
+    #[test]
+    fn it_burns_tokens() {
+        let bs = &MemoryBlockstore::new();
+        let mut state = NFTState::new(bs).unwrap();
+
+        // mint a few tokens
+        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
+        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
+        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
+        assert_eq!(state.total_supply, 3);
+        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
+
+        // burn a non-existent token
+        let err = state.burn_token(bs, 3).unwrap_err();
+        if let StateError::TokenNotFound(token_id) = err {
+            assert_eq!(token_id, 3);
+        } else {
+            panic!("unexpected error: {:?}", err);
+        }
+        assert_eq!(state.total_supply, 3);
+        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
+
+        // burn a token owned by alice
+        state.burn_token(bs, 0).unwrap();
+        // total supply and balance should decrease
+        assert_eq!(state.total_supply, 2);
+        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
+        state.get_token_data_amt(bs).unwrap();
     }
 }
