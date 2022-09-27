@@ -1,5 +1,4 @@
 //! Interfaces and types for the FRCXX NFT standard
-use cid::Cid;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::address::Address;
@@ -16,7 +15,7 @@ pub trait FRCXXXNFT {
     fn symbol(&self) -> String;
 
     /// Gets a link to associated metadata for a given NFT
-    fn metadata_uri(&self, params: TokenID) -> Cid;
+    fn metadata_id(&self, params: TokenID) -> String;
 
     /// Gets the total number of NFTs in this actor
     fn total_supply(&self) -> u64;
