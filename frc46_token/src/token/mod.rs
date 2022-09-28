@@ -167,9 +167,16 @@ where
 
         // Increase the balance of the actor and increase total supply
         let result = self.transaction(|state, bs| {
-            state.change_balance_by(&bs, owner_id, amount)?;
-            state.change_supply_by(amount)?;
-            Ok(MintIntermediate { recipient: *initial_owner, recipient_data: RawBytes::default() })
+            let balance = state.change_balance_by(&bs, owner_id, amount)?;
+            let supply = state.change_supply_by(amount)?;
+            Ok(MintIntermediate {
+                recipient: *initial_owner,
+                return_data: MintReturn {
+                    balance,
+                    supply: supply.clone(),
+                    recipient_data: RawBytes::default(),
+                },
+            })
         })?;
 
         // return the params we'll send to the receiver hook
@@ -188,11 +195,19 @@ where
     /// Finalise return data from MintIntermediate data returned by calling receiver hook after minting
     /// This is done to allow reloading the state if it changed as a result of the hook call
     /// so we can return an accurate balance even if the receiver transferred or burned tokens upon receipt
-    pub fn mint_return(&self, intermediate: MintIntermediate) -> Result<MintReturn> {
+    pub fn mint_return(
+        &self,
+        intermediate: MintIntermediate,
+        state_updated: bool,
+    ) -> Result<MintReturn> {
+        if !state_updated {
+            return Ok(intermediate.return_data);
+        }
+
         Ok(MintReturn {
             balance: self.balance_of(&intermediate.recipient)?,
             supply: self.total_supply(),
-            recipient_data: intermediate.recipient_data,
+            recipient_data: intermediate.return_data.recipient_data,
         })
     }
 
@@ -946,7 +961,7 @@ mod test {
             .unwrap();
         token.flush().unwrap();
         let hook_ret = hook.call(token.msg()).unwrap();
-        let result = token.mint_return(hook_ret).unwrap();
+        let result = token.mint_return(hook_ret, false).unwrap();
         assert_eq!(TokenAmount::from_atto(1_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(1_000_000), result.supply);
 
@@ -1005,7 +1020,7 @@ mod test {
             .unwrap();
         token.flush().unwrap();
         let hook_ret = hook.call(token.msg()).unwrap();
-        let result = token.mint_return(hook_ret).unwrap();
+        let result = token.mint_return(hook_ret, false).unwrap();
         assert_eq!(TokenAmount::from_atto(2_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(2_000_000), result.supply);
 
@@ -1038,7 +1053,7 @@ mod test {
             .unwrap();
         token.flush().unwrap();
         let hook_ret = hook.call(token.msg()).unwrap();
-        let result = token.mint_return(hook_ret).unwrap();
+        let result = token.mint_return(hook_ret, false).unwrap();
         assert_eq!(TokenAmount::from_atto(1_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(3_000_000), result.supply);
 

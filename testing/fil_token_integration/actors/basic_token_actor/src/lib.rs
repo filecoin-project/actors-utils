@@ -154,13 +154,15 @@ pub struct MintParams {
 impl Cbor for MintParams {}
 
 impl BasicToken<'_> {
-    fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {
+    fn reload(&mut self, initial_cid: &Cid) -> Result<bool, RuntimeError> {
         // todo: revise error type here so it plays nice with the result and doesn't need unwrap
         let new_cid = sdk::sself::root().unwrap();
         if new_cid != *initial_cid {
             self.util.load_replace(&new_cid)?;
+            Ok(true)
+        } else {
+            Ok(false)
         }
-        Ok(())
     }
 
     fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
@@ -177,8 +179,8 @@ impl BasicToken<'_> {
 
         let hook_ret = hook.call(self.util.msg())?;
 
-        self.reload(&cid)?;
-        let ret = self.util.mint_return(hook_ret)?;
+        let updated = self.reload(&cid)?;
+        let ret = self.util.mint_return(hook_ret, updated)?;
 
         Ok(ret)
     }
