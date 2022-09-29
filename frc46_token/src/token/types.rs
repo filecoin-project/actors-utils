@@ -175,13 +175,13 @@ impl Cbor for TransferReturn {}
 pub struct TransferIntermediate {
     pub from: Address,
     pub to: Address,
-    /// (Optional) data returned from receiver hook
-    pub recipient_data: RawBytes,
+    /// Return data from the originating transfer() call
+    pub return_data: TransferReturn,
 }
 
 impl RecipientData for TransferIntermediate {
     fn set_recipient_data(&mut self, data: RawBytes) {
-        self.recipient_data = data;
+        self.return_data.recipient_data = data;
     }
 }
 
@@ -218,13 +218,13 @@ pub struct TransferFromIntermediate {
     pub operator: Address,
     pub from: Address,
     pub to: Address,
-    /// (Optional) data returned from receiver hook
-    pub recipient_data: RawBytes,
+    /// Return data from the originating transfer_from() call
+    pub return_data: TransferFromReturn,
 }
 
 impl RecipientData for TransferFromIntermediate {
     fn set_recipient_data(&mut self, data: RawBytes) {
-        self.recipient_data = data;
+        self.return_data.recipient_data = data;
     }
 }
 

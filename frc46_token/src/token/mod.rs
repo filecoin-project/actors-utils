@@ -493,15 +493,23 @@ where
                 Ok(TransferIntermediate {
                     from: *from,
                     to: *to,
-                    recipient_data: RawBytes::default(),
+                    return_data: TransferReturn {
+                        from_balance: balance.clone(),
+                        to_balance: balance,
+                        recipient_data: RawBytes::default(),
+                    },
                 })
             } else {
-                state.change_balance_by(&bs, to_id, amount)?;
-                state.change_balance_by(&bs, from_id, &amount.neg())?;
+                let to_balance = state.change_balance_by(&bs, to_id, amount)?;
+                let from_balance = state.change_balance_by(&bs, from_id, &amount.neg())?;
                 Ok(TransferIntermediate {
                     from: *from,
                     to: *to,
-                    recipient_data: RawBytes::default(),
+                    return_data: TransferReturn {
+                        from_balance,
+                        to_balance,
+                        recipient_data: RawBytes::default(),
+                    },
                 })
             }
         })?;
@@ -519,11 +527,19 @@ where
     }
 
     /// Generate TransferReturn from the intermediate data returned by a receiver hook call
-    pub fn transfer_return(&self, intermediate: TransferIntermediate) -> Result<TransferReturn> {
+    pub fn transfer_return(
+        &self,
+        intermediate: TransferIntermediate,
+        state_updated: bool,
+    ) -> Result<TransferReturn> {
+        if !state_updated {
+            return Ok(intermediate.return_data);
+        }
+
         Ok(TransferReturn {
             from_balance: self.balance_of(&intermediate.from)?,
             to_balance: self.balance_of(&intermediate.to)?,
-            recipient_data: intermediate.recipient_data,
+            recipient_data: intermediate.return_data.recipient_data,
         })
     }
 
@@ -596,7 +612,8 @@ where
 
         // update token state
         let ret = self.transaction(|state, bs| {
-            state.attempt_use_allowance(&bs, operator_id, from_id, amount)?;
+            let remaining_allowance =
+                state.attempt_use_allowance(&bs, operator_id, from_id, amount)?;
             // don't change balance if to == from, but must check that the transfer doesn't exceed balance
             if to_id == from_id {
                 let balance = state.get_balance(&bs, from_id)?;
@@ -612,16 +629,26 @@ where
                     operator: *operator,
                     from: *from,
                     to: *to,
-                    recipient_data: RawBytes::default(),
+                    return_data: TransferFromReturn {
+                        from_balance: balance.clone(),
+                        to_balance: balance,
+                        allowance: remaining_allowance,
+                        recipient_data: RawBytes::default(),
+                    },
                 })
             } else {
-                state.change_balance_by(&bs, to_id, amount)?;
-                state.change_balance_by(&bs, from_id, &amount.neg())?;
+                let to_balance = state.change_balance_by(&bs, to_id, amount)?;
+                let from_balance = state.change_balance_by(&bs, from_id, &amount.neg())?;
                 Ok(TransferFromIntermediate {
                     operator: *operator,
                     from: *from,
                     to: *to,
-                    recipient_data: RawBytes::default(),
+                    return_data: TransferFromReturn {
+                        from_balance,
+                        to_balance,
+                        allowance: remaining_allowance,
+                        recipient_data: RawBytes::default(),
+                    },
                 })
             }
         })?;
@@ -642,12 +669,17 @@ where
     pub fn transfer_from_return(
         &self,
         intermediate: TransferFromIntermediate,
+        state_updated: bool,
     ) -> Result<TransferFromReturn> {
+        if !state_updated {
+            return Ok(intermediate.return_data);
+        }
+
         Ok(TransferFromReturn {
             from_balance: self.balance_of(&intermediate.from)?,
             to_balance: self.balance_of(&intermediate.to)?,
             allowance: self.allowance(&intermediate.from, &intermediate.operator)?, // allowance remains unchanged?
-            recipient_data: intermediate.recipient_data,
+            recipient_data: intermediate.return_data.recipient_data,
         })
     }
 

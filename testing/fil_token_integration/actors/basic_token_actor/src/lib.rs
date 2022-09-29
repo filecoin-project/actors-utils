@@ -66,8 +66,8 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
         let hook_ret = hook.call(self.util.msg())?;
 
-        self.reload(&cid)?;
-        let ret = self.util.transfer_return(hook_ret)?;
+        let updated = self.reload(&cid)?;
+        let ret = self.util.transfer_return(hook_ret, updated)?;
 
         Ok(ret)
     }
@@ -91,8 +91,8 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
 
         let hook_ret = hook.call(self.util.msg())?;
 
-        self.reload(&cid)?;
-        let ret = self.util.transfer_from_return(hook_ret)?;
+        let updated = self.reload(&cid)?;
+        let ret = self.util.transfer_from_return(hook_ret, updated)?;
 
         Ok(ret)
     }
