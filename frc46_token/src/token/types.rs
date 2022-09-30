@@ -1,3 +1,4 @@
+use cid::Cid;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::address::Address;
@@ -5,7 +6,7 @@ use fvm_shared::econ::TokenAmount;
 use thiserror::Error;
 
 use super::TokenError;
-use crate::receiver::RecipientData;
+use crate::receiver::ReceiverData;
 
 #[derive(Error, Debug)]
 pub enum ActorError<Err> {
@@ -138,11 +139,21 @@ pub struct MintIntermediate {
     pub recipient: Address,
     /// Return data from the originating mint() call
     pub return_data: MintReturn,
+    /// New state root after hook call returns. Will be None if state is unchanged
+    pub new_root: Option<Cid>,
 }
 
-impl RecipientData for MintIntermediate {
+impl ReceiverData for MintIntermediate {
     fn set_recipient_data(&mut self, data: RawBytes) {
         self.return_data.recipient_data = data;
+    }
+
+    fn set_new_root(&mut self, new_root: Option<Cid>) {
+        self.new_root = new_root;
+    }
+
+    fn new_root(&self) -> Option<Cid> {
+        self.new_root
     }
 }
 
@@ -177,11 +188,21 @@ pub struct TransferIntermediate {
     pub to: Address,
     /// Return data from the originating transfer() call
     pub return_data: TransferReturn,
+    /// New state root after hook call returns. Will be None if state is unchanged
+    pub new_root: Option<Cid>,
 }
 
-impl RecipientData for TransferIntermediate {
+impl ReceiverData for TransferIntermediate {
     fn set_recipient_data(&mut self, data: RawBytes) {
         self.return_data.recipient_data = data;
+    }
+
+    fn set_new_root(&mut self, new_root: Option<Cid>) {
+        self.new_root = new_root;
+    }
+
+    fn new_root(&self) -> Option<Cid> {
+        self.new_root
     }
 }
 
@@ -220,11 +241,21 @@ pub struct TransferFromIntermediate {
     pub to: Address,
     /// Return data from the originating transfer_from() call
     pub return_data: TransferFromReturn,
+    /// New state root after hook call returns. Will be None if state is unchanged
+    pub new_root: Option<Cid>,
 }
 
-impl RecipientData for TransferFromIntermediate {
+impl ReceiverData for TransferFromIntermediate {
     fn set_recipient_data(&mut self, data: RawBytes) {
         self.return_data.recipient_data = data;
+    }
+
+    fn set_new_root(&mut self, new_root: Option<Cid>) {
+        self.new_root = new_root;
+    }
+
+    fn new_root(&self) -> Option<Cid> {
+        self.new_root
     }
 }
 

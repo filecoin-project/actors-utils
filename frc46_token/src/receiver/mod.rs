@@ -1,5 +1,8 @@
+use cid::Cid;
 use fvm_actor_utils::messaging::{Messaging, RECEIVER_HOOK_METHOD_NUM};
 use fvm_ipld_encoding::RawBytes;
+#[cfg(target_family = "wasm")]
+use fvm_sdk as sdk;
 use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode};
 use num_traits::Zero;
 use types::{FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE};
@@ -8,8 +11,10 @@ use crate::token::TokenError;
 
 pub mod types;
 
-pub trait RecipientData {
+pub trait ReceiverData {
     fn set_recipient_data(&mut self, data: RawBytes);
+    fn set_new_root(&mut self, new_root: Option<Cid>);
+    fn new_root(&self) -> Option<Cid>;
 }
 
 /// Implements a guarded call to a token receiver hook
@@ -20,14 +25,14 @@ pub trait RecipientData {
 /// This also tracks whether the call has been made or not, and
 /// will panic if dropped without calling the hook.
 #[derive(Debug)]
-pub struct ReceiverHook<T: RecipientData> {
+pub struct ReceiverHook<T: ReceiverData> {
     address: Address,
     params: FRC46TokenReceived,
     called: bool,
     result_data: Option<T>,
 }
 
-impl<T: RecipientData> ReceiverHook<T> {
+impl<T: ReceiverData> ReceiverHook<T> {
     /// Construct a new ReceiverHook call
     pub fn new(address: Address, params: FRC46TokenReceived, result_data: T) -> Self {
         ReceiverHook { address, params, called: false, result_data: Some(result_data) }
@@ -42,6 +47,17 @@ impl<T: RecipientData> ReceiverHook<T> {
     /// - an error if the hook call aborted
     /// - any return data provided by the hook upon success
     pub fn call(&mut self, msg: &dyn Messaging) -> std::result::Result<T, TokenError> {
+        // TODO: this stuff should be implemented elsewhere, or we don't do it here at all
+        #[cfg(target_family = "wasm")]
+        fn get_root() -> Cid {
+            sdk::sself::root().unwrap()
+        }
+        // stub version allows us to build and run unit tests
+        #[cfg(not(target_family = "wasm"))]
+        fn get_root() -> Cid {
+            Cid::default()
+        }
+
         if self.called {
             return Err(TokenError::ReceiverHookAlreadyCalled);
         }
@@ -53,6 +69,8 @@ impl<T: RecipientData> ReceiverHook<T> {
             payload: RawBytes::serialize(&self.params)?,
         };
 
+        let before_cid = get_root();
+
         let receipt = msg.send(
             &self.address,
             RECEIVER_HOOK_METHOD_NUM,
@@ -60,10 +78,16 @@ impl<T: RecipientData> ReceiverHook<T> {
             &TokenAmount::zero(),
         )?;
 
+        let after_cid = get_root();
+
         match receipt.exit_code {
             ExitCode::OK => {
-                self.result_data.as_mut().unwrap().set_recipient_data(receipt.return_data);
-                Ok(self.result_data.take().unwrap())
+                let mut result = self.result_data.take().unwrap();
+                //self.result_data.as_mut().unwrap().set_recipient_data(receipt.return_data);
+                result.set_recipient_data(receipt.return_data);
+                let new_root = if before_cid == after_cid { None } else { Some(after_cid) };
+                result.set_new_root(new_root);
+                Ok(result)
             }
             abort_code => Err(TokenError::ReceiverHook {
                 from: self.params.from,
@@ -77,7 +101,7 @@ impl<T: RecipientData> ReceiverHook<T> {
 }
 
 /// Drop implements the panic if not called behaviour
-impl<T: RecipientData> std::ops::Drop for ReceiverHook<T> {
+impl<T: ReceiverData> std::ops::Drop for ReceiverHook<T> {
     fn drop(&mut self) {
         if !self.called {
             panic!(
@@ -90,19 +114,24 @@ impl<T: RecipientData> std::ops::Drop for ReceiverHook<T> {
 
 #[cfg(test)]
 mod test {
+    use cid::Cid;
     use fvm_actor_utils::messaging::FakeMessenger;
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::{address::Address, econ::TokenAmount};
     use num_traits::Zero;
 
-    use super::{types::FRC46TokenReceived, ReceiverHook, RecipientData};
+    use super::{types::FRC46TokenReceived, ReceiverData, ReceiverHook};
 
     const TOKEN_ACTOR: Address = Address::new_id(1);
     const ALICE: Address = Address::new_id(2);
 
     struct TestReturn;
-    impl RecipientData for TestReturn {
+    impl ReceiverData for TestReturn {
         fn set_recipient_data(&mut self, _data: RawBytes) {}
+        fn set_new_root(&mut self, _new_root: Option<Cid>) {}
+        fn new_root(&self) -> Option<Cid> {
+            None
+        }
     }
 
     fn generate_hook() -> ReceiverHook<TestReturn> {

@@ -176,6 +176,7 @@ where
                     supply: supply.clone(),
                     recipient_data: RawBytes::default(),
                 },
+                new_root: None,
             })
         })?;
 
@@ -195,12 +196,8 @@ where
     /// Finalise return data from MintIntermediate data returned by calling receiver hook after minting
     /// This is done to allow reloading the state if it changed as a result of the hook call
     /// so we can return an accurate balance even if the receiver transferred or burned tokens upon receipt
-    pub fn mint_return(
-        &self,
-        intermediate: MintIntermediate,
-        state_updated: bool,
-    ) -> Result<MintReturn> {
-        if !state_updated {
+    pub fn mint_return(&self, intermediate: MintIntermediate) -> Result<MintReturn> {
+        if intermediate.new_root.is_none() {
             return Ok(intermediate.return_data);
         }
 
@@ -498,6 +495,7 @@ where
                         to_balance: balance,
                         recipient_data: RawBytes::default(),
                     },
+                    new_root: None,
                 })
             } else {
                 let to_balance = state.change_balance_by(&bs, to_id, amount)?;
@@ -510,6 +508,7 @@ where
                         to_balance,
                         recipient_data: RawBytes::default(),
                     },
+                    new_root: None,
                 })
             }
         })?;
@@ -527,12 +526,8 @@ where
     }
 
     /// Generate TransferReturn from the intermediate data returned by a receiver hook call
-    pub fn transfer_return(
-        &self,
-        intermediate: TransferIntermediate,
-        state_updated: bool,
-    ) -> Result<TransferReturn> {
-        if !state_updated {
+    pub fn transfer_return(&self, intermediate: TransferIntermediate) -> Result<TransferReturn> {
+        if intermediate.new_root.is_none() {
             return Ok(intermediate.return_data);
         }
 
@@ -635,6 +630,7 @@ where
                         allowance: remaining_allowance,
                         recipient_data: RawBytes::default(),
                     },
+                    new_root: None,
                 })
             } else {
                 let to_balance = state.change_balance_by(&bs, to_id, amount)?;
@@ -649,6 +645,7 @@ where
                         allowance: remaining_allowance,
                         recipient_data: RawBytes::default(),
                     },
+                    new_root: None,
                 })
             }
         })?;
@@ -669,9 +666,8 @@ where
     pub fn transfer_from_return(
         &self,
         intermediate: TransferFromIntermediate,
-        state_updated: bool,
     ) -> Result<TransferFromReturn> {
-        if !state_updated {
+        if intermediate.new_root.is_none() {
             return Ok(intermediate.return_data);
         }
 
@@ -993,7 +989,7 @@ mod test {
             .unwrap();
         token.flush().unwrap();
         let hook_ret = hook.call(token.msg()).unwrap();
-        let result = token.mint_return(hook_ret, false).unwrap();
+        let result = token.mint_return(hook_ret).unwrap();
         assert_eq!(TokenAmount::from_atto(1_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(1_000_000), result.supply);
 
@@ -1052,7 +1048,7 @@ mod test {
             .unwrap();
         token.flush().unwrap();
         let hook_ret = hook.call(token.msg()).unwrap();
-        let result = token.mint_return(hook_ret, false).unwrap();
+        let result = token.mint_return(hook_ret).unwrap();
         assert_eq!(TokenAmount::from_atto(2_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(2_000_000), result.supply);
 
@@ -1085,7 +1081,7 @@ mod test {
             .unwrap();
         token.flush().unwrap();
         let hook_ret = hook.call(token.msg()).unwrap();
-        let result = token.mint_return(hook_ret, false).unwrap();
+        let result = token.mint_return(hook_ret).unwrap();
         assert_eq!(TokenAmount::from_atto(1_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(3_000_000), result.supply);
 
