@@ -25,6 +25,8 @@ pub enum StateError {
     IpldHamt(#[from] HamtError),
     #[error("token id not found: {0}")]
     TokenNotFound(TokenID),
+    #[error("operator {operator:?} is not authorised for token {token_id:?}")]
+    Unauthorized { operator: ActorID, token_id: TokenID },
     /// This error is returned for errors that should never happen
     #[error("invariant failed: {0}")]
     InvariantFailed(String),
@@ -44,7 +46,7 @@ pub struct TokenData {
 pub struct OwnerData {
     pub balance: u64,
     // account-level operators
-    pub approved: Vec<ActorID>, // maybe as a Cid to an Amt
+    pub operators: Vec<ActorID>, // maybe as a Cid to an Amt
 }
 
 /// NFT state IPLD structure
@@ -141,7 +143,7 @@ impl NFTState {
                     //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
                     OwnerData { balance: existing_data.balance + 1, ..existing_data.clone() }
                 } else {
-                    OwnerData { balance: 1, approved: vec![] }
+                    OwnerData { balance: 1, operators: vec![] }
                 }
             }
             Err(e) => return Err(e.into()),
@@ -186,13 +188,92 @@ impl NFTState {
         // TODO: if balance goes to zero AND approved array is empty, delete the owner entry
         owner_map.set(
             owner_key,
-            OwnerData { balance: owner_data.balance - 1, approved: owner_data.approved.clone() },
+            OwnerData { balance: owner_data.balance - 1, operators: owner_data.operators.clone() },
         )?;
 
         self.total_supply -= 1;
         self.token_data = token_array.flush()?;
         self.owner_data = owner_map.flush()?;
         Ok(())
+    }
+
+    /// Transfers a token from one address to another
+    pub fn transfer_token<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        operator: ActorID,
+        to: ActorID,
+        token_id: TokenID,
+    ) -> Result<()> {
+        // TODO: check that the from Actor is allowed (owner or operator) to transfer this particular token
+        let mut token_array = self.get_token_data_amt(bs)?;
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
+
+        if !Self::approved_for_token(&token_array, &owner_map, operator, token_id)? {
+            return Err(StateError::Unauthorized { operator, token_id });
+        }
+
+        // update the token_data to reflect the new owner and clear approved operators
+        let old_token_data =
+            token_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?.clone();
+        let new_token_data = TokenData { owner: to, operators: Vec::default(), ..old_token_data };
+        token_array.set(token_id, new_token_data)?;
+        self.token_data = token_array.flush()?;
+
+        // update the owner_data to reflect the new balances
+        let previous_owner_key = actor_id_key(old_token_data.owner);
+        let previous_owner_data = owner_map
+            .get(&previous_owner_key)?
+            .ok_or_else(|| {
+                StateError::InvariantFailed(format!("owner of token {} not found", token_id))
+            })?
+            .clone();
+        let previous_owner_data =
+            OwnerData { balance: previous_owner_data.balance - 1, ..previous_owner_data };
+        owner_map.set(previous_owner_key, previous_owner_data)?;
+
+        let new_owner_key = actor_id_key(to);
+        let new_owner_data = match owner_map.get(&new_owner_key)? {
+            Some(data) => OwnerData { balance: data.balance + 1, ..data.clone() },
+            None => OwnerData { balance: 1, operators: Vec::default() },
+        };
+        owner_map.set(new_owner_key, new_owner_data)?;
+
+        self.owner_data = owner_map.flush()?;
+
+        Ok(())
+    }
+
+    /// Checks whether an operator is approved to transfer/burn a token
+    pub fn approved_for_token<BS: Blockstore>(
+        token_array: &Amt<TokenData, &BS>,
+        owner_map: &Hamt<&BS, OwnerData>,
+        operator: ActorID,
+        token_id: TokenID,
+    ) -> Result<bool> {
+        let token_data = token_array
+            .get(token_id)?
+            .ok_or_else(|| StateError::InvariantFailed(format!("token {} not found", token_id)))?;
+
+        // operator owns the token
+        if token_data.owner == operator {
+            return Ok(true);
+        }
+
+        // operator is approved at token-level
+        if token_data.operators.contains(&operator) {
+            return Ok(true);
+        }
+
+        // operator is approved at account-level
+        let owner_account = owner_map.get(&actor_id_key(token_data.owner))?.ok_or_else(|| {
+            StateError::InvariantFailed(format!("owner of token {} not found", token_id))
+        })?;
+        if owner_account.operators.contains(&operator) {
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 }
 
@@ -275,5 +356,46 @@ mod test {
         assert_eq!(state.total_supply, 2);
         assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
         state.get_token_data_amt(bs).unwrap();
+    }
+
+    #[test]
+    fn it_transfers_tokens() {
+        let bs = &MemoryBlockstore::new();
+        let mut state = NFTState::new(bs).unwrap();
+
+        // mint a few tokens
+        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
+        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
+        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
+
+        // bob cannot transfer from alice to himself
+        let res = state.transfer_token(bs, BOB_ID, BOB_ID, 0).unwrap_err();
+        if let StateError::Unauthorized { operator, token_id } = res {
+            assert_eq!(operator, BOB_ID);
+            assert_eq!(token_id, 0);
+        } else {
+            panic!("unexpected error: {:?}", res);
+        }
+
+        // alice can transfer to bob
+        state.transfer_token(bs, ALICE_ID, BOB_ID, 0).unwrap();
+        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
+        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
+
+        // alice is unauthorised to transfer that token now
+        let res = state.transfer_token(bs, ALICE_ID, ALICE_ID, 0).unwrap_err();
+        if let StateError::Unauthorized { operator, token_id } = res {
+            assert_eq!(operator, ALICE_ID);
+            assert_eq!(token_id, 0);
+        } else {
+            panic!("unexpected error: {:?}", res);
+        }
+        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
+        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
+
+        // but bob can transfer it back
+        state.transfer_token(bs, BOB_ID, ALICE_ID, 0).unwrap();
+        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
+        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 0);
     }
 }
