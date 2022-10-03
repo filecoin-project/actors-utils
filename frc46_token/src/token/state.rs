@@ -634,7 +634,7 @@ mod test {
     use fvm_shared::{bigint::Zero, ActorID};
 
     use super::TokenState;
-    use crate::token::state::StateError;
+    use crate::token::state::{actor_id_key, StateError};
 
     #[test]
     fn it_instantiates() {
@@ -769,7 +769,8 @@ mod test {
         assert_eq!(returned_allowance, allowance);
         // the map entry is cleaned-up
         let root_map = state.get_allowances_map(bs).unwrap();
-        assert!(!root_map.contains_key(&owner).unwrap());
+        let owner_key = actor_id_key(owner);
+        assert!(!root_map.contains_key(&owner_key).unwrap());
 
         // can't set negative allowance
         let allowance = TokenAmount::from_atto(-50);
