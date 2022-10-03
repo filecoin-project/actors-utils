@@ -398,4 +398,7 @@ mod test {
         assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
         assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 0);
     }
+
+    #[test]
+    fn it_allows_delegated_transfers() {}
 }
