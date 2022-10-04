@@ -19,8 +19,6 @@ use fvm_shared::ActorID;
 use integer_encoding::VarInt;
 use thiserror::Error;
 
-use super::Token;
-
 /// This value has been chosen to optimise to reduce gas-costs when accessing the balances map. Non-
 /// standard use cases of the token library might find a different value to be more efficient.
 pub const DEFAULT_HAMT_BIT_WIDTH: u32 = 3;
