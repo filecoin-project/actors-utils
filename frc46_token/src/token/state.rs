@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::ops::Neg;
 
 use cid::multihash::Code;
@@ -16,6 +18,8 @@ use fvm_shared::econ::TokenAmount;
 use fvm_shared::ActorID;
 use integer_encoding::VarInt;
 use thiserror::Error;
+
+use super::Token;
 
 /// This value has been chosen to optimise to reduce gas-costs when accessing the balances map. Non-
 /// standard use cases of the token library might find a different value to be more efficient.
@@ -521,11 +525,11 @@ impl TokenState {
     /// where operator == owner. Checks that all balances are a multiple of the granularity.
     ///
     /// Returns a state summary that can be used to check application specific invariants.
-    pub fn check_invariants<'bs, BS: Blockstore>(
+    pub fn check_invariants<BS: Blockstore>(
         &self,
-        bs: &'bs BS,
+        bs: &BS,
         granularity: u64,
-    ) -> std::result::Result<StateSummary<'bs, BS>, Vec<StateInvariantError>> {
+    ) -> std::result::Result<StateSummary, Vec<StateInvariantError>> {
         // accumulate errors encountered in the state
         let mut errors: Vec<StateInvariantError> = vec![];
 
@@ -556,6 +560,7 @@ impl TokenState {
             }
         };
 
+        let mut balance_map: HashMap<ActorID, TokenAmount> = HashMap::new();
         balances
             .for_each(|owner_key, balance| {
                 if let Some(owner) = decode_key_addr(owner_key, &mut errors) {
@@ -582,7 +587,11 @@ impl TokenState {
                         });
                     }
 
+                    // track total balance
                     balance_sum = balance_sum.clone() + balance.clone();
+
+                    // clone into HashMap
+                    balance_map.insert(owner, balance.clone());
                 }
                 Ok(())
             })
@@ -597,7 +606,7 @@ impl TokenState {
         }
 
         // check allowances are all non-negative
-        let allowances_map = match self.get_allowances_map(bs) {
+        let allowances_hamt = match self.get_allowances_map(bs) {
             Ok(map) => map,
             Err(e) => {
                 errors.push(StateInvariantError::IpldHamt(e));
@@ -605,7 +614,9 @@ impl TokenState {
             }
         };
 
-        allowances_map
+        let mut global_allowances_map: HashMap<ActorID, BTreeMap<ActorID, TokenAmount>> =
+            HashMap::new();
+        allowances_hamt
             .for_each(|owner, _| {
                 if let Some(owner) = decode_key_addr(owner, &mut errors) {
                     let allowance_map = self.get_owner_allowance_map(bs, owner)?;
@@ -620,6 +631,8 @@ impl TokenState {
                         if allowance_map.is_empty() {
                             errors.push(StateInvariantError::ExplicitEmptyAllowance(owner));
                         } else {
+                            let mut allowances_map: BTreeMap<ActorID, TokenAmount> =
+                                BTreeMap::new();
                             // check each entry in the allowance map
                             allowance_map.for_each(|operator, allowance| {
                                 if let Some(operator) = decode_key_addr(operator, &mut errors) {
@@ -647,10 +660,14 @@ impl TokenState {
                                             operator,
                                         });
                                     }
+
+                                    allowances_map.insert(operator, allowance.clone());
                                 }
 
                                 Ok(())
                             })?;
+
+                            global_allowances_map.insert(owner, allowances_map);
                         }
                     }
                 };
@@ -664,8 +681,8 @@ impl TokenState {
         }
 
         Ok(StateSummary {
-            balance_map: self.get_balance_map(bs).unwrap(),
-            allowance_map: self.get_allowances_map(bs).unwrap(),
+            balance_map,
+            allowance_map: global_allowances_map,
             total_supply: self.supply.clone(),
         })
     }
@@ -682,12 +699,9 @@ pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
 impl Cbor for TokenState {}
 
 /// A summary of the current state to allow checking application specific invariants
-pub struct StateSummary<'bs, BS>
-where
-    BS: Blockstore,
-{
-    pub balance_map: BalanceMap<'bs, BS>,
-    pub allowance_map: AllowanceMap<'bs, BS>,
+pub struct StateSummary {
+    pub balance_map: HashMap<ActorID, TokenAmount>,
+    pub allowance_map: HashMap<ActorID, BTreeMap<ActorID, TokenAmount>>,
     pub total_supply: TokenAmount,
 }
 
