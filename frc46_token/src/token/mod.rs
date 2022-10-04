@@ -681,7 +681,7 @@ where
 
     /// Checks the state invariants, throwing an error if they are not met
     pub fn check_invariants(&self) -> Result<()> {
-        self.state.check_invariants(&self.bs)?;
+        self.state.check_invariants(&self.bs, self.granularity)?;
         Ok(())
     }
 }

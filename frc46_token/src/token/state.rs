@@ -73,6 +73,10 @@ pub enum StateInvariantError {
     ExplicitEmptyAllowance(ActorID),
     #[error("stored an allowance for self {account:?} for {allowance:?}")]
     ExplicitSelfAllowance { account: ActorID, allowance: TokenAmount },
+    #[error("invalid serialized owner key {0:?}")]
+    InvalidOwnerKey(BytesKey),
+    #[error("owner {owner:?} had a balance {balance:?} which is not a multiple of the granularity {granularity:?}")]
+    InvalidGranularity { owner: ActorID, balance: TokenAmount, granularity: u64 },
     #[error("underlying state error {0}")]
     State(#[from] StateError),
 }
@@ -506,10 +510,13 @@ impl TokenState {
     /// Checks that there are no zero balances, zero allowances or empty allowance maps explicitly
     /// stored in the blockstore. Checks that balances, total supply, allowances are never negative.
     /// Checks that sum of all balances matches total_supply. Checks that no allowances are stored
-    /// where operator == owner.
+    /// where operator == owner. Checks that all balances are a multiple of the granularity.
+    ///
+    /// Returns a state summary that can be used to check application specific invariants.
     pub fn check_invariants<BS: Blockstore>(
         &self,
         bs: &BS,
+        granularity: u64,
     ) -> std::result::Result<(), StateInvariantError> {
         // check total supply
         if self.supply.is_negative() {
@@ -523,7 +530,8 @@ impl TokenState {
         let res = balances.for_each(|owner_key, balance| {
             let owner = match decode_actor_id(owner_key) {
                 None => {
-                    bail!("invalid key in balances map")
+                    maybe_err = Some(StateInvariantError::InvalidOwnerKey(owner_key.clone()));
+                    bail!("invariant failed");
                 }
                 Some(a) => a,
             };
@@ -540,9 +548,21 @@ impl TokenState {
                 maybe_err = Some(StateInvariantError::ExplicitZeroBalance(owner));
                 bail!("invariant failed")
             }
+
+            let (_, modulus) = balance.div_rem(granularity);
+            if !modulus.is_zero() {
+                maybe_err = Some(StateInvariantError::InvalidGranularity {
+                    balance: balance.clone(),
+                    owner,
+                    granularity,
+                });
+                bail!("invariant failed")
+            }
+
             balance_sum = balance_sum.clone() + balance.clone();
             Ok(())
         });
+
         if res.is_err() {
             return Err(maybe_err.unwrap());
         }
