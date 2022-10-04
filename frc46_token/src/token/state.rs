@@ -513,11 +513,11 @@ impl TokenState {
     /// where operator == owner. Checks that all balances are a multiple of the granularity.
     ///
     /// Returns a state summary that can be used to check application specific invariants.
-    pub fn check_invariants<BS: Blockstore>(
+    pub fn check_invariants<'bs, BS: Blockstore>(
         &self,
-        bs: &BS,
+        bs: &'bs BS,
         granularity: u64,
-    ) -> std::result::Result<(), StateInvariantError> {
+    ) -> std::result::Result<StateSummary<'bs, BS>, StateInvariantError> {
         // check total supply
         if self.supply.is_negative() {
             return Err(StateInvariantError::SupplyNegative(self.supply.clone()));
@@ -633,7 +633,11 @@ impl TokenState {
             return Err(maybe_err.unwrap());
         }
 
-        Ok(())
+        Ok(StateSummary {
+            balance_map: self.get_balance_map(bs)?,
+            allowance_map: self.get_allowances_map(bs)?,
+            total_supply: self.supply.clone(),
+        })
     }
 }
 
@@ -646,6 +650,16 @@ pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
 }
 
 impl Cbor for TokenState {}
+
+/// A summary of the current state to allow checking application specific invariants
+pub struct StateSummary<'bs, BS>
+where
+    BS: Blockstore,
+{
+    pub balance_map: BalanceMap<'bs, BS>,
+    pub allowance_map: AllowanceMap<'bs, BS>,
+    pub total_supply: TokenAmount,
+}
 
 #[cfg(test)]
 mod test {
