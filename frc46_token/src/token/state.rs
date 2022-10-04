@@ -54,8 +54,6 @@ pub enum StateError {
 
 #[derive(Error, Debug)]
 pub enum StateInvariantError {
-    #[error("ipld hamt error: {0}")]
-    IpldHamt(#[from] HamtError),
     #[error("total supply was negative: {0}")]
     SupplyNegative(TokenAmount),
     #[error("the account for {account:?} had a negative balance of {balance:?}")]
@@ -161,11 +159,7 @@ impl TokenState {
     }
 
     /// Get the balance of an ActorID from the currently stored state
-    pub fn get_balance<BS: Blockstore>(
-        &self,
-        bs: &BS,
-        owner: ActorID,
-    ) -> std::result::Result<TokenAmount, HamtError> {
+    pub fn get_balance<BS: Blockstore>(&self, bs: &BS, owner: ActorID) -> Result<TokenAmount> {
         let balances = self.get_balance_map(bs)?;
 
         let balance = match balances.get(&actor_id_key(owner))? {
@@ -188,7 +182,7 @@ impl TokenState {
     ) -> Result<TokenAmount> {
         if delta.is_zero() {
             // This is a no-op as far as mutating state
-            return Ok(self.get_balance(bs, owner)?);
+            return self.get_balance(bs, owner);
         }
 
         let mut balance_map = self.get_balance_map(bs)?;
@@ -250,17 +244,14 @@ impl TokenState {
     }
 
     /// Retrieve the balance map as a HAMT
-    pub fn get_balance_map<'bs, BS: Blockstore>(
-        &self,
-        bs: &'bs BS,
-    ) -> std::result::Result<BalanceMap<'bs, BS>, HamtError> {
-        BalanceMap::load_with_bit_width(&self.balances, bs, self.hamt_bit_width)
+    pub fn get_balance_map<'bs, BS: Blockstore>(&self, bs: &'bs BS) -> Result<BalanceMap<'bs, BS>> {
+        Ok(BalanceMap::load_with_bit_width(&self.balances, bs, self.hamt_bit_width)?)
     }
 
     /// Retrieve the number of token holders
     ///
     /// This involves iterating through the entire HAMT
-    pub fn count_balances<BS: Blockstore>(&self, bs: &BS) -> std::result::Result<usize, HamtError> {
+    pub fn count_balances<BS: Blockstore>(&self, bs: &BS) -> Result<usize> {
         let balance_map = self.get_balance_map(bs)?;
         Ok(balance_map.for_each(|_, _| Ok(())).into_iter().count())
     }
@@ -289,7 +280,7 @@ impl TokenState {
         bs: &BS,
         owner: ActorID,
         operator: ActorID,
-    ) -> std::result::Result<TokenAmount, HamtError> {
+    ) -> Result<TokenAmount> {
         let owner_allowances = self.get_owner_allowance_map(bs, owner)?;
         match owner_allowances {
             Some(map) => {
@@ -313,7 +304,7 @@ impl TokenState {
     ) -> Result<TokenAmount> {
         if delta.is_zero() {
             // This is a no-op as far as mutating state
-            return Ok(self.get_allowance_between(bs, owner, operator)?);
+            return self.get_allowance_between(bs, owner, operator);
         }
 
         let mut global_allowances_map = self.get_allowances_map(bs)?;
@@ -494,7 +485,7 @@ impl TokenState {
         &self,
         bs: &'bs BS,
         owner: ActorID,
-    ) -> std::result::Result<Option<OwnerAllowanceMap<'bs, BS>>, HamtError> {
+    ) -> Result<Option<OwnerAllowanceMap<'bs, BS>>> {
         let allowances_map = self.get_allowances_map(bs)?;
         let owner_allowances = match allowances_map.get(&actor_id_key(owner))? {
             Some(cid) => {
@@ -511,8 +502,8 @@ impl TokenState {
     pub fn get_allowances_map<'bs, BS: Blockstore>(
         &self,
         bs: &'bs BS,
-    ) -> std::result::Result<AllowanceMap<'bs, BS>, HamtError> {
-        AllowanceMap::load_with_bit_width(&self.allowances, bs, self.hamt_bit_width)
+    ) -> Result<AllowanceMap<'bs, BS>> {
+        Ok(AllowanceMap::load_with_bit_width(&self.allowances, bs, self.hamt_bit_width)?)
     }
 
     /// Checks that the current state obeys all system invariants
@@ -553,7 +544,7 @@ impl TokenState {
         let balances = match self.get_balance_map(bs) {
             Ok(map) => map,
             Err(e) => {
-                errors.push(StateInvariantError::IpldHamt(e));
+                errors.push(StateInvariantError::State(e));
                 return Err(errors);
             }
         };
@@ -607,7 +598,7 @@ impl TokenState {
         let allowances_hamt = match self.get_allowances_map(bs) {
             Ok(map) => map,
             Err(e) => {
-                errors.push(StateInvariantError::IpldHamt(e));
+                errors.push(StateInvariantError::State(e));
                 return Err(errors);
             }
         };
@@ -697,6 +688,7 @@ pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
 impl Cbor for TokenState {}
 
 /// A summary of the current state to allow checking application specific invariants
+#[derive(Clone, Debug)]
 pub struct StateSummary {
     pub balance_map: HashMap<ActorID, TokenAmount>,
     pub allowance_map: HashMap<ActorID, BTreeMap<ActorID, TokenAmount>>,
@@ -710,7 +702,7 @@ mod test {
     use fvm_shared::{bigint::Zero, ActorID};
 
     use super::TokenState;
-    use crate::token::state::{actor_id_key, StateError};
+    use crate::token::state::{actor_id_key, StateError, StateInvariantError};
 
     #[test]
     fn it_instantiates() {
@@ -916,6 +908,60 @@ mod test {
             // loading the hamts with the wrong bitwidth would result in corrupted data
             let balance = loaded_state.get_balance(&bs, owner).unwrap();
             assert_eq!(balance, amount);
+        }
+    }
+
+    #[test]
+    fn check_invariants_accumulates_errors() {
+        let bs = &MemoryBlockstore::new();
+        let granularity: u64 = 1;
+        let mut state = TokenState::new_with_bit_width(bs, 8).unwrap();
+
+        // empty state should fail none
+        let summary = state.check_invariants(bs, granularity).unwrap();
+        assert_eq!(summary.allowance_map.keys().len(), 0);
+        assert_eq!(summary.balance_map.keys().len(), 0);
+        assert_eq!(summary.total_supply, TokenAmount::from_atto(0));
+
+        // add an explicit zero balance
+        let mut balance_map = state.get_balance_map(bs).unwrap();
+        balance_map.set(actor_id_key(1), TokenAmount::from_atto(0)).unwrap();
+        state.balances = balance_map.flush().unwrap();
+
+        // should fail with one error
+        let errors = state.check_invariants(bs, granularity).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        if let StateInvariantError::ExplicitZeroBalance(actor) = errors[0] {
+            assert_eq!(actor, 1);
+        } else {
+            panic!("unexpected error");
+        }
+
+        // add another explicit zero balance
+        let mut balance_map = state.get_balance_map(bs).unwrap();
+        balance_map.set(actor_id_key(2), TokenAmount::from_atto(0)).unwrap();
+        state.balances = balance_map.flush().unwrap();
+
+        // it accumulates errors
+        let errors = state.check_invariants(bs, granularity).unwrap_err();
+        assert_eq!(errors.len(), 2);
+        if let StateInvariantError::ExplicitZeroBalance(actor) = errors[1] {
+            assert_eq!(actor, 2);
+        } else {
+            panic!("unexpected error");
+        }
+
+        // add a different type of error
+        state.supply = TokenAmount::from_atto(5);
+
+        // it accumulates errors
+        let errors = state.check_invariants(bs, granularity).unwrap_err();
+        assert_eq!(errors.len(), 3);
+        if let StateInvariantError::BalanceSupplyMismatch { balance_sum, supply } = &errors[2] {
+            assert_eq!(*balance_sum, TokenAmount::from_atto(0));
+            assert_eq!(*supply, TokenAmount::from_atto(5));
+        } else {
+            panic!("unexpected error");
         }
     }
 }

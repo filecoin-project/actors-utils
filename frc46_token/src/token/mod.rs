@@ -10,7 +10,7 @@ use fvm_shared::econ::TokenAmount;
 use fvm_shared::error::ExitCode;
 use num_traits::Zero;
 
-use self::state::{StateError as TokenStateError, StateInvariantError, TokenState};
+use self::state::{StateError as TokenStateError, StateInvariantError, StateSummary, TokenState};
 use self::types::BurnFromReturn;
 use self::types::BurnReturn;
 use self::types::{
@@ -680,9 +680,8 @@ where
     }
 
     /// Checks the state invariants, throwing an error if they are not met
-    pub fn check_invariants(&self) -> std::result::Result<(), Vec<StateInvariantError>> {
-        self.state.check_invariants(&self.bs, self.granularity)?;
-        Ok(())
+    pub fn check_invariants(&self) -> std::result::Result<StateSummary, Vec<StateInvariantError>> {
+        self.state.check_invariants(&self.bs, self.granularity)
     }
 }
 
@@ -2753,6 +2752,66 @@ mod test {
         assert_behaviour(&secp_address(), &secp_address(), 0, 0, 1, "BALANCE_ERR");
         assert_behaviour(&bls_address(), &bls_address(), 0, 0, 0, "OK");
         assert_behaviour(&bls_address(), &bls_address(), 0, 0, 1, "BALANCE_ERR");
+    }
+
+    #[test]
+    fn check_invariants_returns_a_state_summary() {
+        //! Simulate a delgated transfer flow and then check the invariants manually
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
+
+        // mint 100 for the owner
+        let mut hook = token
+            .mint(
+                ALICE,
+                ALICE,
+                &TokenAmount::from_atto(100),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
+        // approve 100 spending allowance for operator
+        token.increase_allowance(ALICE, CAROL, &TokenAmount::from_atto(100)).unwrap();
+        // operator makes transfer of 60 from owner -> receiver
+        let mut hook = token
+            .transfer_from(
+                CAROL,
+                ALICE,
+                BOB,
+                &TokenAmount::from_atto(60),
+                RawBytes::default(),
+                RawBytes::default(),
+            )
+            .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
+        let summary = token.check_invariants().unwrap();
+        // remaining balance 100 - 60
+        assert_eq!(
+            summary.balance_map.get(&ALICE.id().unwrap()).unwrap().clone(),
+            TokenAmount::from_atto(40)
+        );
+        // received balance = 0 + 60
+        assert_eq!(
+            summary.balance_map.get(&BOB.id().unwrap()).unwrap().clone(),
+            TokenAmount::from_atto(60)
+        );
+        // remaining allowance = 100 - 60
+        assert_eq!(
+            summary
+                .allowance_map
+                .get(&ALICE.id().unwrap())
+                .unwrap()
+                .get(&CAROL.id().unwrap())
+                .unwrap()
+                .clone(),
+            TokenAmount::from_atto(40)
+        );
     }
 
     // TODO: test for re-entrancy bugs by implementing a MethodCaller that calls back on the token contract

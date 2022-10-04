@@ -1,6 +1,5 @@
 use fvm_actor_utils::messaging::MessagingError;
 use fvm_ipld_encoding::Error as SerializationError;
-use fvm_ipld_hamt::Error as HamtError;
 use fvm_sdk::sys::ErrorNumber;
 use fvm_shared::address::{Address, Error as AddressError};
 use fvm_shared::econ::TokenAmount;
@@ -46,12 +45,6 @@ pub enum TokenError {
     Serialization(#[from] SerializationError),
     #[error("error in state invariants {0}")]
     StateInvariant(#[from] StateInvariantError),
-}
-
-impl From<HamtError> for TokenError {
-    fn from(err: HamtError) -> Self {
-        TokenStateError::IpldHamt(err).into()
-    }
 }
 
 impl From<&TokenError> for ExitCode {
