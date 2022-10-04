@@ -10,7 +10,7 @@ use fvm_shared::econ::TokenAmount;
 use fvm_shared::error::ExitCode;
 use num_traits::Zero;
 
-use self::state::{StateError as TokenStateError, TokenState};
+use self::state::{StateError as TokenStateError, StateInvariantError, TokenState};
 use self::types::BurnFromReturn;
 use self::types::BurnReturn;
 use self::types::{
@@ -680,7 +680,7 @@ where
     }
 
     /// Checks the state invariants, throwing an error if they are not met
-    pub fn check_invariants(&self) -> Result<()> {
+    pub fn check_invariants(&self) -> std::result::Result<(), Vec<StateInvariantError>> {
         self.state.check_invariants(&self.bs, self.granularity)?;
         Ok(())
     }
