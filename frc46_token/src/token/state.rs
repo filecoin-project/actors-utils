@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::ops::Neg;
 
@@ -80,6 +79,8 @@ pub enum StateInvariantError {
     InvalidGranularity { owner: ActorID, balance: TokenAmount, granularity: u64 },
     #[error("underlying state error {0}")]
     State(#[from] StateError),
+    #[error("expected cid {expected:?} but found {actual:?}")]
+    InvalidCid { expected: Cid, actual: Cid },
 }
 
 type Result<T> = std::result::Result<T, StateError>;
@@ -505,7 +506,9 @@ impl TokenState {
     ) -> Result<AllowanceMap<'bs, BS>> {
         Ok(AllowanceMap::load_with_bit_width(&self.allowances, bs, self.hamt_bit_width)?)
     }
+}
 
+impl TokenState {
     /// Checks that the current state obeys all system invariants
     ///
     /// Checks that there are no zero balances, zero allowances or empty allowance maps explicitly
@@ -513,26 +516,15 @@ impl TokenState {
     /// Checks that sum of all balances matches total_supply. Checks that no allowances are stored
     /// where operator == owner. Checks that all balances are a multiple of the granularity.
     ///
-    /// Returns a state summary that can be used to check application specific invariants.
+    /// Returns a state summary that can be used to check application specific invariants and a list
+    /// of errors that were found.
     pub fn check_invariants<BS: Blockstore>(
         &self,
         bs: &BS,
         granularity: u64,
-    ) -> std::result::Result<StateSummary, Vec<StateInvariantError>> {
+    ) -> (StateSummary, Vec<StateInvariantError>) {
         // accumulate errors encountered in the state
         let mut errors: Vec<StateInvariantError> = vec![];
-
-        // helper to decode addresses
-        let decode_key_addr =
-            |key: &BytesKey, errors: &mut Vec<StateInvariantError>| -> Option<ActorID> {
-                match decode_actor_id(key) {
-                    Some(actor_id) => Some(actor_id),
-                    None => {
-                        errors.push(StateInvariantError::InvalidBytesKey(key.clone()));
-                        None
-                    }
-                }
-            };
 
         // check total supply
         if self.supply.is_negative() {
@@ -540,74 +532,55 @@ impl TokenState {
         }
 
         // check balances
-        let mut balance_sum = TokenAmount::zero();
-        let balances = match self.get_balance_map(bs) {
-            Ok(map) => map,
+        let balance_summary = match self.get_balance_map(bs) {
+            Ok(hamt) => {
+                let (balance_summary, mut balance_errors) = self.check_balances(hamt, granularity);
+                errors.append(&mut balance_errors);
+                Some(balance_summary)
+            }
             Err(e) => {
                 errors.push(StateInvariantError::State(e));
-                return Err(errors);
+                None
             }
         };
 
-        let mut balance_map: HashMap<ActorID, TokenAmount> = HashMap::new();
-        balances
-            .for_each(|owner_key, balance| {
-                if let Some(owner) = decode_key_addr(owner_key, &mut errors) {
-                    // all balances must be positive
-                    if balance.is_negative() {
-                        errors.push(StateInvariantError::BalanceNegative {
-                            account: owner,
-                            balance: balance.clone(),
-                        });
-                    }
-
-                    // zero balances should not be stored in the Hamt
-                    if balance.is_zero() {
-                        errors.push(StateInvariantError::ExplicitZeroBalance(owner));
-                    }
-
-                    // balances should be a multiple of granularity
-                    let (_, modulus) = balance.div_rem(granularity);
-                    if !modulus.is_zero() {
-                        errors.push(StateInvariantError::InvalidGranularity {
-                            balance: balance.clone(),
-                            owner,
-                            granularity,
-                        });
-                    }
-
-                    // track total balance
-                    balance_sum = balance_sum.clone() + balance.clone();
-
-                    // clone into HashMap
-                    balance_map.insert(owner, balance.clone());
-                }
-                Ok(())
-            })
-            .unwrap();
-
-        // all balances must add up to total supply
-        if balance_sum.ne(&self.supply) {
-            errors.push(StateInvariantError::BalanceSupplyMismatch {
-                supply: self.supply.clone(),
-                balance_sum,
-            });
-        }
-
-        // check allowances are all non-negative
-        let allowances_hamt = match self.get_allowances_map(bs) {
-            Ok(map) => map,
+        // check allowances
+        let allowance_summary = match self.get_allowances_map(bs) {
+            Ok(hamt) => {
+                let (allowance_summary, mut allowance_errors) = self.check_allowances(bs, hamt);
+                errors.append(&mut allowance_errors);
+                Some(allowance_summary)
+            }
             Err(e) => {
                 errors.push(StateInvariantError::State(e));
-                return Err(errors);
+                None
             }
         };
 
-        let mut global_allowances_map: HashMap<ActorID, BTreeMap<ActorID, TokenAmount>> =
-            HashMap::new();
+        (
+            StateSummary {
+                balance_map: balance_summary,
+                allowance_map: allowance_summary,
+                total_supply: self.supply.clone(),
+            },
+            errors,
+        )
+    }
+
+    /// Checks an allowance Hamt for any consistency errors
+    ///
+    /// Returns a summary of the balances and a list of errors
+    fn check_allowances<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        allowances_hamt: Hamt<&BS, Cid>,
+    ) -> (HashMap<u64, HashMap<u64, TokenAmount>>, Vec<StateInvariantError>) {
+        let mut errors: Vec<StateInvariantError> = vec![];
+        let mut allowance_summary: HashMap<ActorID, HashMap<ActorID, TokenAmount>> = HashMap::new();
+
         allowances_hamt
-            .for_each(|owner, _| {
-                if let Some(owner) = decode_key_addr(owner, &mut errors) {
+            .for_each(|owner, allowance_map_cid| {
+                if let Some(owner) = Self::decode_key_addr(owner, &mut errors) {
                     let allowance_map = self.get_owner_allowance_map(bs, owner)?;
 
                     // check that the allowance map exists
@@ -615,16 +588,24 @@ impl TokenState {
                         errors.push(StateInvariantError::ExplicitEmptyAllowance(owner));
                     }
 
-                    if let Some(allowance_map) = allowance_map {
+                    if let Some(mut allowance_map) = allowance_map {
+                        let calculated_cid = allowance_map.flush().unwrap();
+                        if calculated_cid != *allowance_map_cid {
+                            errors.push(StateInvariantError::InvalidCid {
+                                expected: *allowance_map_cid,
+                                actual: calculated_cid,
+                            });
+                        }
+
                         // check that the allowance map is not empty
                         if allowance_map.is_empty() {
                             errors.push(StateInvariantError::ExplicitEmptyAllowance(owner));
                         } else {
-                            let mut allowances_map: BTreeMap<ActorID, TokenAmount> =
-                                BTreeMap::new();
+                            let mut allowances_map: HashMap<ActorID, TokenAmount> = HashMap::new();
                             // check each entry in the allowance map
                             allowance_map.for_each(|operator, allowance| {
-                                if let Some(operator) = decode_key_addr(operator, &mut errors) {
+                                if let Some(operator) = Self::decode_key_addr(operator, &mut errors)
+                                {
                                     // check there's no stored self-stored allowance
                                     if owner == operator {
                                         errors.push(StateInvariantError::ExplicitSelfAllowance {
@@ -656,7 +637,7 @@ impl TokenState {
                                 Ok(())
                             })?;
 
-                            global_allowances_map.insert(owner, allowances_map);
+                            allowance_summary.insert(owner, allowances_map);
                         }
                     }
                 };
@@ -664,16 +645,76 @@ impl TokenState {
                 Ok(())
             })
             .unwrap();
+        (allowance_summary, errors)
+    }
 
-        if !errors.is_empty() {
-            return Err(errors);
+    /// Checks a balance Hamt for any consistency errors
+    ///
+    /// Returns a summary of the balances and a list of errors
+    fn check_balances<BS: Blockstore>(
+        &self,
+        balances: Hamt<&BS, TokenAmount>,
+        granularity: u64,
+    ) -> (HashMap<u64, TokenAmount>, Vec<StateInvariantError>) {
+        let mut balance_sum = TokenAmount::zero();
+        let mut balance_map: HashMap<ActorID, TokenAmount> = HashMap::new();
+        let mut errors = vec![];
+        balances
+            .for_each(|owner_key, balance| {
+                if let Some(owner) = Self::decode_key_addr(owner_key, &mut errors) {
+                    // all balances must be positive
+                    if balance.is_negative() {
+                        errors.push(StateInvariantError::BalanceNegative {
+                            account: owner,
+                            balance: balance.clone(),
+                        });
+                    }
+
+                    // zero balances should not be stored in the Hamt
+                    if balance.is_zero() {
+                        errors.push(StateInvariantError::ExplicitZeroBalance(owner));
+                    }
+
+                    // balances should be a multiple of granularity
+                    let (_, modulus) = balance.div_rem(granularity);
+                    if !modulus.is_zero() {
+                        errors.push(StateInvariantError::InvalidGranularity {
+                            balance: balance.clone(),
+                            owner,
+                            granularity,
+                        });
+                    }
+
+                    // track total balance
+                    balance_sum = balance_sum.clone() + balance.clone();
+
+                    // clone into HashMap
+                    balance_map.insert(owner, balance.clone());
+                } else {
+                    errors.push(StateInvariantError::InvalidBytesKey(owner_key.clone()));
+                }
+                Ok(())
+            })
+            .unwrap();
+        // all balances must add up to total supply
+        if balance_sum.ne(&self.supply) {
+            errors.push(StateInvariantError::BalanceSupplyMismatch {
+                supply: self.supply.clone(),
+                balance_sum,
+            });
         }
+        (balance_map, errors)
+    }
 
-        Ok(StateSummary {
-            balance_map,
-            allowance_map: global_allowances_map,
-            total_supply: self.supply.clone(),
-        })
+    /// Helper to decode keys from bytes, recording errors if they fail
+    fn decode_key_addr(key: &BytesKey, errors: &mut Vec<StateInvariantError>) -> Option<ActorID> {
+        match decode_actor_id(key) {
+            Some(actor_id) => Some(actor_id),
+            None => {
+                errors.push(StateInvariantError::InvalidBytesKey(key.clone()));
+                None
+            }
+        }
     }
 }
 
@@ -690,8 +731,8 @@ impl Cbor for TokenState {}
 /// A summary of the current state to allow checking application specific invariants
 #[derive(Clone, Debug)]
 pub struct StateSummary {
-    pub balance_map: HashMap<ActorID, TokenAmount>,
-    pub allowance_map: HashMap<ActorID, BTreeMap<ActorID, TokenAmount>>,
+    pub balance_map: Option<HashMap<ActorID, TokenAmount>>,
+    pub allowance_map: Option<HashMap<ActorID, HashMap<ActorID, TokenAmount>>>,
     pub total_supply: TokenAmount,
 }
 
@@ -918,9 +959,9 @@ mod test {
         let mut state = TokenState::new_with_bit_width(bs, 8).unwrap();
 
         // empty state should fail none
-        let summary = state.check_invariants(bs, granularity).unwrap();
-        assert_eq!(summary.allowance_map.keys().len(), 0);
-        assert_eq!(summary.balance_map.keys().len(), 0);
+        let (summary, _errors) = state.check_invariants(bs, granularity);
+        assert_eq!(summary.allowance_map.unwrap().keys().len(), 0);
+        assert_eq!(summary.balance_map.unwrap().keys().len(), 0);
         assert_eq!(summary.total_supply, TokenAmount::from_atto(0));
 
         // add an explicit zero balance
@@ -929,7 +970,7 @@ mod test {
         state.balances = balance_map.flush().unwrap();
 
         // should fail with one error
-        let errors = state.check_invariants(bs, granularity).unwrap_err();
+        let (_summary, errors) = state.check_invariants(bs, granularity);
         assert_eq!(errors.len(), 1);
         if let StateInvariantError::ExplicitZeroBalance(actor) = errors[0] {
             assert_eq!(actor, 1);
@@ -943,7 +984,7 @@ mod test {
         state.balances = balance_map.flush().unwrap();
 
         // it accumulates errors
-        let errors = state.check_invariants(bs, granularity).unwrap_err();
+        let (_summary, errors) = state.check_invariants(bs, granularity);
         assert_eq!(errors.len(), 2);
         if let StateInvariantError::ExplicitZeroBalance(actor) = errors[1] {
             assert_eq!(actor, 2);
@@ -955,7 +996,7 @@ mod test {
         state.supply = TokenAmount::from_atto(5);
 
         // it accumulates errors
-        let errors = state.check_invariants(bs, granularity).unwrap_err();
+        let (_summary, errors) = state.check_invariants(bs, granularity);
         assert_eq!(errors.len(), 3);
         if let StateInvariantError::BalanceSupplyMismatch { balance_sum, supply } = &errors[2] {
             assert_eq!(*balance_sum, TokenAmount::from_atto(0));
