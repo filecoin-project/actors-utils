@@ -11,6 +11,20 @@ use crate::receiver::frc46::{FRC46TokenReceived, FRC46_TOKEN_TYPE};
 
 pub mod frc46;
 
+/// Parameters for universal receiver
+///
+/// Actual payload varies with asset type
+/// eg: FRC46_TOKEN_TYPE will come with a payload of FRC46TokenReceived
+#[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
+pub struct UniversalReceiverParams {
+    /// Asset type
+    pub type_: ReceiverType,
+    /// Payload corresponding to asset type
+    pub payload: RawBytes,
+}
+
+impl Cbor for UniversalReceiverParams {}
+
 /// Standard interface for an actor that wishes to receive FRC-0046 tokens or other assets
 pub trait UniversalReceiver {
     /// Invoked by a token actor during pending transfer or mint to the receiver's address
@@ -51,19 +65,6 @@ impl From<&ReceiverHookError> for ExitCode {
         }
     }
 }
-
-/// Parameters for universal receiver
-///
-/// Actual payload varies with asset type
-/// eg: FRC46_TOKEN_TYPE will come with a payload of FRC46TokenReceived
-#[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
-pub struct UniversalReceiverParams {
-    /// Asset type
-    pub type_: ReceiverType,
-    /// Payload corresponding to asset type
-    pub payload: RawBytes,
-}
-impl Cbor for UniversalReceiverParams {}
 
 pub trait RecipientData {
     fn set_recipient_data(&mut self, data: RawBytes);
