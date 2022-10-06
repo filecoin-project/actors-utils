@@ -7,9 +7,6 @@ use num_traits::Zero;
 use thiserror::Error;
 
 use crate::messaging::{Messaging, MessagingError, RECEIVER_HOOK_METHOD_NUM};
-use crate::receiver::frc46::{FRC46TokenReceived, FRC46_TOKEN_TYPE};
-
-pub mod frc46;
 
 /// Parameters for universal receiver
 ///
@@ -103,21 +100,6 @@ impl<T: RecipientData> ReceiverHook<T> {
         }
     }
 
-    /// Construct a new FRC46 ReceiverHook call
-    pub fn new_frc46(
-        address: Address,
-        frc46_params: FRC46TokenReceived,
-        result_data: T,
-    ) -> std::result::Result<Self, ReceiverHookError> {
-        Ok(ReceiverHook {
-            address,
-            token_params: RawBytes::serialize(&frc46_params)?,
-            token_type: FRC46_TOKEN_TYPE,
-            called: false,
-            result_data: Some(result_data),
-        })
-    }
-
     /// Call the receiver hook and return the result
     ///
     /// Requires the same Messaging trait as the Token
@@ -174,31 +156,29 @@ impl<T: RecipientData> std::ops::Drop for ReceiverHook<T> {
 
 #[cfg(test)]
 mod test {
+    use frc42_dispatch::method_hash;
     use fvm_ipld_encoding::RawBytes;
-    use fvm_shared::{address::Address, econ::TokenAmount};
-    use num_traits::Zero;
+    use fvm_shared::address::Address;
 
-    use super::{FRC46TokenReceived, ReceiverHook, RecipientData};
+    use super::{ReceiverHook, RecipientData};
     use crate::messaging::FakeMessenger;
 
     const TOKEN_ACTOR: Address = Address::new_id(1);
     const ALICE: Address = Address::new_id(2);
 
     struct TestReturn;
+
     impl RecipientData for TestReturn {
         fn set_recipient_data(&mut self, _data: RawBytes) {}
     }
 
     fn generate_hook() -> ReceiverHook<TestReturn> {
-        let params = FRC46TokenReceived {
-            operator: TOKEN_ACTOR.id().unwrap(),
-            from: TOKEN_ACTOR.id().unwrap(),
-            to: ALICE.id().unwrap(),
-            amount: TokenAmount::zero(),
-            operator_data: RawBytes::default(),
-            token_data: RawBytes::default(),
-        };
-        ReceiverHook::new_frc46(ALICE, params, TestReturn {}).unwrap()
+        ReceiverHook::new(
+            ALICE,
+            RawBytes::default(),
+            method_hash!("TestToken") as u32,
+            TestReturn {},
+        )
     }
 
     #[test]

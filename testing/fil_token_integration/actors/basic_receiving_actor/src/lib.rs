@@ -1,8 +1,6 @@
 use frc42_dispatch::match_method;
-use fvm_actor_utils::receiver::{
-    frc46::{FRC46TokenReceived, FRC46_TOKEN_TYPE},
-    UniversalReceiverParams,
-};
+use frc46_token::receiver::{FRC46TokenReceived, FRC46_TOKEN_TYPE};
+use fvm_actor_utils::receiver::UniversalReceiverParams;
 use fvm_ipld_encoding::{de::DeserializeOwned, RawBytes};
 use fvm_sdk as sdk;
 use fvm_shared::error::ExitCode;

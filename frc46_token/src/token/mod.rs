@@ -3,7 +3,6 @@ use std::ops::Neg;
 use cid::Cid;
 pub use error::TokenError;
 use fvm_actor_utils::messaging::{Messaging, MessagingError, RECEIVER_HOOK_METHOD_NUM};
-use fvm_actor_utils::receiver::frc46::FRC46TokenReceived;
 use fvm_actor_utils::receiver::{ReceiverHook, ReceiverHookError};
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
@@ -18,6 +17,7 @@ use self::types::TransferFromReturn;
 use self::types::TransferReturn;
 use self::types::{BurnFromReturn, MintIntermediate};
 use self::types::{BurnReturn, TransferIntermediate};
+use crate::receiver::{FRC46ReceiverHook, FRC46TokenReceived};
 use crate::token::types::MintReturn;
 use crate::token::TokenError::InvalidGranularity;
 
@@ -737,7 +737,6 @@ mod test {
     use std::ops::Neg;
 
     use fvm_actor_utils::messaging::{FakeMessenger, Messaging, MessagingError};
-    use fvm_actor_utils::receiver::frc46::{FRC46TokenReceived, FRC46_TOKEN_TYPE};
     use fvm_actor_utils::receiver::{ReceiverHookError, UniversalReceiverParams};
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
@@ -746,6 +745,7 @@ mod test {
     use fvm_shared::error::ExitCode;
     use num_traits::Zero;
 
+    use crate::receiver::{FRC46TokenReceived, FRC46_TOKEN_TYPE};
     use crate::token::state::StateError;
     use crate::token::state::TokenState;
     use crate::token::Token;
