@@ -3,6 +3,7 @@ use std::ops::Neg;
 use cid::Cid;
 pub use error::TokenError;
 use fvm_actor_utils::messaging::{Messaging, MessagingError, RECEIVER_HOOK_METHOD_NUM};
+use fvm_actor_utils::receiver::{ReceiverHook, ReceiverHookError};
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
@@ -11,13 +12,13 @@ use fvm_shared::error::ExitCode;
 use num_traits::Zero;
 
 use self::state::{StateError as TokenStateError, StateInvariantError, StateSummary, TokenState};
-use self::types::BurnFromReturn;
-use self::types::BurnReturn;
-use self::types::{
-    TransferFromIntermediate, TransferFromReturn, TransferIntermediate, TransferReturn,
-};
-use crate::receiver::{types::FRC46TokenReceived, ReceiverHook};
-use crate::token::types::{MintIntermediate, MintReturn};
+use self::types::TransferFromIntermediate;
+use self::types::TransferFromReturn;
+use self::types::TransferReturn;
+use self::types::{BurnFromReturn, MintIntermediate};
+use self::types::{BurnReturn, TransferIntermediate};
+use crate::receiver::{FRC46ReceiverHook, FRC46TokenReceived};
+use crate::token::types::MintReturn;
 use crate::token::TokenError::InvalidGranularity;
 
 mod error;
@@ -182,7 +183,7 @@ where
             token_data,
         };
 
-        Ok(ReceiverHook::new(*initial_owner, params, result))
+        Ok(ReceiverHook::new_frc46(*initial_owner, params, result)?)
     }
 
     /// Finalise return data from MintIntermediate data returned by calling receiver hook after minting
@@ -500,7 +501,7 @@ where
             token_data,
         };
 
-        Ok(ReceiverHook::new(*to, params, res))
+        Ok(ReceiverHook::new_frc46(*to, params, res)?)
     }
 
     /// Generate TransferReturn from the intermediate data returned by a receiver hook call
@@ -620,7 +621,7 @@ where
             token_data,
         };
 
-        Ok(ReceiverHook::new(*to, params, ret))
+        Ok(ReceiverHook::new_frc46(*to, params, ret)?)
     }
 
     /// Generate TransferReturn from the intermediate data returned by a receiver hook call
@@ -677,13 +678,12 @@ where
 
         match receipt.exit_code {
             ExitCode::OK => Ok(()),
-            abort_code => Err(TokenError::ReceiverHook {
-                from: params.from,
-                to: params.to,
-                operator: params.operator,
-                amount: params.amount,
+            abort_code => Err(ReceiverHookError::Receiver {
+                address: *token_receiver,
                 exit_code: abort_code,
-            }),
+                return_data: receipt.return_data,
+            }
+            .into()),
         }
     }
 
@@ -737,13 +737,15 @@ mod test {
     use std::ops::Neg;
 
     use fvm_actor_utils::messaging::{FakeMessenger, Messaging, MessagingError};
+    use fvm_actor_utils::receiver::{ReceiverHookError, UniversalReceiverParams};
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::address::{Address, BLS_PUB_LEN};
     use fvm_shared::econ::TokenAmount;
+    use fvm_shared::error::ExitCode;
     use num_traits::Zero;
 
-    use crate::receiver::types::{FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE};
+    use crate::receiver::{FRC46TokenReceived, FRC46_TOKEN_TYPE};
     use crate::token::state::StateError;
     use crate::token::state::TokenState;
     use crate::token::Token;
@@ -1185,18 +1187,16 @@ mod test {
         let err = hook.call(token.msg()).unwrap_err();
 
         // check error shape
-        match err {
-            TokenError::ReceiverHook { from, to, operator, amount, exit_code: _exit_code } => {
-                assert_eq!(from, TOKEN_ACTOR.id().unwrap());
-                assert_eq!(to, TREASURY.id().unwrap());
-                assert_eq!(operator, TOKEN_ACTOR.id().unwrap());
-                assert_eq!(amount, TokenAmount::from_atto(1_000_000));
-                // restore original pre-mint state
-                // in actor code, we'd just abort and let the VM handle this
-                token.replace(original_state);
-            }
-            _ => panic!("expected receiver hook error"),
-        };
+        if let ReceiverHookError::Receiver { address, exit_code, return_data: _ } = err {
+            assert_eq!(address, *TREASURY);
+            assert_eq!(exit_code, ExitCode::USR_UNSPECIFIED);
+        } else {
+            panic!("expected receiver hook error");
+        }
+
+        // restore original pre-mint state
+        // in actor code, we'd just abort and let the VM handle this
+        token.replace(original_state);
 
         // state remained unchanged
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
@@ -1651,18 +1651,16 @@ mod test {
         let err = hook.call(token.msg()).unwrap_err();
 
         // check error shape
-        match err {
-            TokenError::ReceiverHook { from, to, operator, amount, exit_code: _exit_code } => {
-                assert_eq!(from, ALICE.id().unwrap());
-                assert_eq!(to, BOB.id().unwrap());
-                assert_eq!(operator, ALICE.id().unwrap());
-                assert_eq!(amount, TokenAmount::from_atto(60));
-                // revert to pre-transfer state
-                // in actor code, we'd just abort and let the VM handle this
-                token.replace(pre_transfer_state);
-            }
-            _ => panic!("expected receiver hook error"),
-        };
+        if let ReceiverHookError::Receiver { address, exit_code, return_data: _ } = err {
+            assert_eq!(address, *BOB);
+            assert_eq!(exit_code, ExitCode::USR_UNSPECIFIED);
+        } else {
+            panic!("expected receiver hook error");
+        }
+
+        // restore original pre-mint state
+        // in actor code, we'd just abort and let the VM handle this
+        token.replace(pre_transfer_state);
 
         // balances unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(100));
@@ -1684,18 +1682,16 @@ mod test {
         let err = hook.call(token.msg()).unwrap_err();
 
         // check error shape
-        match err {
-            TokenError::ReceiverHook { from, to, operator, amount, exit_code: _exit_code } => {
-                assert_eq!(from, ALICE.id().unwrap());
-                assert_eq!(to, ALICE.id().unwrap());
-                assert_eq!(operator, ALICE.id().unwrap());
-                assert_eq!(amount, TokenAmount::from_atto(60));
-                // revert to pre-transfer state
-                // in actor code, we'd just abort and let the VM handle this
-                token.replace(pre_transfer_state);
-            }
-            _ => panic!("expected receiver hook error"),
-        };
+        if let ReceiverHookError::Receiver { address, exit_code, return_data: _ } = err {
+            assert_eq!(address, *ALICE);
+            assert_eq!(exit_code, ExitCode::USR_UNSPECIFIED);
+        } else {
+            panic!("expected receiver hook error");
+        }
+
+        // restore original pre-mint state
+        // in actor code, we'd just abort and let the VM handle this
+        token.replace(pre_transfer_state);
 
         // balances unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(100));

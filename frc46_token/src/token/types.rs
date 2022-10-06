@@ -1,21 +1,8 @@
+use fvm_actor_utils::receiver::RecipientData;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
-use thiserror::Error;
-
-use super::TokenError;
-use crate::receiver::RecipientData;
-
-#[derive(Error, Debug)]
-pub enum ActorError<Err> {
-    #[error("token error: {0}")]
-    Token(#[from] TokenError),
-    #[error("error during actor execution: {0}")]
-    Runtime(Err),
-}
-
-pub type Result<T, E> = std::result::Result<T, ActorError<E>>;
 
 /// A standard fungible token interface allowing for on-chain transactions that implements the
 /// FRC-0046 standard. This represents the external interface exposed to other on-chain actors

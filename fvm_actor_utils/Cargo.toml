@@ -16,4 +16,6 @@ fvm_ipld_encoding = "0.2.2"
 fvm_shared = "2.0.0-alpha.2"
 fvm_sdk = "2.0.0-alpha.2"
 num-traits = { version = "0.2.15" }
+serde = { version = "1.0.136", features = ["derive"] }
+serde_tuple = { version = "0.5.0" }
 thiserror = { version = "1.0.31" }

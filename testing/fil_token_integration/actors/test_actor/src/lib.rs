@@ -1,8 +1,9 @@
 use frc42_dispatch::{match_method, method_hash};
 use frc46_token::{
-    receiver::types::{FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE},
+    receiver::{FRC46TokenReceived, FRC46_TOKEN_TYPE},
     token::types::{BurnParams, TransferParams},
 };
+use fvm_actor_utils::receiver::UniversalReceiverParams;
 use fvm_ipld_encoding::{
     de::DeserializeOwned,
     tuple::{Deserialize_tuple, Serialize_tuple},

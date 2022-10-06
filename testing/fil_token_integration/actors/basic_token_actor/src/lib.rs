@@ -4,7 +4,7 @@ use cid::Cid;
 use frc46_token::token::types::{
     AllowanceReturn, BalanceReturn, BurnFromReturn, BurnParams, BurnReturn,
     DecreaseAllowanceParams, FRC46Token, GetAllowanceParams, GranularityReturn,
-    IncreaseAllowanceParams, MintReturn, Result, RevokeAllowanceParams, TotalSupplyReturn,
+    IncreaseAllowanceParams, MintReturn, RevokeAllowanceParams, TotalSupplyReturn,
     TransferFromReturn, TransferParams, TransferReturn,
 };
 use frc46_token::token::Token;
