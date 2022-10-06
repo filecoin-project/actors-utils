@@ -16,7 +16,7 @@ pub trait FRCXXXNFT {
     fn symbol(&self) -> String;
 
     /// Gets a link to associated metadata for a given NFT
-    fn metadata_uri(&self, params: TokenID) -> Cid;
+    fn metadata_id(&self, params: TokenID) -> Cid;
 
     /// Gets the total number of NFTs in this actor
     fn total_supply(&self) -> u64;
