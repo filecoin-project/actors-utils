@@ -2,16 +2,17 @@ use std::ops::Neg;
 
 use cid::Cid;
 pub use error::TokenError;
-use fvm_actor_utils::messaging::{Messaging, MessagingError};
+use fvm_actor_utils::messaging::{Messaging, MessagingError, RECEIVER_HOOK_METHOD_NUM};
 use fvm_actor_utils::receiver::frc46::FRC46TokenReceived;
-use fvm_actor_utils::receiver::ReceiverHook;
+use fvm_actor_utils::receiver::{ReceiverHook, ReceiverHookError};
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
+use fvm_shared::error::ExitCode;
 use num_traits::Zero;
 
-use self::state::{StateError as TokenStateError, TokenState};
+use self::state::{StateError as TokenStateError, StateInvariantError, StateSummary, TokenState};
 use self::types::TransferFromIntermediate;
 use self::types::TransferFromReturn;
 use self::types::TransferReturn;
@@ -638,13 +639,21 @@ where
 
     /// Sets the balance of an account to a specific amount
     ///
-    /// Using this library method obeys granularity and sign checks but does not invoke the receiver
+    /// Using this library method obeys internal invariants but does not invoke the receiver
     /// hook on recipient accounts. Returns the old balance.
     pub fn set_balance(&mut self, owner: &Address, amount: &TokenAmount) -> Result<TokenAmount> {
         let amount = validate_amount_with_granularity(amount, "set_balance", self.granularity)?;
+
         let owner = self.msg.resolve_or_init(owner)?;
-        let old_balance =
-            self.transaction(|state, bs| Ok(state.set_balance(bs, owner, amount)?))?;
+        let old_balance = self.transaction(|state, bs| {
+            // update the account's balance
+            let old_balance = state.set_balance(bs, owner, amount)?;
+            // update the total supply accordingly
+            let supply_change = amount - old_balance.clone();
+            state.supply += supply_change;
+            Ok(old_balance)
+        })?;
+
         Ok(old_balance)
     }
 }
@@ -654,10 +663,42 @@ where
     BS: Blockstore,
     MSG: Messaging,
 {
+    /// Calls the receiver hook, returning the result
+    pub fn call_receiver_hook(
+        &mut self,
+        token_receiver: &Address,
+        params: FRC46TokenReceived,
+    ) -> Result<()> {
+        let receipt = self.msg.send(
+            token_receiver,
+            RECEIVER_HOOK_METHOD_NUM,
+            &RawBytes::serialize(&params)?,
+            &TokenAmount::zero(),
+        )?;
+
+        match receipt.exit_code {
+            ExitCode::OK => Ok(()),
+            abort_code => Err(ReceiverHookError::Receiver {
+                address: *token_receiver,
+                exit_code: abort_code,
+                return_data: receipt.return_data,
+            }
+            .into()),
+        }
+    }
+
     /// Checks the state invariants, throwing an error if they are not met
-    pub fn check_invariants(&self) -> Result<()> {
-        self.state.check_invariants(&self.bs)?;
-        Ok(())
+    pub fn assert_invariants(&self) -> std::result::Result<StateSummary, Vec<StateInvariantError>> {
+        let (summary, errors) = self.check_invariants();
+        match errors.is_empty() {
+            true => Ok(summary),
+            false => Err(errors),
+        }
+    }
+
+    /// Checks the state invariants, returning a state summary and list of errors
+    pub fn check_invariants(&self) -> (StateSummary, Vec<StateInvariantError>) {
+        self.state.check_invariants(&self.bs, self.granularity)
     }
 }
 
@@ -1121,7 +1162,7 @@ mod test {
         assert_eq!(token.balance_of(&bls_address).unwrap(), TokenAmount::from_atto(1_000_000));
         assert_eq!(token.total_supply(), TokenAmount::from_atto(5_000_000));
 
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -1160,7 +1201,7 @@ mod test {
         // state remained unchanged
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
         assert_eq!(token.total_supply(), TokenAmount::zero());
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -1212,7 +1253,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::zero());
         // alice's account unaffected
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -1234,7 +1275,7 @@ mod test {
         // balances and supply were unchanged
         assert_eq!(token.total_supply(), TokenAmount::from_atto(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from_atto(1_000_000));
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -1246,33 +1287,38 @@ mod test {
         // check that it obeys granularity
         token.granularity = 50;
         token.set_balance(ALICE, &TokenAmount::from_atto(49)).unwrap_err();
+        assert_eq!(token.total_supply(), TokenAmount::zero());
 
         // set balance for Alice to 100
         let old_balance = token.set_balance(ALICE, &TokenAmount::from_atto(100)).unwrap();
         assert_eq!(old_balance, TokenAmount::zero());
         let new_balance = token.balance_of(ALICE).unwrap();
         assert_eq!(new_balance, TokenAmount::from_atto(100));
+        assert_eq!(token.total_supply(), TokenAmount::from_atto(100));
 
         // set balance for Alice to 50
         let old_balance = token.set_balance(ALICE, &TokenAmount::from_atto(50)).unwrap();
         assert_eq!(old_balance, TokenAmount::from_atto(100));
         let new_balance = token.balance_of(ALICE).unwrap();
         assert_eq!(new_balance, TokenAmount::from_atto(50));
+        assert_eq!(token.total_supply(), TokenAmount::from_atto(50));
 
         // attempt to set balance for Alice to negative
         token.set_balance(ALICE, &TokenAmount::from_atto(-50)).unwrap_err();
         // see that balance was not changed
         let new_balance = token.balance_of(ALICE).unwrap();
         assert_eq!(new_balance, TokenAmount::from_atto(50));
+        assert_eq!(token.total_supply(), TokenAmount::from_atto(50));
 
         // set balance for Alice to 0
         let old_balance = token.set_balance(ALICE, &TokenAmount::from_atto(0)).unwrap();
         assert_eq!(old_balance, TokenAmount::from_atto(50));
         let new_balance = token.balance_of(ALICE).unwrap();
         assert_eq!(new_balance, TokenAmount::from_atto(0));
+        assert_eq!(token.total_supply(), TokenAmount::from_atto(0));
 
         // check that the balance map was emptied
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -1567,7 +1613,7 @@ mod test {
 
         // actor address was not initialized
         assert!(token.msg.resolve_id(actor_address).is_err());
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -1650,7 +1696,7 @@ mod test {
         // balances unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(100));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_atto(0));
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -1686,7 +1732,7 @@ mod test {
         // balances remained unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(50));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::zero());
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -1755,7 +1801,7 @@ mod test {
         token
             .increase_allowance(ALICE, uninitializable_address, &TokenAmount::from_atto(10))
             .unwrap_err();
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -1783,7 +1829,7 @@ mod test {
         token.set_allowance(ALICE, CAROL, &TokenAmount::from_atto(-50)).unwrap_err();
 
         // check invariants (i.e. that the allowance map is emptied after being set to 0)
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -2301,7 +2347,7 @@ mod test {
 
         // verify allowance was not spent
         assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::from_atto(40));
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -2346,7 +2392,7 @@ mod test {
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(50));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::zero());
         assert_eq!(token.allowance(ALICE, BOB).unwrap(), TokenAmount::from_atto(100));
-        token.check_invariants().unwrap();
+        token.assert_invariants().unwrap();
     }
 
     #[test]
@@ -2724,6 +2770,68 @@ mod test {
         assert_behaviour(&secp_address(), &secp_address(), 0, 0, 1, "BALANCE_ERR");
         assert_behaviour(&bls_address(), &bls_address(), 0, 0, 0, "OK");
         assert_behaviour(&bls_address(), &bls_address(), 0, 0, 1, "BALANCE_ERR");
+    }
+
+    #[test]
+    fn check_invariants_returns_a_state_summary() {
+        //! Simulate a delgated transfer flow and then check the invariants manually
+        let bs = MemoryBlockstore::new();
+        let mut token_state = Token::<_, FakeMessenger>::create_state(&bs).unwrap();
+        let mut token = new_token(bs, &mut token_state);
+
+        // mint 100 for the owner
+        let mut hook = token
+            .mint(
+                ALICE,
+                ALICE,
+                &TokenAmount::from_atto(100),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
+        // approve 100 spending allowance for operator
+        token.increase_allowance(ALICE, CAROL, &TokenAmount::from_atto(100)).unwrap();
+        // operator makes transfer of 60 from owner -> receiver
+        let mut hook = token
+            .transfer_from(
+                CAROL,
+                ALICE,
+                BOB,
+                &TokenAmount::from_atto(60),
+                RawBytes::default(),
+                RawBytes::default(),
+            )
+            .unwrap();
+        token.flush().unwrap();
+        hook.call(token.msg()).unwrap();
+
+        let summary = token.assert_invariants().unwrap();
+        // remaining balance 100 - 60
+        let balance_map = summary.balance_map.unwrap();
+        assert_eq!(
+            balance_map.get(&ALICE.id().unwrap()).unwrap().clone(),
+            TokenAmount::from_atto(40)
+        );
+        // received balance = 0 + 60
+        assert_eq!(
+            balance_map.get(&BOB.id().unwrap()).unwrap().clone(),
+            TokenAmount::from_atto(60)
+        );
+        // remaining allowance = 100 - 60
+        assert_eq!(
+            summary
+                .allowance_map
+                .unwrap()
+                .get(&ALICE.id().unwrap())
+                .unwrap()
+                .get(&CAROL.id().unwrap())
+                .unwrap()
+                .clone(),
+            TokenAmount::from_atto(40)
+        );
     }
 
     // TODO: test for re-entrancy bugs by implementing a MethodCaller that calls back on the token contract

@@ -79,6 +79,7 @@ impl<T: Hasher> MethodResolver<T> {
             return Ok(Self::CONSTRUCTOR_METHOD_NUMBER);
         }
 
+        let method_name = format!("1|{}", method_name);
         let digest = self.hasher.hash(method_name.as_bytes());
 
         for chunk in digest.chunks(Self::DIGEST_CHUNK_LENGTH) {
@@ -88,7 +89,7 @@ impl<T: Hasher> MethodResolver<T> {
             }
 
             let method_id = as_u32(chunk) as u64;
-            // Method numbers below 256 are reserved for other use
+            // Method numbers below FIRST_METHOD_NUMBER are reserved for other use
             if method_id >= Self::FIRST_METHOD_NUMBER {
                 return Ok(method_id);
             }
@@ -152,14 +153,15 @@ mod tests {
     fn normal_method_is_hashed() {
         let fake_hasher = FakeHasher {};
         let method_hasher = MethodResolver::new(fake_hasher);
+        // note that the method hashing prepends each name with "1|" as a domain separator
         assert_eq!(
             method_hasher.method_number("NormalMethod").unwrap(),
-            super::as_u32(&fake_hasher.hash(b"NormalMethod")) as u64
+            super::as_u32(&fake_hasher.hash(b"1|NormalMethod")) as u64
         );
 
         assert_eq!(
             method_hasher.method_number("NormalMethod2").unwrap(),
-            super::as_u32(&fake_hasher.hash(b"NormalMethod2")) as u64
+            super::as_u32(&fake_hasher.hash(b"1|NormalMethod2")) as u64
         );
     }
 

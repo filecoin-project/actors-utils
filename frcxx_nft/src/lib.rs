@@ -60,11 +60,24 @@ where
     BS: Blockstore,
     MSG: Messaging,
 {
+    /// Return the total number of NFTs in circulation from this collection
+    pub fn total_supply(&self) -> u64 {
+        self.state.total_supply
+    }
+
     /// Create a single new NFT belonging to the initial_owner
     ///
     /// Returns the TokenID of the minted which is allocated incrementally
-    pub fn mint(&mut self, initial_owner: Address, metadata_uri: String) -> Result<TokenID> {
+    pub fn mint(&mut self, initial_owner: Address, metadata_id: Cid) -> Result<TokenID> {
         let initial_owner = self.msg.resolve_or_init(&initial_owner)?;
-        Ok(self.state.mint_token(&self.bs, initial_owner, metadata_uri)?)
+        Ok(self.state.mint_token(&self.bs, initial_owner, metadata_id)?)
+    }
+
+    /// Burn a single NFT by TokenID
+    ///
+    /// A burnt TokenID can never be minted again
+    pub fn burn(&mut self, token_id: TokenID) -> Result<()> {
+        self.state.burn_token(&self.bs, token_id)?;
+        Ok(())
     }
 }
