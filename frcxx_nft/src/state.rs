@@ -1,4 +1,6 @@
 //! Abstraction of the on-chain state related to NFT accounting
+use std::collections::HashSet;
+
 use cid::multihash::Code;
 use cid::Cid;
 use fvm_ipld_amt::Amt;
@@ -17,21 +19,6 @@ use thiserror::Error;
 
 pub type TokenID = u64;
 
-#[derive(Error, Debug)]
-pub enum StateError {
-    #[error("ipld amt error: {0}")]
-    IpldAmt(#[from] AmtError),
-    #[error("ipld hamt error: {0}")]
-    IpldHamt(#[from] HamtError),
-    #[error("token id not found: {0}")]
-    TokenNotFound(TokenID),
-    #[error("operator {operator:?} is not authorised for token {token_id:?}")]
-    Unauthorized { operator: ActorID, token_id: TokenID },
-    /// This error is returned for errors that should never happen
-    #[error("invariant failed: {0}")]
-    InvariantFailed(String),
-}
-
 /// Each token stores its owner, approved operators etc.
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct TokenData {
@@ -46,7 +33,7 @@ pub struct TokenData {
 pub struct OwnerData {
     pub balance: u64,
     // account-level operators
-    pub operators: Vec<ActorID>, // maybe as a Cid to an Amt
+    pub operators: HashSet<ActorID>, // maybe as a Cid to an Amt
 }
 
 /// NFT state IPLD structure
@@ -67,6 +54,24 @@ const AMT_BIT_WIDTH: u32 = 5;
 const HAMT_BIT_WIDTH: u32 = 3;
 
 type Result<T> = std::result::Result<T, StateError>;
+
+type Map<'bs, BS, K, V> = Hamt<&'bs BS, V, K>;
+type OwnerMap<'bs, BS> = Map<'bs, BS, BytesKey, OwnerData>;
+
+#[derive(Error, Debug)]
+pub enum StateError {
+    #[error("ipld amt error: {0}")]
+    IpldAmt(#[from] AmtError),
+    #[error("ipld hamt error: {0}")]
+    IpldHamt(#[from] HamtError),
+    #[error("token id not found: {0}")]
+    TokenNotFound(TokenID),
+    #[error("the caller {caller:?} is not authorised for token {token_id:?}")]
+    Unauthorized { caller: ActorID, token_id: TokenID },
+    /// This error is returned for errors that should never happen
+    #[error("invariant failed: {0}")]
+    InvariantFailed(String),
+}
 
 impl NFTState {
     /// Create a new NFT state-tree, without committing it (the root Cid) to a blockstore
@@ -118,8 +123,8 @@ impl NFTState {
     pub fn get_owner_data_hamt<'bs, BS: Blockstore>(
         &self,
         store: &'bs BS,
-    ) -> Result<Hamt<&'bs BS, OwnerData, BytesKey>> {
-        let res = Hamt::load_with_bit_width(&self.owner_data, store, HAMT_BIT_WIDTH)?;
+    ) -> Result<OwnerMap<'bs, BS>> {
+        let res = OwnerMap::load_with_bit_width(&self.owner_data, store, HAMT_BIT_WIDTH)?;
         Ok(res)
     }
 
@@ -143,7 +148,7 @@ impl NFTState {
                     //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
                     OwnerData { balance: existing_data.balance + 1, ..existing_data.clone() }
                 } else {
-                    OwnerData { balance: 1, operators: vec![] }
+                    OwnerData { balance: 1, operators: HashSet::new() }
                 }
             }
             Err(e) => return Err(e.into()),
@@ -173,6 +178,52 @@ impl NFTState {
         Ok(balance)
     }
 
+    /// Approves an operator to transfer tokens on behalf of the owner
+    pub fn approve_for_all<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        owner: ActorID,
+        operator: ActorID,
+    ) -> Result<()> {
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
+        let new_owner_data = match owner_map.get(&actor_id_key(owner))? {
+            Some(data) => {
+                let mut operators = data.operators.clone();
+                operators.insert(operator);
+                OwnerData { operators, balance: data.balance }
+            }
+            None => OwnerData { balance: 0, operators: HashSet::new() },
+        };
+        owner_map.set(actor_id_key(owner), new_owner_data)?;
+        self.owner_data = owner_map.flush()?;
+
+        Ok(())
+    }
+
+    /// Revokes an operator's premission to transfer tokens on behalf of the owner
+    pub fn revoke_for_all<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        owner: ActorID,
+        operator: ActorID,
+    ) -> Result<()> {
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
+
+        let new_owner_data = owner_map.get(&actor_id_key(owner))?.map(|existing_data| {
+            let mut operators = existing_data.operators.clone();
+            operators.remove(&operator);
+            OwnerData { balance: existing_data.balance, operators }
+        });
+
+        if let Some(data) = new_owner_data {
+            owner_map.set(actor_id_key(owner), data)?;
+        }
+
+        self.owner_data = owner_map.flush()?;
+
+        Ok(())
+    }
+
     /// Burns a token, removing it from circulation and deleting associated metadata
     pub fn burn_token<BS: Blockstore>(&mut self, bs: &BS, token_id: TokenID) -> Result<()> {
         let mut token_array = self.get_token_data_amt(bs)?;
@@ -197,30 +248,61 @@ impl NFTState {
         Ok(())
     }
 
-    /// Transfers a token from one address to another
+    /// Transfers a token, initiated by the owner
     pub fn transfer_token<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        caller: ActorID,
+        to: ActorID,
+        token_id: TokenID,
+    ) -> Result<()> {
+        let mut token_array = self.get_token_data_amt(bs)?;
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
+
+        if !Self::owns_token(&token_array, caller, token_id)? {
+            return Err(StateError::Unauthorized { caller, token_id });
+        }
+
+        // update the token_data to reflect the new owner and clear approved operators
+        self.make_transfer(&mut token_array, &mut owner_map, token_id, to)
+    }
+
+    /// Transfers a token, initiated by an operator
+    ///
+    /// An operator is allowed to transfer a token that it has been explicitly approved for or a token
+    /// owned by an account that it has been approved for.
+    pub fn operator_transfer_token<BS: Blockstore>(
         &mut self,
         bs: &BS,
         operator: ActorID,
         to: ActorID,
         token_id: TokenID,
     ) -> Result<()> {
-        // TODO: check that the from Actor is allowed (owner or operator) to transfer this particular token
         let mut token_array = self.get_token_data_amt(bs)?;
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         if !Self::approved_for_token(&token_array, &owner_map, operator, token_id)? {
-            return Err(StateError::Unauthorized { operator, token_id });
+            return Err(StateError::Unauthorized { caller: operator, token_id });
         }
 
         // update the token_data to reflect the new owner and clear approved operators
+        self.make_transfer(&mut token_array, &mut owner_map, token_id, to)
+    }
+
+    /// Makes a transfer of a token from one address to another. The caller must verify that such a transfer is allowed.
+    pub fn make_transfer<BS: Blockstore>(
+        &mut self,
+        token_array: &mut Amt<TokenData, &BS>,
+        owner_map: &mut Hamt<&BS, OwnerData>,
+        token_id: TokenID,
+        receiver: ActorID,
+    ) -> Result<()> {
         let old_token_data =
             token_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?.clone();
-        let new_token_data = TokenData { owner: to, operators: Vec::default(), ..old_token_data };
+        let new_token_data =
+            TokenData { owner: receiver, operators: Vec::default(), ..old_token_data };
         token_array.set(token_id, new_token_data)?;
         self.token_data = token_array.flush()?;
-
-        // update the owner_data to reflect the new balances
         let previous_owner_key = actor_id_key(old_token_data.owner);
         let previous_owner_data = owner_map
             .get(&previous_owner_key)?
@@ -231,17 +313,25 @@ impl NFTState {
         let previous_owner_data =
             OwnerData { balance: previous_owner_data.balance - 1, ..previous_owner_data };
         owner_map.set(previous_owner_key, previous_owner_data)?;
-
-        let new_owner_key = actor_id_key(to);
+        let new_owner_key = actor_id_key(receiver);
         let new_owner_data = match owner_map.get(&new_owner_key)? {
             Some(data) => OwnerData { balance: data.balance + 1, ..data.clone() },
-            None => OwnerData { balance: 1, operators: Vec::default() },
+            None => OwnerData { balance: 1, operators: HashSet::new() },
         };
         owner_map.set(new_owner_key, new_owner_data)?;
-
         self.owner_data = owner_map.flush()?;
 
         Ok(())
+    }
+
+    /// Checks whether an address owns a token
+    pub fn owns_token<BS: Blockstore>(
+        token_array: &Amt<TokenData, &BS>,
+        actor: ActorID,
+        token_id: TokenID,
+    ) -> Result<bool> {
+        let token_data = token_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
+        Ok(token_data.owner == actor)
     }
 
     /// Checks whether an operator is approved to transfer/burn a token
@@ -254,11 +344,6 @@ impl NFTState {
         let token_data = token_array
             .get(token_id)?
             .ok_or_else(|| StateError::InvariantFailed(format!("token {} not found", token_id)))?;
-
-        // operator owns the token
-        if token_data.owner == operator {
-            return Ok(true);
-        }
 
         // operator is approved at token-level
         if token_data.operators.contains(&operator) {
@@ -364,13 +449,13 @@ mod test {
         let mut state = NFTState::new(bs).unwrap();
 
         // mint a few tokens
-        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
-        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
-        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
+        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
+        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
+        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
 
         // bob cannot transfer from alice to himself
         let res = state.transfer_token(bs, BOB_ID, BOB_ID, 0).unwrap_err();
-        if let StateError::Unauthorized { operator, token_id } = res {
+        if let StateError::Unauthorized { caller: operator, token_id } = res {
             assert_eq!(operator, BOB_ID);
             assert_eq!(token_id, 0);
         } else {
@@ -384,7 +469,7 @@ mod test {
 
         // alice is unauthorised to transfer that token now
         let res = state.transfer_token(bs, ALICE_ID, ALICE_ID, 0).unwrap_err();
-        if let StateError::Unauthorized { operator, token_id } = res {
+        if let StateError::Unauthorized { caller: operator, token_id } = res {
             assert_eq!(operator, ALICE_ID);
             assert_eq!(token_id, 0);
         } else {
@@ -400,5 +485,76 @@ mod test {
     }
 
     #[test]
-    fn it_allows_delegated_transfers() {}
+    fn it_allows_account_level_delegation() {
+        let bs = &MemoryBlockstore::new();
+        let mut state = NFTState::new(bs).unwrap();
+
+        // mint a few tokens
+        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
+        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
+        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
+
+        // bob cannot transfer from alice to himself
+        let res = state.operator_transfer_token(bs, BOB_ID, BOB_ID, 0).unwrap_err();
+        if let StateError::Unauthorized { caller: operator, token_id } = res {
+            assert_eq!(operator, BOB_ID);
+            assert_eq!(token_id, 0);
+        } else {
+            panic!("unexpected error: {:?}", res);
+        }
+
+        // approve bob to transfer on behalf of alice
+        state.approve_for_all(bs, ALICE_ID, BOB_ID).unwrap();
+
+        // bob can now transfer from alice to himself
+        // but cannot use the incorrect method
+        let res = state.transfer_token(bs, BOB_ID, ALICE_ID, 0).unwrap_err();
+        if let StateError::Unauthorized { caller: operator, token_id } = res {
+            assert_eq!(operator, BOB_ID);
+            assert_eq!(token_id, 0);
+        } else {
+            panic!("unexpected error: {:?}", res);
+        }
+
+        state.operator_transfer_token(bs, BOB_ID, BOB_ID, 0).unwrap();
+        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
+        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
+        assert_eq!(state.total_supply, 3);
+
+        // alice is unauthorised to transfer that token now
+        let res = state.transfer_token(bs, ALICE_ID, ALICE_ID, 0).unwrap_err();
+        if let StateError::Unauthorized { caller: operator, token_id } = res {
+            assert_eq!(operator, ALICE_ID);
+            assert_eq!(token_id, 0);
+        } else {
+            panic!("unexpected error: {:?}", res);
+        }
+        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
+        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
+
+        // but bob can transfer it back
+        state.transfer_token(bs, BOB_ID, ALICE_ID, 0).unwrap();
+        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
+        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 0);
+
+        // a newly minted token after approval can be transferred by bob
+        let new_token_id = state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
+        state.operator_transfer_token(bs, BOB_ID, BOB_ID, new_token_id).unwrap();
+        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
+        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
+
+        // bob's permission can be revoked
+        state.revoke_for_all(bs, ALICE_ID, BOB_ID).unwrap();
+        let res = state.operator_transfer_token(bs, BOB_ID, BOB_ID, new_token_id).unwrap_err();
+        if let StateError::Unauthorized { caller: operator, token_id } = res {
+            assert_eq!(operator, BOB_ID);
+            assert_eq!(token_id, new_token_id);
+        } else {
+            panic!("unexpected error: {:?}", res);
+        }
+
+        // state didn't change
+        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
+        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
+    }
 }
