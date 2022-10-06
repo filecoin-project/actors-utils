@@ -36,7 +36,7 @@ pub struct TokenData {
     pub owner: ActorID,
     // operators on this token
     pub operators: Vec<ActorID>, // or maybe as a Cid to an Amt
-    pub metadata_id: String,
+    pub metadata_id: Cid,
 }
 
 /// Each owner stores their own balance and other indexed data
@@ -126,7 +126,7 @@ impl NFTState {
         &mut self,
         bs: &BS,
         owner: ActorID,
-        metadata_id: String,
+        metadata_id: Cid,
     ) -> Result<TokenID> {
         // update token data array
         let mut token_array = self.get_token_data_amt(bs)?;
@@ -174,7 +174,8 @@ impl NFTState {
     /// Burns a token, removing it from circulation and deleting associated metadata
     pub fn burn_token<BS: Blockstore>(&mut self, bs: &BS, token_id: TokenID) -> Result<()> {
         let mut token_array = self.get_token_data_amt(bs)?;
-        let token_data = token_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
+        let token_data =
+            token_array.delete(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
 
         let owner_key = actor_id_key(token_data.owner);
         let mut owner_map = self.get_owner_data_hamt(bs)?;
@@ -187,7 +188,6 @@ impl NFTState {
             owner_key,
             OwnerData { balance: owner_data.balance - 1, approved: owner_data.approved.clone() },
         )?;
-        token_array.delete(token_id)?;
 
         self.total_supply -= 1;
         self.token_data = token_array.flush()?;
@@ -202,6 +202,7 @@ pub fn actor_id_key(a: ActorID) -> BytesKey {
 
 #[cfg(test)]
 mod test {
+    use cid::Cid;
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_shared::ActorID;
 
@@ -216,7 +217,7 @@ mod test {
         let mut state = NFTState::new(bs).unwrap();
 
         // mint first token
-        let token_id = state.mint_token(bs, ALICE_ID, "".into()).unwrap();
+        let token_id = state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
         let balance = state.get_balance(bs, ALICE_ID).unwrap();
         // expect balance increase, token id increment
         assert_eq!(token_id, 0);
@@ -224,7 +225,7 @@ mod test {
         assert_eq!(state.total_supply, 1);
 
         // mint another token
-        let token_id = state.mint_token(bs, ALICE_ID, "".into()).unwrap();
+        let token_id = state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
         let balance = state.get_balance(bs, ALICE_ID).unwrap();
         // expect balance increase, token id increment
         assert_eq!(token_id, 1);
@@ -236,7 +237,7 @@ mod test {
         assert_eq!(balance, 0);
 
         // mint another token to a different actor
-        let token_id = state.mint_token(bs, BOB_ID, "".into()).unwrap();
+        let token_id = state.mint_token(bs, BOB_ID, Cid::default()).unwrap();
         let alice_balance = state.get_balance(bs, ALICE_ID).unwrap();
         let bob_balance = state.get_balance(bs, BOB_ID).unwrap();
         // expect balance increase globally, token id increment
@@ -252,9 +253,9 @@ mod test {
         let mut state = NFTState::new(bs).unwrap();
 
         // mint a few tokens
-        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
-        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
-        state.mint_token(bs, ALICE_ID, "".into()).unwrap();
+        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
+        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
+        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
         assert_eq!(state.total_supply, 3);
         assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
 

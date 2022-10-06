@@ -68,7 +68,7 @@ where
     /// Create a single new NFT belonging to the initial_owner
     ///
     /// Returns the TokenID of the minted which is allocated incrementally
-    pub fn mint(&mut self, initial_owner: Address, metadata_id: String) -> Result<TokenID> {
+    pub fn mint(&mut self, initial_owner: Address, metadata_id: Cid) -> Result<TokenID> {
         let initial_owner = self.msg.resolve_or_init(&initial_owner)?;
         Ok(self.state.mint_token(&self.bs, initial_owner, metadata_id)?)
     }

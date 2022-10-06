@@ -1,3 +1,4 @@
+use cid::Cid;
 use frc42_dispatch::method_hash;
 use frcxx_nft::state::TokenID;
 use fvm_integration_tests::dummy::DummyExterns;
@@ -12,7 +13,7 @@ use common::{construct_tester, TestHelpers};
 /// Copied from basic_nft_actor
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
-    metadata_id: String,
+    metadata_id: Cid,
 }
 
 const BASIC_NFT_ACTOR_WASM: &str =
@@ -37,7 +38,7 @@ fn it_mints_nfts() {
     // TODO: assert that minting calls out to hook
 
     // Mint a single token
-    let mint_params = MintParams { metadata_id: "metadata_id_0".into() };
+    let mint_params = MintParams { metadata_id: Cid::default() };
     let mint_params = RawBytes::serialize(&mint_params).unwrap();
     let ret_val =
         tester.call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
@@ -53,7 +54,7 @@ fn it_mints_nfts() {
     assert_eq!(total_supply, 1);
 
     // Mint a second token
-    let mint_params = MintParams { metadata_id: "metadata_id_1".into() };
+    let mint_params = MintParams { metadata_id: Cid::default() };
     let mint_params = RawBytes::serialize(&mint_params).unwrap();
     let ret_val =
         tester.call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
@@ -106,7 +107,7 @@ fn it_mints_nfts() {
     assert!(!ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
 
     // Minting the next token uses the next ID
-    let mint_params = MintParams { metadata_id: "metadata_id_1".into() };
+    let mint_params = MintParams { metadata_id: Cid::default() };
     let mint_params = RawBytes::serialize(&mint_params).unwrap();
     let ret_val =
         tester.call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));

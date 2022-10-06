@@ -1,3 +1,4 @@
+use cid::Cid;
 use frc42_dispatch::match_method;
 use frcxx_nft::{
     state::{NFTState, TokenID},
@@ -67,7 +68,7 @@ pub fn constructor() {
 /// Minting tokens goes directly to the caller for now
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
-    metadata_id: String,
+    metadata_id: Cid,
 }
 
 /// Grab the incoming parameters and convert from RawBytes to deserialized struct

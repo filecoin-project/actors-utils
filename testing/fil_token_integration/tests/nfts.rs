@@ -20,7 +20,7 @@ use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 /// Copied from basic_nft_actor
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
-    metadata_id: String,
+    metadata_id: Cid,
 }
 
 const BASIC_NFT_ACTOR_WASM: &str =
@@ -83,7 +83,7 @@ fn it_mints_nfts() {
     // TODO: assert that minting calls out to hook
 
     // Mint a single token
-    let mint_params = MintParams { metadata_id: "metadata_id_0".into() };
+    let mint_params = MintParams { metadata_id: Cid::default() };
     let mint_params = RawBytes::serialize(&mint_params).unwrap();
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
     assert!(ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
@@ -97,7 +97,7 @@ fn it_mints_nfts() {
     let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
     assert_eq!(total_supply, 1);
 
-    let mint_params = MintParams { metadata_id: "metadata_id_1".into() };
+    let mint_params = MintParams { metadata_id: Cid::default() };
     let mint_params = RawBytes::serialize(&mint_params).unwrap();
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
     assert!(ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
@@ -115,7 +115,7 @@ fn it_mints_nfts() {
 #[test]
 fn it_burns_tokens() {
     let blockstore = MemoryBlockstore::default();
-    let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
+    let bundle_root = bundle::import_bundle(&blockstore, actors_v9::BUNDLE_CAR).unwrap();
     let mut tester =
         Tester::new(NetworkVersion::V15, StateTreeVersion::V4, bundle_root, blockstore).unwrap();
 
@@ -165,7 +165,7 @@ fn it_burns_tokens() {
     call_method(minter[0].1, actor_address, method_hash!("Constructor"), None);
 
     // Mint a single token
-    let mint_params = MintParams { metadata_id: "metadata_id_0".into() };
+    let mint_params = MintParams { metadata_id: Cid::default() };
     let mint_params = RawBytes::serialize(&mint_params).unwrap();
     call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
 
@@ -204,7 +204,7 @@ fn it_burns_tokens() {
     assert!(!ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
 
     // Minting the next token uses the next ID
-    let mint_params = MintParams { metadata_id: "metadata_id_1".into() };
+    let mint_params = MintParams { metadata_id: Cid::default() };
     let mint_params = RawBytes::serialize(&mint_params).unwrap();
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
     assert!(ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
