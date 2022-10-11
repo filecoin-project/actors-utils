@@ -175,7 +175,7 @@ impl NFTState {
     pub fn burn_token<BS: Blockstore>(&mut self, bs: &BS, token_id: TokenID) -> Result<()> {
         let mut token_array = self.get_token_data_amt(bs)?;
         let token_data =
-            token_array.delete(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
+            token_array.delete(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
 
         let owner_key = actor_id_key(token_data.owner);
         let mut owner_map = self.get_owner_data_hamt(bs)?;
