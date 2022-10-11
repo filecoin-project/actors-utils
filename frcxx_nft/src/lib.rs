@@ -9,12 +9,14 @@
 use cid::Cid;
 use fvm_actor_utils::messaging::{Messaging, MessagingError};
 use fvm_ipld_blockstore::Blockstore;
+use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, ActorID};
 use state::StateError;
 use thiserror::Error;
 
 use self::state::{NFTState, TokenID};
 
+pub mod receiver;
 pub mod state;
 pub mod types;
 pub mod util;
@@ -79,6 +81,109 @@ where
     /// A burnt TokenID can never be minted again
     pub fn burn(&mut self, caller: ActorID, token_ids: &[TokenID]) -> Result<()> {
         self.state.burn_tokens(&self.bs, caller, token_ids)?;
+        Ok(())
+    }
+
+    /// Approve an operator to transfer or burn a single NFT
+    pub fn approve(
+        &mut self,
+        caller: &Address,
+        operator: &Address,
+        token_ids: &[TokenID],
+    ) -> Result<()> {
+        // Attempt to instantiate the accounts if they don't exist
+        let caller = self.msg.resolve_or_init(caller)?;
+        let operator = self.msg.resolve_or_init(operator)?;
+
+        self.state.approve_for_tokens(&self.bs, caller, operator, token_ids)?;
+        Ok(())
+    }
+
+    /// Revoke the approval of an operator to transfer a particular NFT
+    pub fn revoke(
+        &mut self,
+        caller: &Address,
+        operator: &Address,
+        token_ids: &[TokenID],
+    ) -> Result<()> {
+        // Attempt to instantiate the accounts if they don't exist
+        let caller = self.msg.resolve_or_init(caller)?;
+        let operator = match self.msg.resolve_id(operator) {
+            Ok(id) => id,
+            Err(_) => return Ok(()), // if operator didn't exist this is a no-op
+        };
+
+        self.state.revoke_for_tokens(&self.bs, caller, operator, token_ids)?;
+        Ok(())
+    }
+
+    /// Approve an operator to transfer or burn on behalf of the account
+    pub fn approve_for_owner(&mut self, caller: &Address, operator: &Address) -> Result<()> {
+        // Attempt to instantiate the accounts if they don't exist
+        let caller = self.msg.resolve_or_init(caller)?;
+        let operator = self.msg.resolve_or_init(operator)?;
+        self.state.approve_for_owner(&self.bs, caller, operator)?;
+        Ok(())
+    }
+
+    /// Revoke the approval of an operator to transfer on behalf of the caller
+    pub fn revoke_for_all(&mut self, caller: &Address, operator: &Address) -> Result<()> {
+        // Attempt to instantiate the accounts if they don't exist
+        let caller = self.msg.resolve_or_init(caller)?;
+        let operator = match self.msg.resolve_id(operator) {
+            Ok(id) => id,
+            Err(_) => return Ok(()), // if operator didn't exist this is a no-op
+        };
+
+        self.state.revoke_for_all(&self.bs, caller, operator)?;
+        Ok(())
+    }
+
+    /// Transfers a token owned by the caller
+    pub fn transfer(
+        &mut self,
+        caller: &Address,
+        recipient: &Address,
+        token_ids: &[TokenID],
+        operator_data: RawBytes,
+        token_data: RawBytes,
+    ) -> Result<()> {
+        // Attempt to instantiate the accounts if they don't exist
+        let caller = self.msg.resolve_or_init(caller)?;
+        let recipient = self.msg.resolve_or_init(recipient)?;
+
+        self.state.transfer_tokens(
+            &self.bs,
+            caller,
+            recipient,
+            token_ids,
+            operator_data,
+            token_data,
+        )?;
+        Ok(())
+    }
+
+    /// Transfers a token that the caller is an operator for
+    pub fn transfer_from(
+        &mut self,
+        caller: &Address,
+        recipient: &Address,
+        token_ids: &[TokenID],
+        operator_data: RawBytes,
+        token_data: RawBytes,
+    ) -> Result<()> {
+        // Attempt to instantiate the accounts if they don't exist
+        let caller = self.msg.resolve_or_init(caller)?;
+        let recipient = self.msg.resolve_or_init(recipient)?;
+
+        self.state.operator_transfer_tokens(
+            &self.bs,
+            caller,
+            recipient,
+            token_ids,
+            operator_data,
+            token_data,
+        )?;
         Ok(())
     }
 }

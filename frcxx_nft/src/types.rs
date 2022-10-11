@@ -1,5 +1,6 @@
 //! Interfaces and types for the FRCXX NFT standard
 use cid::Cid;
+use fvm_actor_utils::receiver::RecipientData;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::address::Address;
@@ -55,6 +56,21 @@ pub trait FRCXXXNFT {
     fn is_approved_for_all(&self, params: IsApprovedForAllParams) -> bool;
 }
 
+/// Intermediate data used by transfer_return to construct the return data
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct TransferIntermediate {
+    pub token_ids: Vec<TokenID>,
+    pub to: ActorID,
+    /// (Optional) data returned from the receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl RecipientData for TransferIntermediate {
+    fn set_recipient_data(&mut self, data: RawBytes) {
+        self.recipient_data = data;
+    }
+}
+
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct TransferParams {
     pub to: Address,
@@ -96,3 +112,18 @@ pub struct IsApprovedForAllParams {
 }
 
 impl Cbor for IsApprovedForAllParams {}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct RevokeParams {
+    pub operator: Address,
+    pub token_ids: Vec<TokenID>,
+}
+
+impl Cbor for RevokeParams {}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct RevokeForAllParams {
+    pub operator: Address,
+}
+
+impl Cbor for RevokeForAllParams {}

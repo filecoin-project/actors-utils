@@ -2,6 +2,10 @@ use cid::Cid;
 use frc42_dispatch::match_method;
 use frcxx_nft::{
     state::{NFTState, TokenID},
+    types::{
+        ApproveForAllParams, ApproveParams, RevokeForAllParams, RevokeParams, TransferFromParams,
+        TransferParams,
+    },
     NFT,
 };
 use fvm_actor_utils::{blockstore::Blockstore, messaging::FvmMessenger};
@@ -55,6 +59,48 @@ fn invoke(params: u32) -> u32 {
             sdk::sself::set_root(&cid).unwrap();
             NO_DATA_BLOCK_ID
         }
+        "Approve" => {
+            let params = deserialize_params::<ApproveParams>(params);
+            handle.approve(&caller_address(), &params.operator, &params.token_ids).unwrap();
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
+        "Revoke" => {
+            let params = deserialize_params::<RevokeParams>(params);
+            handle.revoke(&caller_address(), &params.operator, &params.token_ids).unwrap();
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
+        "ApproveForAll" => {
+            let params = deserialize_params::<ApproveForAllParams>(params);
+            handle.approve_for_owner(&caller_address(), &params.operator).unwrap();
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
+        "RevokeForAll" => {
+            let params = deserialize_params::<RevokeForAllParams>(params);
+            handle.revoke_for_all(&caller_address(), &params.operator).unwrap();
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
+        "Transfer" => {
+            let params = deserialize_params::<TransferParams>(params);
+            handle.transfer(&caller_address(), &params.to, &params.token_ids, params.operator_data, RawBytes::default()).unwrap();
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
+        "TransferFrom" => {
+            let params = deserialize_params::<TransferFromParams>(params);
+            handle.transfer_from(&caller_address(), &params.to, &params.token_ids, params.operator_data, RawBytes::default()).unwrap();
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
         _ => {
             sdk::vm::abort(ExitCode::USR_ILLEGAL_ARGUMENT.value(), Some(&format!("Unknown method number {:?} was invoked", method_num)));
         }
@@ -95,4 +141,8 @@ where
 {
     let bytes = fvm_ipld_encoding::to_vec(value)?;
     Ok(sdk::ipld::put_block(DAG_CBOR, bytes.as_slice())?)
+}
+
+fn caller_address() -> Address {
+    Address::new_id(sdk::message::caller())
 }
