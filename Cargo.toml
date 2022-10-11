@@ -16,7 +16,8 @@ members = [
     "testing/fil_token_integration/actors/basic_token_actor",
     "testing/fil_token_integration/actors/basic_transfer_actor",
     "testing/fil_token_integration/actors/frc46_test_actor",
-    "testing/fil_token_integration/actors/frcxx_test_actor"
+    "testing/fil_token_integration/actors/frcxx_test_actor",
+    "token_examples/include_token"
 ]
 
 [patch.crates-io]

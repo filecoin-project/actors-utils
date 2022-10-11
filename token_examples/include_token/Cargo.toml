@@ -1,0 +1,26 @@
+[package]
+name = "include_token"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cid = { version = "0.8.5", default-features = false }
+frc42_dispatch = { path = "../../frc42_dispatch" }
+frc46_token = { path = "../../frc46_token" }
+fvm_actor_utils = { version = "0.1.0", path = "../../fvm_actor_utils" }
+fvm_ipld_blockstore = "0.1.1"
+fvm_ipld_encoding = "0.2.2"
+fvm_sdk = { version = "2.0.0-alpha.2" }
+fvm_shared = { version = "2.0.0-alpha.2" }
+serde = { version = "1.0.136", features = ["derive"] }
+serde_tuple = { version = "0.5.0" }
+thiserror = { version = "1.0.31" }
+
+[dev-dependencies]
+cid = { version = "0.8.5", default-features = false }
+fvm = { version = "2.0.0-alpha.2", default-features = false }
+fvm_integration_tests = "2.0.0-alpha.1"
+actors-v9 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "b40284a166adb22612b4fd98ab6c2483f581d8f7" }
+
+[build-dependencies]
+wasm-builder = "3.0"
