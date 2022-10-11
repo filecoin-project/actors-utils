@@ -70,7 +70,7 @@ fn it_mints_nfts() {
     assert_eq!(total_supply, 2);
 
     // Attempt to burn a non-existent token
-    let burn_params: TokenID = 100;
+    let burn_params: Vec<TokenID> = vec![100];
     let burn_params = RawBytes::serialize(&burn_params).unwrap();
     let ret_val =
         tester.call_method(minter[0].1, actor_address, method_hash!("Burn"), Some(burn_params));
@@ -84,7 +84,7 @@ fn it_mints_nfts() {
     assert_eq!(total_supply, 2);
 
     // Burn the correct token
-    let burn_params: TokenID = 0;
+    let burn_params: Vec<TokenID> = vec![0];
     let burn_params = RawBytes::serialize(&burn_params).unwrap();
     let ret_val =
         tester.call_method(minter[0].1, actor_address, method_hash!("Burn"), Some(burn_params));
@@ -99,7 +99,7 @@ fn it_mints_nfts() {
 
     // Cannot burn the same token again
     // Burn the correct token
-    let burn_params: TokenID = 0;
+    let burn_params: Vec<TokenID> = vec![0];
     let burn_params = RawBytes::serialize(&burn_params).unwrap();
     let ret_val =
         tester.call_method(minter[0].1, actor_address, method_hash!("Burn"), Some(burn_params));

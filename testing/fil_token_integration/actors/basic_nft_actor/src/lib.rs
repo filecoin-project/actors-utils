@@ -41,13 +41,16 @@ fn invoke(params: u32) -> u32 {
         "Mint" => {
             let params = deserialize_params::<MintParams>(params);
             let res = handle.mint(Address::new_id(sdk::message::caller()), params.metadata_id).unwrap();
+
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
             return_ipld(&res).unwrap()
         }
         "Burn" => {
-            let params = deserialize_params::<TokenID>(params);
-            handle.burn(params).unwrap();
+            let params = deserialize_params::<Vec<TokenID>>(params);
+            let caller = sdk::message::caller();
+            handle.burn(caller, &params).unwrap();
+
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
             NO_DATA_BLOCK_ID
