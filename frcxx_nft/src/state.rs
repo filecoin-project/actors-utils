@@ -1,4 +1,6 @@
 //! Abstraction of the on-chain state related to NFT accounting
+use std::vec;
+
 use cid::multihash::Code;
 use cid::Cid;
 use fvm_actor_utils::receiver::ReceiverHook;
@@ -21,6 +23,7 @@ use thiserror::Error;
 
 use crate::receiver::FRCXXReceiverHook;
 use crate::receiver::FRCXXTokenReceived;
+use crate::types::MintIntermediate;
 use crate::types::TransferIntermediate;
 use crate::util::OperatorSet;
 
@@ -140,46 +143,70 @@ impl NFTState {
     }
 
     /// Mint a new token to the specified address
-    pub fn mint_token<BS: Blockstore>(
+    pub fn mint_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
+        caller: ActorID,
         owner: ActorID,
-        metadata_id: Cid,
-    ) -> Result<TokenID> {
+        metadata_ids: &[Cid],
+        operator_data: RawBytes,
+        token_data: RawBytes,
+    ) -> Result<ReceiverHook<MintIntermediate>> {
         // update token data array
         let mut token_array = self.get_token_data_amt(bs)?;
-        let token_id = self.next_token;
-        token_array.set(token_id, TokenData { owner, operators: vec![], metadata_id })?;
-
-        // update owner data map
         let mut owner_map = self.get_owner_data_hamt(bs)?;
-        let new_owner_data = match owner_map.get(&actor_id_key(owner)) {
-            Ok(entry) => {
-                if let Some(existing_data) = entry {
-                    //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
-                    OwnerData { balance: existing_data.balance + 1, ..existing_data.clone() }
-                } else {
-                    OwnerData { balance: 1, operators: vec![] }
-                }
-            }
-            Err(e) => return Err(e.into()),
-        };
-        owner_map.set(actor_id_key(owner), new_owner_data)?;
 
-        // update global trackers
-        self.next_token += 1;
-        self.total_supply += 1;
+        let first_token_id = self.next_token;
+
+        for metadata_id in metadata_ids {
+            let token_id = self.next_token;
+            token_array
+                .set(token_id, TokenData { owner, operators: vec![], metadata_id: *metadata_id })?;
+            // update owner data map
+            let new_owner_data = match owner_map.get(&actor_id_key(owner)) {
+                Ok(entry) => {
+                    if let Some(existing_data) = entry {
+                        //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
+                        OwnerData { balance: existing_data.balance + 1, ..existing_data.clone() }
+                    } else {
+                        OwnerData { balance: 1, operators: vec![] }
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            };
+            owner_map.set(actor_id_key(owner), new_owner_data)?;
+
+            // update global trackers
+            self.next_token += 1;
+            self.total_supply += 1;
+        }
 
         self.token_data = token_array.flush()?;
         self.owner_data = owner_map.flush()?;
 
-        // TODO: call receiver hook
+        let recipient = Address::new_id(owner);
 
-        Ok(token_id)
+        // params for constructing our return value
+        let mint_intermediate = MintIntermediate {
+            recipient,
+            recipient_data: RawBytes::default(),
+            token_ids: (first_token_id..self.next_token).collect(),
+        };
+
+        // params we'll send to the receiver hook
+        let params = FRCXXTokenReceived {
+            operator: caller,
+            to: owner,
+            operator_data,
+            token_data,
+            token_ids: (first_token_id..self.next_token).collect(),
+        };
+
+        Ok(ReceiverHook::new_frcxx(recipient, params, mint_intermediate)?)
     }
 
     /// Get the number of tokens owned by a particular address
-    pub fn get_balance<BS: Blockstore>(&mut self, bs: &BS, owner: ActorID) -> Result<u64> {
+    pub fn get_balance<BS: Blockstore>(&self, bs: &BS, owner: ActorID) -> Result<u64> {
         let owner_data = self.get_owner_data_hamt(bs)?;
         let balance = match owner_data.get(&actor_id_key(owner))? {
             Some(data) => data.balance,
@@ -504,110 +531,205 @@ mod test {
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::ActorID;
 
-    use crate::{state::StateError, NFTState};
+    use crate::{
+        state::{StateError, TokenID},
+        types::{MintIntermediate, TransferIntermediate},
+        NFTState,
+    };
 
     const ALICE_ID: ActorID = 1;
     const BOB_ID: ActorID = 2;
     const CHARLIE_ID: ActorID = 3;
 
+    /// A convenience wrapper to help with testing
+    ///
+    /// Assigns default values to optional fields and calls receiver hooks for minting/transfer
+    struct StateTester {
+        pub state: NFTState,
+        pub bs: MemoryBlockstore,
+        pub msg: FakeMessenger,
+    }
+
+    impl StateTester {
+        fn new() -> Self {
+            let bs = MemoryBlockstore::default();
+            let state = NFTState::new(&bs).unwrap();
+            let msg = FakeMessenger::new(0, 99);
+            Self { state, bs, msg }
+        }
+
+        /// Mint an amount of NFTs and return the token_ids
+        fn mint_amount(&mut self, to: ActorID, num_tokens: u64) -> MintIntermediate {
+            let mut hook = self
+                .state
+                .mint_tokens(
+                    &self.bs,
+                    0,
+                    to,
+                    &vec![Cid::default(); num_tokens as usize],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            hook.call(&self.msg).unwrap()
+        }
+
+        /// Transfer tokens to an address, expecting the transaction to succeed
+        fn transfer(
+            &mut self,
+            operator: ActorID,
+            to: ActorID,
+            token_ids: &[TokenID],
+        ) -> TransferIntermediate {
+            let mut hook = self
+                .state
+                .transfer_tokens(
+                    &self.bs,
+                    operator,
+                    to,
+                    token_ids,
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            hook.call(&self.msg).unwrap()
+        }
+
+        /// Transfer tokens to an address, expecting the transaction to succeed
+        fn operator_transfer(
+            &mut self,
+            operator: ActorID,
+            to: ActorID,
+            token_ids: &[TokenID],
+        ) -> TransferIntermediate {
+            let mut hook = self
+                .state
+                .operator_transfer_tokens(
+                    &self.bs,
+                    operator,
+                    to,
+                    token_ids,
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            hook.call(&self.msg).unwrap()
+        }
+
+        fn assert_balance(&self, owner: ActorID, expected: u64) {
+            let balance = self.state.get_balance(&self.bs, owner).unwrap();
+            assert_eq!(balance, expected);
+        }
+    }
+
     #[test]
     fn it_mints_tokens_incrementally() {
-        let bs = &MemoryBlockstore::new();
-        let mut state = NFTState::new(bs).unwrap();
+        // let bs = &MemoryBlockstore::new();
+        // let msg = &FakeMessenger::new(0, 100);
+        // let mut state = NFTState::new(bs).unwrap();
+
+        let mut tester = StateTester::new();
 
         // mint first token
-        let token_id = state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        let balance = state.get_balance(bs, ALICE_ID).unwrap();
+        let res = tester.mint_amount(ALICE_ID, 1);
         // expect balance increase, token id increment
-        assert_eq!(token_id, 0);
-        assert_eq!(balance, 1);
-        assert_eq!(state.total_supply, 1);
+        tester.assert_balance(ALICE_ID, 1);
+        assert_eq!(res.token_ids, vec![0]);
+        assert_eq!(tester.state.total_supply, 1);
 
         // mint another token
-        let token_id = state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        let balance = state.get_balance(bs, ALICE_ID).unwrap();
+        let res = tester.mint_amount(ALICE_ID, 1);
         // expect balance increase, token id increment
-        assert_eq!(token_id, 1);
-        assert_eq!(balance, 2);
-        assert_eq!(state.total_supply, 2);
+        tester.assert_balance(ALICE_ID, 2);
+        assert_eq!(res.token_ids, vec![1]);
+        assert_eq!(tester.state.total_supply, 2);
 
         // expect another actor to have zero balance by default
-        let balance = state.get_balance(bs, BOB_ID).unwrap();
-        assert_eq!(balance, 0);
+        tester.assert_balance(BOB_ID, 0);
 
         // mint another token to a different actor
-        let token_id = state.mint_token(bs, BOB_ID, Cid::default()).unwrap();
-        let alice_balance = state.get_balance(bs, ALICE_ID).unwrap();
-        let bob_balance = state.get_balance(bs, BOB_ID).unwrap();
+        let res = tester.mint_amount(BOB_ID, 1);
         // expect balance increase globally, token id increment
-        assert_eq!(token_id, 2);
-        assert_eq!(bob_balance, 1);
-        assert_eq!(alice_balance, 2);
-        assert_eq!(state.total_supply, 3);
+        tester.assert_balance(ALICE_ID, 2);
+        tester.assert_balance(BOB_ID, 1);
+        assert_eq!(res.token_ids, vec![2]);
+        assert_eq!(tester.state.total_supply, 3);
+
+        // mint 0 tokens (manual empty array should succeed)
+        let mut hook = tester
+            .state
+            .mint_tokens(&tester.bs, 0, ALICE_ID, &[], RawBytes::default(), RawBytes::default())
+            .unwrap();
+        let res = hook.call(&tester.msg).unwrap();
+        assert_eq!(res.token_ids, Vec::<TokenID>::default());
+        // assert no state change
+        tester.assert_balance(ALICE_ID, 2);
+        tester.assert_balance(BOB_ID, 1);
+        assert_eq!(res.token_ids, Vec::<TokenID>::default());
+        assert_eq!(tester.state.total_supply, 3);
     }
 
     #[test]
     fn it_burns_tokens() {
-        let bs = &MemoryBlockstore::new();
-        let mut state = NFTState::new(bs).unwrap();
-
-        // mint a few tokens
-        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        assert_eq!(state.total_supply, 4);
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 4);
+        let mut tester = StateTester::new();
+        tester.mint_amount(ALICE_ID, 4);
+        tester.assert_balance(ALICE_ID, 4);
+        assert_eq!(tester.state.total_supply, 4);
 
         // burn a non-existent token
-        let err = state.burn_tokens(bs, ALICE_ID, &[99]).unwrap_err();
+        let err = tester.state.burn_tokens(&tester.bs, ALICE_ID, &[99]).unwrap_err();
         if let StateError::TokenNotFound(token_id) = err {
             assert_eq!(token_id, 99);
         } else {
             panic!("unexpected error: {:?}", err);
         }
-        assert_eq!(state.total_supply, 4);
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 4);
+        // no state change
+        assert_eq!(tester.state.total_supply, 4);
+        tester.assert_balance(ALICE_ID, 4);
 
         // burn a token owned by alice
-        state.burn_tokens(bs, ALICE_ID, &[0]).unwrap();
+        tester.state.burn_tokens(&tester.bs, ALICE_ID, &[0]).unwrap();
         // total supply and balance should decrease
-        assert_eq!(state.total_supply, 3);
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
+        tester.assert_balance(ALICE_ID, 3);
+        assert_eq!(tester.state.total_supply, 3);
 
         // attempt to burn multiple tokens owned by alice with one invalid token
-        state.burn_tokens(bs, ALICE_ID, &[0, 1, 2]).unwrap_err();
+        tester.state.burn_tokens(&tester.bs, ALICE_ID, &[0, 1, 2]).unwrap_err();
         // total supply and balance should not change
-        assert_eq!(state.total_supply, 3);
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
+        tester.assert_balance(ALICE_ID, 3);
+        assert_eq!(tester.state.total_supply, 3);
 
         // attempt to burn multiple tokens owned by alice with one invalid token (invalid token at end)
-        state.burn_tokens(bs, ALICE_ID, &[1, 2, 0]).unwrap_err();
+        tester.state.burn_tokens(&tester.bs, ALICE_ID, &[1, 2, 0]).unwrap_err();
         // total supply and balance should not change
-        assert_eq!(state.total_supply, 3);
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
+        tester.assert_balance(ALICE_ID, 3);
+        assert_eq!(tester.state.total_supply, 3);
 
         // attempt to burn multiple tokens owned by alice
-        state.burn_tokens(bs, ALICE_ID, &[1, 2]).unwrap();
+        tester.state.burn_tokens(&tester.bs, ALICE_ID, &[1, 2]).unwrap();
         // total supply and balance should not change
-        assert_eq!(state.total_supply, 1);
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 1);
+        tester.assert_balance(ALICE_ID, 1);
+        assert_eq!(tester.state.total_supply, 1);
     }
 
     #[test]
     fn it_transfers_tokens() {
-        let bs = &MemoryBlockstore::new();
-        let msg = &FakeMessenger::new(0, 100);
-        let mut state = NFTState::new(bs).unwrap();
+        let mut tester = StateTester::new();
 
-        // mint a few tokens
-        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
+        // mint two tokens
+        tester.mint_amount(ALICE_ID, 3);
 
         // bob cannot transfer from alice to himself
-        let res = state
-            .transfer_tokens(bs, BOB_ID, BOB_ID, &[0], RawBytes::default(), RawBytes::default())
+        let res = tester
+            .state
+            .transfer_tokens(
+                &tester.bs,
+                BOB_ID,
+                BOB_ID,
+                &[0],
+                RawBytes::default(),
+                RawBytes::default(),
+            )
             .unwrap_err();
         if let StateError::NotOwner { actor: operator, token_id } = res {
             assert_eq!(operator, BOB_ID);
@@ -617,18 +739,22 @@ mod test {
         }
 
         // alice can transfer to bob
-        let mut hook = state
-            .transfer_tokens(bs, ALICE_ID, BOB_ID, &[0], RawBytes::default(), RawBytes::default())
-            .unwrap();
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
-        let res = hook.call(msg).unwrap();
+        let res = tester.transfer(ALICE_ID, BOB_ID, &[0]);
+        tester.assert_balance(ALICE_ID, 2);
+        tester.assert_balance(BOB_ID, 1);
         assert_eq!(res.token_ids, vec![0]);
-        assert_eq!(res.to, BOB_ID);
 
         // alice is unauthorized to transfer that token now
-        let res = state
-            .transfer_tokens(bs, ALICE_ID, ALICE_ID, &[0], RawBytes::default(), RawBytes::default())
+        let res = tester
+            .state
+            .transfer_tokens(
+                &tester.bs,
+                ALICE_ID,
+                ALICE_ID,
+                &[0],
+                RawBytes::default(),
+                RawBytes::default(),
+            )
             .unwrap_err();
         if let StateError::NotOwner { actor: operator, token_id } = res {
             assert_eq!(operator, ALICE_ID);
@@ -636,23 +762,22 @@ mod test {
         } else {
             panic!("unexpected error: {:?}", res);
         }
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
+        // no state change
+        tester.assert_balance(ALICE_ID, 2);
+        tester.assert_balance(BOB_ID, 1);
 
         // but bob can transfer it back
-        let mut hook = state
-            .transfer_tokens(bs, BOB_ID, ALICE_ID, &[0], RawBytes::default(), RawBytes::default())
-            .unwrap();
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 0);
-        let res = hook.call(msg).unwrap();
+        let res = tester.transfer(BOB_ID, ALICE_ID, &[0]);
+        tester.assert_balance(ALICE_ID, 3);
+        tester.assert_balance(BOB_ID, 0);
         assert_eq!(res.token_ids, vec![0]);
         assert_eq!(res.to, ALICE_ID);
 
         // transferring a batch fails if any tokens is not valid
-        state
+        tester
+            .state
             .transfer_tokens(
-                bs,
+                &tester.bs,
                 ALICE_ID,
                 BOB_ID,
                 &[1, 99],
@@ -660,9 +785,10 @@ mod test {
                 RawBytes::default(),
             )
             .unwrap_err();
-        state
+        tester
+            .state
             .transfer_tokens(
-                bs,
+                &tester.bs,
                 ALICE_ID,
                 BOB_ID,
                 &[99, 1],
@@ -671,9 +797,10 @@ mod test {
             )
             .unwrap_err();
         // or there are duplicates
-        let err = state
+        let err = tester
+            .state
             .transfer_tokens(
-                bs,
+                &tester.bs,
                 ALICE_ID,
                 BOB_ID,
                 &[1, 1, 2],
@@ -688,40 +815,28 @@ mod test {
             panic!("unexpected error: {:?}", res);
         }
         // state unchanged
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 0);
+        tester.assert_balance(ALICE_ID, 3);
+        tester.assert_balance(BOB_ID, 0);
 
         // alice can transfer other two in a batch
-        let mut hook = state
-            .transfer_tokens(
-                bs,
-                ALICE_ID,
-                BOB_ID,
-                &[1, 2],
-                RawBytes::default(),
-                RawBytes::default(),
-            )
-            .unwrap();
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 1);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 2);
-        hook.call(msg).unwrap();
+        let res = tester.transfer(ALICE_ID, BOB_ID, &[1, 2]);
+        tester.assert_balance(ALICE_ID, 1);
+        tester.assert_balance(BOB_ID, 2);
+        assert_eq!(res.token_ids, vec![1, 2])
     }
 
     #[test]
     fn it_allows_account_level_delegation() {
-        let bs = &MemoryBlockstore::new();
-        let mut state = NFTState::new(bs).unwrap();
-        let msg = &FakeMessenger::new(0, 10);
+        let mut tester = StateTester::new();
 
         // mint a few tokens
-        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
+        tester.mint_amount(ALICE_ID, 3);
 
         // bob cannot transfer from alice to himself
-        let res = state
+        let res = tester
+            .state
             .operator_transfer_tokens(
-                bs,
+                &tester.bs,
                 BOB_ID,
                 BOB_ID,
                 &[0],
@@ -737,12 +852,20 @@ mod test {
         }
 
         // approve bob to transfer on behalf of alice
-        state.approve_for_owner(bs, ALICE_ID, BOB_ID).unwrap();
+        tester.state.approve_for_owner(&tester.bs, ALICE_ID, BOB_ID).unwrap();
 
         // bob can now transfer from alice to himself
         // but cannot use the incorrect method
-        let res = state
-            .transfer_tokens(bs, BOB_ID, ALICE_ID, &[0], RawBytes::default(), RawBytes::default())
+        let res = tester
+            .state
+            .transfer_tokens(
+                &tester.bs,
+                BOB_ID,
+                ALICE_ID,
+                &[0],
+                RawBytes::default(),
+                RawBytes::default(),
+            )
             .unwrap_err();
         if let StateError::NotOwner { actor: operator, token_id } = res {
             assert_eq!(operator, BOB_ID);
@@ -751,27 +874,45 @@ mod test {
             panic!("unexpected error: {:?}", res);
         }
 
-        let mut hook = state
-            .operator_transfer_tokens(
-                bs,
-                BOB_ID,
-                BOB_ID,
+        // using correct method succeeds
+        let res = tester.operator_transfer(BOB_ID, BOB_ID, &[0]);
+        tester.assert_balance(ALICE_ID, 2);
+        tester.assert_balance(BOB_ID, 1);
+        assert_eq!(tester.state.total_supply, 3);
+        assert_eq!(res.to, BOB_ID);
+        assert_eq!(res.token_ids, vec![0]);
+
+        // alice is unauthorised to transfer that token now
+        tester
+            .state
+            .transfer_tokens(
+                &tester.bs,
+                ALICE_ID,
+                ALICE_ID,
                 &[0],
                 RawBytes::default(),
                 RawBytes::default(),
             )
-            .unwrap();
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
-        assert_eq!(state.total_supply, 3);
+            .unwrap_err();
 
-        let res = hook.call(msg).unwrap();
+        // state was unchange
+        tester.assert_balance(ALICE_ID, 2);
+        tester.assert_balance(BOB_ID, 1);
+        assert_eq!(tester.state.total_supply, 3);
         assert_eq!(res.to, BOB_ID);
         assert_eq!(res.token_ids, vec![0]);
 
         // alice is unauthorized to transfer that token now
-        let res = state
-            .transfer_tokens(bs, ALICE_ID, ALICE_ID, &[0], RawBytes::default(), RawBytes::default())
+        let res = tester
+            .state
+            .transfer_tokens(
+                &tester.bs,
+                ALICE_ID,
+                ALICE_ID,
+                &[0],
+                RawBytes::default(),
+                RawBytes::default(),
+            )
             .unwrap_err();
         if let StateError::NotOwner { actor: operator, token_id } = res {
             assert_eq!(operator, ALICE_ID);
@@ -779,246 +920,215 @@ mod test {
         } else {
             panic!("unexpected error: {:?}", res);
         }
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
+        tester.assert_balance(ALICE_ID, 2);
+        tester.assert_balance(BOB_ID, 1);
 
         // but bob can transfer it back
-        let mut hook = state
-            .transfer_tokens(bs, BOB_ID, ALICE_ID, &[0], RawBytes::default(), RawBytes::default())
-            .unwrap();
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 0);
-        hook.call(msg).unwrap();
+        tester.transfer(BOB_ID, ALICE_ID, &[0]);
+        tester.assert_balance(ALICE_ID, 3);
+        tester.assert_balance(BOB_ID, 0);
 
         // a newly minted token after approval can be transferred by bob
-        let new_token_id = state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        let mut hook = state
-            .operator_transfer_tokens(
-                bs,
-                BOB_ID,
-                BOB_ID,
-                &[new_token_id],
-                RawBytes::default(),
-                RawBytes::default(),
-            )
-            .unwrap();
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
-        hook.call(msg).unwrap();
+        let res = tester.mint_amount(ALICE_ID, 1);
+        let res = tester.operator_transfer(BOB_ID, BOB_ID, &res.token_ids);
+        tester.assert_balance(ALICE_ID, 3);
+        tester.assert_balance(BOB_ID, 1);
 
         // bob cannot transfer a batch if any of the tokens is invalid or duplicated
-        state
+        tester
+            .state
             .operator_transfer_tokens(
-                bs,
+                &tester.bs,
                 BOB_ID,
                 BOB_ID,
-                &[new_token_id],
+                &res.token_ids, // already transferred
                 RawBytes::default(),
                 RawBytes::default(),
             )
             .unwrap_err();
-        state
+        tester
+            .state
             .operator_transfer_tokens(
-                bs,
+                &tester.bs,
                 BOB_ID,
                 BOB_ID,
-                &[0, 99],
+                &[0, 99], // 99 doesn't exist
                 RawBytes::default(),
                 RawBytes::default(),
             )
             .unwrap_err();
-        state
+        tester
+            .state
             .operator_transfer_tokens(
-                bs,
+                &tester.bs,
                 BOB_ID,
                 BOB_ID,
-                &[0, 0],
+                &[0, 0], // duplicaated
                 RawBytes::default(),
                 RawBytes::default(),
             )
             .unwrap_err();
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
+        // no state change
+        tester.assert_balance(ALICE_ID, 3);
+        tester.assert_balance(BOB_ID, 1);
 
         // bob can batch transfer tokens
-        let new_token_a = state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        let new_token_b = state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        let new_token_c = state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 6);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
-        let mut hook = state
-            .operator_transfer_tokens(
-                bs,
-                BOB_ID,
-                BOB_ID,
-                &[new_token_a, new_token_b, new_token_c],
-                RawBytes::default(),
-                RawBytes::default(),
-            )
-            .unwrap();
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 4);
-        hook.call(msg).unwrap();
+        let res = tester.mint_amount(ALICE_ID, 3);
+        tester.assert_balance(ALICE_ID, 6);
+        tester.assert_balance(BOB_ID, 1);
+        let res = tester.operator_transfer(BOB_ID, BOB_ID, &res.token_ids); // transfer the newly minted tokens
+        tester.assert_balance(ALICE_ID, 3);
+        tester.assert_balance(BOB_ID, 4);
 
         // bob's authorization can be revoked
-        state.revoke_for_all(bs, ALICE_ID, BOB_ID).unwrap();
-        let res = state
+        tester.state.revoke_for_all(&tester.bs, ALICE_ID, BOB_ID).unwrap();
+        let err = tester
+            .state
             .operator_transfer_tokens(
-                bs,
+                &tester.bs,
                 BOB_ID,
                 BOB_ID,
-                &[new_token_id],
+                &[res.token_ids[1]],
                 RawBytes::default(),
                 RawBytes::default(),
             )
             .unwrap_err();
-        if let StateError::NotAuthorized { actor: operator, token_id } = res {
+        if let StateError::NotAuthorized { actor: operator, token_id } = err {
             assert_eq!(operator, BOB_ID);
-            assert_eq!(token_id, new_token_id);
+            assert_eq!(token_id, res.token_ids[1]);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {:?}", err);
         }
 
         // state didn't change
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 4);
+        tester.assert_balance(ALICE_ID, 3);
+        tester.assert_balance(BOB_ID, 4);
     }
 
     #[test]
     fn it_allows_token_level_delegation() {
-        let bs = &MemoryBlockstore::new();
-        let msg = &FakeMessenger::new(0, 100);
-        let mut state = NFTState::new(bs).unwrap();
+        let mut tester = StateTester::new();
 
-        // mint a few tokens
-        let token_0 = state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
-        let token_1 = state.mint_token(bs, ALICE_ID, Cid::default()).unwrap();
+        if let [token_0, token_1] = tester.mint_amount(ALICE_ID, 2).token_ids[..] {
+            // neither bob nor charlie can transfer either token
+            tester
+                .state
+                .operator_transfer_tokens(
+                    &tester.bs,
+                    BOB_ID,
+                    BOB_ID,
+                    &[token_0],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap_err();
+            tester
+                .state
+                .operator_transfer_tokens(
+                    &tester.bs,
+                    CHARLIE_ID,
+                    BOB_ID,
+                    &[token_0],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap_err();
+            tester
+                .state
+                .operator_transfer_tokens(
+                    &tester.bs,
+                    BOB_ID,
+                    BOB_ID,
+                    &[token_1],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap_err();
+            tester
+                .state
+                .operator_transfer_tokens(
+                    &tester.bs,
+                    CHARLIE_ID,
+                    BOB_ID,
+                    &[token_1],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap_err();
 
-        // neither bob nor charlie can transfer either token
-        state
-            .operator_transfer_tokens(
-                bs,
-                BOB_ID,
-                BOB_ID,
-                &[token_0],
-                RawBytes::default(),
-                RawBytes::default(),
-            )
-            .unwrap_err();
-        state
-            .operator_transfer_tokens(
-                bs,
-                CHARLIE_ID,
-                BOB_ID,
-                &[token_0],
-                RawBytes::default(),
-                RawBytes::default(),
-            )
-            .unwrap_err();
-        state
-            .operator_transfer_tokens(
-                bs,
-                BOB_ID,
-                BOB_ID,
-                &[token_1],
-                RawBytes::default(),
-                RawBytes::default(),
-            )
-            .unwrap_err();
-        state
-            .operator_transfer_tokens(
-                bs,
-                CHARLIE_ID,
-                BOB_ID,
-                &[token_1],
-                RawBytes::default(),
-                RawBytes::default(),
-            )
-            .unwrap_err();
-        // state didn't change
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 0);
-        assert_eq!(state.get_balance(bs, CHARLIE_ID).unwrap(), 0);
+            // state didn't change
+            tester.assert_balance(ALICE_ID, 2);
+            tester.assert_balance(BOB_ID, 0);
+            tester.assert_balance(CHARLIE_ID, 0);
 
-        // charlie cannot not approve bob or charlie to a token owned by alice
-        state.approve_for_tokens(bs, CHARLIE_ID, BOB_ID, &[token_0]).unwrap_err();
-        let res = state.approve_for_tokens(bs, CHARLIE_ID, CHARLIE_ID, &[token_0]).unwrap_err();
-        if let StateError::NotOwner { actor, token_id } = res {
-            assert_eq!(actor, CHARLIE_ID);
-            assert_eq!(token_id, token_0);
-        } else {
-            panic!("unexpected error: {:?}", res);
+            // charlie cannot not approve bob or charlie to a token owned by alice
+            tester
+                .state
+                .approve_for_tokens(&tester.bs, CHARLIE_ID, BOB_ID, &[token_0])
+                .unwrap_err();
+            let res = tester
+                .state
+                .approve_for_tokens(&tester.bs, CHARLIE_ID, CHARLIE_ID, &[token_0])
+                .unwrap_err();
+            if let StateError::NotOwner { actor, token_id } = res {
+                assert_eq!(actor, CHARLIE_ID);
+                assert_eq!(token_id, token_0);
+            } else {
+                panic!("unexpected error: {:?}", res);
+            }
+
+            // alice approves bob and charlie as operators
+            tester.state.approve_for_tokens(&tester.bs, ALICE_ID, BOB_ID, &[token_0]).unwrap();
+            tester.state.approve_for_tokens(&tester.bs, ALICE_ID, BOB_ID, &[token_1]).unwrap();
+            tester.state.approve_for_tokens(&tester.bs, ALICE_ID, CHARLIE_ID, &[token_1]).unwrap();
+
+            // charlie still can't transfer token_0
+            let res = tester
+                .state
+                .operator_transfer_tokens(
+                    &tester.bs,
+                    CHARLIE_ID,
+                    CHARLIE_ID,
+                    &[token_0],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap_err();
+            if let StateError::NotAuthorized { actor, token_id } = res {
+                assert_eq!(actor, CHARLIE_ID);
+                assert_eq!(token_id, token_0);
+            } else {
+                panic!("unexpected error: {:?}", res);
+            }
+
+            // but bob can transfer token_0
+            tester.operator_transfer(BOB_ID, BOB_ID, &[token_0]);
+            tester.assert_balance(ALICE_ID, 1);
+            tester.assert_balance(BOB_ID, 1);
+            tester.assert_balance(CHARLIE_ID, 0);
+
+            // charlie can transfer token_1
+            tester.operator_transfer(CHARLIE_ID, CHARLIE_ID, &[token_1]);
+            tester.assert_balance(ALICE_ID, 0);
+            tester.assert_balance(BOB_ID, 1);
+            tester.assert_balance(CHARLIE_ID, 1);
+
+            // but after that, bob can no longer transfer it (approvals were reset)
+            tester
+                .state
+                .operator_transfer_tokens(
+                    &tester.bs,
+                    BOB_ID,
+                    CHARLIE_ID,
+                    &[token_1],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap_err();
+            // state was unchanged
+            tester.assert_balance(ALICE_ID, 0);
+            tester.assert_balance(BOB_ID, 1);
+            tester.assert_balance(CHARLIE_ID, 1);
         }
-
-        // alice approves bob and charlie as operators
-        state.approve_for_tokens(bs, ALICE_ID, BOB_ID, &[token_0]).unwrap();
-        state.approve_for_tokens(bs, ALICE_ID, BOB_ID, &[token_1]).unwrap();
-        state.approve_for_tokens(bs, ALICE_ID, CHARLIE_ID, &[token_1]).unwrap();
-
-        // charlie still can't transfer token_0
-        let res = state
-            .operator_transfer_tokens(
-                bs,
-                CHARLIE_ID,
-                CHARLIE_ID,
-                &[token_0],
-                RawBytes::default(),
-                RawBytes::default(),
-            )
-            .unwrap_err();
-        if let StateError::NotAuthorized { actor, token_id } = res {
-            assert_eq!(actor, CHARLIE_ID);
-            assert_eq!(token_id, token_0);
-        } else {
-            panic!("unexpected error: {:?}", res);
-        }
-
-        // but bob can transfer token_0
-        let mut hook = state
-            .operator_transfer_tokens(
-                bs,
-                BOB_ID,
-                BOB_ID,
-                &[token_0],
-                RawBytes::default(),
-                RawBytes::default(),
-            )
-            .unwrap();
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 1);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
-        assert_eq!(state.get_balance(bs, CHARLIE_ID).unwrap(), 0);
-        hook.call(msg).unwrap();
-
-        // charlie can transfer token_1
-        let mut hook = state
-            .operator_transfer_tokens(
-                bs,
-                CHARLIE_ID,
-                CHARLIE_ID,
-                &[token_1],
-                RawBytes::default(),
-                RawBytes::default(),
-            )
-            .unwrap();
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 0);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
-        assert_eq!(state.get_balance(bs, CHARLIE_ID).unwrap(), 1);
-        hook.call(msg).unwrap();
-
-        // but after that, bob can no longer transfer it (approvals were reset)
-        state
-            .operator_transfer_tokens(
-                bs,
-                BOB_ID,
-                CHARLIE_ID,
-                &[token_1],
-                RawBytes::default(),
-                RawBytes::default(),
-            )
-            .unwrap_err();
-        // state was unchanged
-        assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 0);
-        assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
-        assert_eq!(state.get_balance(bs, CHARLIE_ID).unwrap(), 1);
     }
 }

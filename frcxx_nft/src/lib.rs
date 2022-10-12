@@ -7,12 +7,16 @@
 //! in many cases.
 
 use cid::Cid;
-use fvm_actor_utils::messaging::{Messaging, MessagingError};
+use fvm_actor_utils::{
+    messaging::{Messaging, MessagingError},
+    receiver::ReceiverHook,
+};
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, ActorID};
 use state::StateError;
 use thiserror::Error;
+use types::{MintIntermediate, TransferIntermediate};
 
 use self::state::{NFTState, TokenID};
 
@@ -68,12 +72,29 @@ where
         self.state.total_supply
     }
 
-    /// Create a single new NFT belonging to the initial_owner
+    /// Create a single new NFT belonging to the initial_owner. The mint method is not standardised
+    /// as part of the actor's interface but this is a usefuly method at the library level to
+    /// generate new tokens that will maintain the necessary state invariants.
     ///
-    /// Returns the TokenID of the minted which is allocated incrementally
-    pub fn mint(&mut self, initial_owner: Address, metadata_id: Cid) -> Result<TokenID> {
+    /// Returns a MintIntermediate that can be used to construct return data
+    pub fn mint(
+        &mut self,
+        caller: Address,
+        initial_owner: Address,
+        metadata_ids: &[Cid],
+        operator_data: RawBytes,
+        token_data: RawBytes,
+    ) -> Result<ReceiverHook<MintIntermediate>> {
+        let caller = self.msg.resolve_or_init(&caller)?;
         let initial_owner = self.msg.resolve_or_init(&initial_owner)?;
-        Ok(self.state.mint_token(&self.bs, initial_owner, metadata_id)?)
+        Ok(self.state.mint_tokens(
+            &self.bs,
+            caller,
+            initial_owner,
+            metadata_ids,
+            operator_data,
+            token_data,
+        )?)
     }
 
     /// Burn a single NFT by TokenID
@@ -147,12 +168,12 @@ where
         token_ids: &[TokenID],
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<()> {
+    ) -> Result<ReceiverHook<TransferIntermediate>> {
         // Attempt to instantiate the accounts if they don't exist
         let caller = self.msg.resolve_or_init(caller)?;
         let recipient = self.msg.resolve_or_init(recipient)?;
 
-        self.state.transfer_tokens(
+        let hook = self.state.transfer_tokens(
             &self.bs,
             caller,
             recipient,
@@ -160,7 +181,8 @@ where
             operator_data,
             token_data,
         )?;
-        Ok(())
+
+        Ok(hook)
     }
 
     /// Transfers a token that the caller is an operator for
@@ -171,12 +193,12 @@ where
         token_ids: &[TokenID],
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<()> {
+    ) -> Result<ReceiverHook<TransferIntermediate>> {
         // Attempt to instantiate the accounts if they don't exist
         let caller = self.msg.resolve_or_init(caller)?;
         let recipient = self.msg.resolve_or_init(recipient)?;
 
-        self.state.operator_transfer_tokens(
+        let hook = self.state.operator_transfer_tokens(
             &self.bs,
             caller,
             recipient,
@@ -184,6 +206,7 @@ where
             operator_data,
             token_data,
         )?;
-        Ok(())
+
+        Ok(hook)
     }
 }

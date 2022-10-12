@@ -56,8 +56,40 @@ pub trait FRCXXXNFT {
     fn is_approved_for_all(&self, params: IsApprovedForAllParams) -> bool;
 }
 
+/// Return value after a successful mint
+/// The mint method is not standardised, so this is merely a useful library-level type, and
+/// recommendation for token implementations
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct MintReturn {
+    /// The new balance of the owner address
+    pub balance: u64,
+    /// The new total supply
+    pub supply: u64,
+    /// (Optional) data returned from the receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl Cbor for MintReturn {}
+
+/// Intermediate data used by mint_return to construct the return data
+#[derive(Debug)]
+pub struct MintIntermediate {
+    /// Recipient address to use for querying balance
+    pub recipient: Address,
+    /// TokenID of the newly minted token
+    pub token_ids: Vec<TokenID>,
+    /// (Optional) data returned from receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl RecipientData for MintIntermediate {
+    fn set_recipient_data(&mut self, data: RawBytes) {
+        self.recipient_data = data;
+    }
+}
+
 /// Intermediate data used by transfer_return to construct the return data
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct TransferIntermediate {
     pub token_ids: Vec<TokenID>,
     pub to: ActorID,

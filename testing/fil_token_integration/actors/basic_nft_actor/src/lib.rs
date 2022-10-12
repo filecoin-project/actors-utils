@@ -3,8 +3,8 @@ use frc42_dispatch::match_method;
 use frcxx_nft::{
     state::{NFTState, TokenID},
     types::{
-        ApproveForAllParams, ApproveParams, RevokeForAllParams, RevokeParams, TransferFromParams,
-        TransferParams,
+        ApproveForAllParams, ApproveParams, MintReturn, RevokeForAllParams, RevokeParams,
+        TransferFromParams, TransferParams,
     },
     NFT,
 };
@@ -44,11 +44,22 @@ fn invoke(params: u32) -> u32 {
         }
         "Mint" => {
             let params = deserialize_params::<MintParams>(params);
-            let res = handle.mint(Address::new_id(sdk::message::caller()), params.metadata_id).unwrap();
+            let mut res = handle
+                .mint(
+                    Address::new_id(sdk::message::caller()),
+                    params.initial_owner,
+                    &[params.metadata_id],
+                    params.operator_data,
+                    RawBytes::default(),
+                )
+                .unwrap();
+
+            let _hook_res = res.call(&messenger).unwrap();
 
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
-            return_ipld(&res).unwrap()
+            return_ipld(&MintReturn { balance: 0, supply: 0, recipient_data: RawBytes::default() })
+                .unwrap()
         }
         "Burn" => {
             let params = deserialize_params::<Vec<TokenID>>(params);
@@ -89,14 +100,26 @@ fn invoke(params: u32) -> u32 {
         }
         "Transfer" => {
             let params = deserialize_params::<TransferParams>(params);
-            handle.transfer(&caller_address(), &params.to, &params.token_ids, params.operator_data, RawBytes::default()).unwrap();
+            handle.transfer(
+                &caller_address(),
+                &params.to,
+                &params.token_ids,
+                params.operator_data,
+                RawBytes::default()
+            ).unwrap();
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
             NO_DATA_BLOCK_ID
         }
         "TransferFrom" => {
             let params = deserialize_params::<TransferFromParams>(params);
-            handle.transfer_from(&caller_address(), &params.to, &params.token_ids, params.operator_data, RawBytes::default()).unwrap();
+            handle.transfer_from(
+                &caller_address(),
+                &params.to,
+                &params.token_ids,
+                params.operator_data,
+                RawBytes::default()
+            ).unwrap();
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
             NO_DATA_BLOCK_ID
@@ -117,7 +140,9 @@ pub fn constructor() {
 /// Minting tokens goes directly to the caller for now
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
-    metadata_id: Cid,
+    initial_owner: Address,
+    metadata_id: Vec<Cid>,
+    operator_data: RawBytes,
 }
 
 /// Grab the incoming parameters and convert from RawBytes to deserialized struct
