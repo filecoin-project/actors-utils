@@ -199,7 +199,7 @@ impl NFTState {
             to: owner,
             operator_data,
             token_data,
-            token_ids: (first_token_id..self.next_token).collect(),
+            token_ids: mint_intermediate.token_ids.clone(),
         };
 
         Ok(ReceiverHook::new_frcxx(recipient, params, mint_intermediate)?)

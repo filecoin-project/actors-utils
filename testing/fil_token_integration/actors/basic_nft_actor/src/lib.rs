@@ -44,22 +44,14 @@ fn invoke(params: u32) -> u32 {
         }
         "Mint" => {
             let params = deserialize_params::<MintParams>(params);
-            let mut res = handle
-                .mint(
-                    Address::new_id(sdk::message::caller()),
-                    params.initial_owner,
-                    &[params.metadata_id],
-                    params.operator_data,
-                    RawBytes::default(),
-                )
-                .unwrap();
-
-            let _hook_res = res.call(&messenger).unwrap();
-
+            let caller = Address::new_id(sdk::message::caller());
+            let mut hook = handle.mint(caller, params.initial_owner, &params.metadata_id, RawBytes::default(), RawBytes::default()).unwrap();
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
-            return_ipld(&MintReturn { balance: 0, supply: 0, recipient_data: RawBytes::default() })
-                .unwrap()
+
+            let hook_res = hook.call(&messenger).unwrap();
+            // TODO: generate return value
+            return_ipld(&MintReturn {balance: 0, supply: 0, recipient_data: RawBytes::default(), token_ids: hook_res.token_ids}).unwrap()
         }
         "Burn" => {
             let params = deserialize_params::<Vec<TokenID>>(params);

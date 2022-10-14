@@ -65,6 +65,8 @@ pub struct MintReturn {
     pub balance: u64,
     /// The new total supply
     pub supply: u64,
+    /// List of the tokens that were minted successfully (some may have been burned during hook execution)
+    pub token_ids: Vec<TokenID>,
     /// (Optional) data returned from the receiver hook
     pub recipient_data: RawBytes,
 }
@@ -74,11 +76,11 @@ impl Cbor for MintReturn {}
 /// Intermediate data used by mint_return to construct the return data
 #[derive(Debug)]
 pub struct MintIntermediate {
-    /// Recipient address to use for querying balance
+    /// Recipient address used for querying balance
     pub recipient: Address,
-    /// TokenID of the newly minted token
+    /// List of the newly minted tokens
     pub token_ids: Vec<TokenID>,
-    /// (Optional) data returned from receiver hook
+    /// (Optional) data returned from the receiver hook
     pub recipient_data: RawBytes,
 }
 
