@@ -59,45 +59,56 @@ fn Symbol() -> String
 fn TotalSupply() -> u64
 
 /// Returns a link that resolves to the metadata for a particular token
-fn MetadataID(token_id: TokenID) -> String
+fn MetadataID(tokenID: TokenID) -> String
 
 /// Returns the balance of an address which is the number of unique NFTs held
 /// Must be non-negative
 fn Balance(owner: Address) -> String
 
 /// Transfers tokens from caller to the specified address
-/// For each token being transferred, the caller must:
-/// - Be the owner OR
-/// - Be an approved operator on the token OR
-/// - Be an approved operator on the owner
-/// The entire batch of transfers aborts if any of the specified tokens do not meet at least one of the above criteria
+/// Each token specified must exist and be owned by the caller
+/// The entire batch of transfers aborts if any of the specified tokens does not meet the criteria
 /// Transferring to the caller must be treated as a normal transfer
 /// Returns the resulting balances for the from and to addresses
 /// The operatorData is passed through to the receiver hook directly
-/// Aborts if the receiver hook on the `to` address aborts
+///
+/// Tokens that were successfully transferred are returned along with the new balances of the sending and receiving addresses
 fn Transfer({to: Address, tokenIDs: TokenID[], operatorData: Bytes})
-  -> {fromBalance: u64, toBalance: u64}
+  -> {fromBalance: u64, toBalance: u64, tokens: TokenID[]}
 
-/// Approves an address as the specified operator for a set of tokens
-/// The entire batch of approvals aborts if any of the tokens are not owned by the caller
-fn Approve({operator: Address, tokenIDs: TokenID[]}) -> ()
+/// Transfers tokens to the specified address with the caller acting as an operator
+/// Each token specified must exist and the caller must be authorised to transfer it. The caller is considered authorised by being an approved operator on the token-id or by being an approved operator on the account that owns the token.
+/// The entire batch of transfers aborts if any of the specified tokens does not meet the above criteria
+/// Transferring to the owner must be treated as a normal transfer
+/// Returns the resulting balance for the to address
+/// The operatorData is passed through to the receiver hook directly
+///
+/// Tokens that were successfully transferred are returned along with the new balance of the receiving address
+fn TransferFrom({to: Address, tokenIDs: TokenID[], operatorData: Bytes})
+  -> {toBalance: u64, tokens: TokenID[]}
 
-/// Revokes an address as the specified operator for a set of tokens
+/// Authorizes an address as the specified operator for a set of tokens
+/// The method returns the IDs of tokens that were succesfully approved for the operator
+fn Approve({operator: Address, tokenIDs: TokenID[]}) -> TokenID[]
+
+/// Revokes an address as an authorized operator for a set of tokens
 /// Tokens that are not owned by the caller are ignored
-fn RevokeApproval({operator: Address, tokenIDs: TokenID[]}) -> ()
+///
+/// Returns the list of IDs that were succesfully revoked
+fn RevokeApproval({operator: Address, tokenIDs: TokenID[]}) -> TokenID[]
 
 /// Returns whether an address is an approved operator for a particular set of tokens
 /// The owner of a token is implicitly considered as a valid operator of that token
 fn IsApprovedFor({operator: Address, tokenIDs: TokenID[]}) -> bool[]
 
-/// Approves the specified address as an approved operator for any token (including future tokens) that are owned by the caller's address
+/// Authorizes the specified address as an operator for any token (including future tokens) that are owned by the caller's address
 fn ApproveForAll({operator: Address}) -> ()
 
-/// Returns whether an address is an approved operator for another address
-/// Every address is implicitly considered a valid operator of itself
-fn IsApprovedForAll({operator: Address, owner: Address}) -> bool[]
+/// Returns whether an address is an authorized operator for another address
+/// Addresses are not reflexive operators on themselves
+fn IsApprovedForAll({operator: Address, owner: Address}) -> bool
 
-/// Revokes an address as a specifed operator for the calling account
+/// Revokes an address as an authorized operator for the calling address
 fn RevokeApprovalForAll({operator: Address}) -> ()
 ```
 
@@ -193,7 +204,34 @@ balances, and invoke the receiver hook when crediting tokens.
 An NFT collection may implement restrictions on allowances and transfer of
 tokens.
 
+**Optional Extension - Enumerable NFT**
+
+An actor may choose to implement a method to retrieve the list of all
+circulating NFTs.
+
+```rust
+/// Revokes an address as an authorized operator for the calling address
+fn ListTokens({minTokenID: TokenID, maxTokenID}) -> TokenID[]
+```
+
+When listing tokens, the NFT actor should return the list of all currently
+circulating NFTs in the range `[mintokenID, maxTokenID)`.
+
 ## Design Rationale
+
+### Batching
+
+Methods on this interface accept a list of token_ids. It is up to specific
+implementations how duplicates, invalid IDs etc. are handled. The reference
+implementation, for example aborts the entire transfer if any of the specified
+token IDs are invalid.
+
+However, it may be desirable for some implementations partially succeed for
+batch operations. For example, the intent to `Revoke` operator status on a set
+of TokenIDs can succeed even if some of the TokenIDs are burnt or no longer
+owned by the caller to promote security. Methods should inform the caller which
+TokenIDs were succesfully acted upon in the return. It is recommended to return
+an empty list rather than abort when no TokenIDs are valid.
 
 ### Synergy with fungible tokens
 
@@ -211,13 +249,17 @@ efficient and straightforward.
 
 ### Transfers
 
-There is no separate method for transfers by owners v.s. transfers by operators.
-The transfer method is only given the list of token ids that the caller wishes
-to transfer and for each token asserts that:
+There is no technical need to separate the `Transfer` and `TransferFrom`
+methods. A transfer method could function given only the list of token ids that
+the caller wishes to transfer and for each token asserts that:
 
 - The caller is the owner of the token OR
 - The caller is an approved operator on the token OR
 - The caller is an approved operator on the account that owns the token
+
+However, the authors judge that the benefit of aligning with existing
+conventions (FRC-46, ERC-721 etc.) and having separate flows for operators and
+token owners will reduce risk of mistakes and unexpected behaviour.
 
 ## Backwards Compatability
 
