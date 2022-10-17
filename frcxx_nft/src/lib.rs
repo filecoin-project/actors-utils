@@ -17,6 +17,7 @@ use self::state::{NFTState, TokenID};
 
 pub mod state;
 pub mod types;
+pub mod util;
 
 #[derive(Error, Debug)]
 pub enum NFTError {

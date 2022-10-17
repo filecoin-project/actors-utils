@@ -1,6 +1,4 @@
 //! Abstraction of the on-chain state related to NFT accounting
-use std::collections::HashSet;
-
 use cid::multihash::Code;
 use cid::Cid;
 use fvm_ipld_amt::Amt;
@@ -17,6 +15,8 @@ use fvm_shared::ActorID;
 use integer_encoding::VarInt;
 use thiserror::Error;
 
+use crate::util::OperatorSet;
+
 pub type TokenID = u64;
 
 /// Each token stores its owner, approved operators etc.
@@ -24,7 +24,7 @@ pub type TokenID = u64;
 pub struct TokenData {
     pub owner: ActorID,
     // operators on this token
-    pub operators: HashSet<ActorID>, // or maybe as a Cid to an Amt
+    pub operators: Vec<ActorID>, // or maybe as a Cid to an Amt
     pub metadata_id: Cid,
 }
 
@@ -33,7 +33,7 @@ pub struct TokenData {
 pub struct OwnerData {
     pub balance: u64,
     // account-level operators
-    pub operators: HashSet<ActorID>, // maybe as a Cid to an Amt
+    pub operators: Vec<ActorID>, // maybe as a Cid to an Amt
 }
 
 /// NFT state IPLD structure
@@ -140,7 +140,7 @@ impl NFTState {
         // update token data array
         let mut token_array = self.get_token_data_amt(bs)?;
         let token_id = self.next_token;
-        token_array.set(token_id, TokenData { owner, operators: HashSet::new(), metadata_id })?;
+        token_array.set(token_id, TokenData { owner, operators: vec![], metadata_id })?;
 
         // update owner data map
         let mut owner_map = self.get_owner_data_hamt(bs)?;
@@ -150,7 +150,7 @@ impl NFTState {
                     //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
                     OwnerData { balance: existing_data.balance + 1, ..existing_data.clone() }
                 } else {
-                    OwnerData { balance: 1, operators: HashSet::new() }
+                    OwnerData { balance: 1, operators: vec![] }
                 }
             }
             Err(e) => return Err(e.into()),
@@ -195,7 +195,7 @@ impl NFTState {
 
         for token_id in token_ids {
             let mut token_data = Self::owns_token(&token_array, caller, *token_id)?;
-            token_data.operators.insert(operator);
+            token_data.operators.add_operator(operator);
             token_array.set(*token_id, token_data)?;
         }
 
@@ -219,8 +219,7 @@ impl NFTState {
 
         for token_id in token_ids {
             let mut token_data = Self::owns_token(&token_array, caller, *token_id)?;
-            token_data.operators.remove(&operator);
-
+            token_data.operators.remove_operator(&operator);
             token_array.set(*token_id, token_data)?;
         }
 
@@ -243,10 +242,10 @@ impl NFTState {
         let new_owner_data = match owner_map.get(&actor_id_key(owner))? {
             Some(data) => {
                 let mut operators = data.operators.clone();
-                operators.insert(operator);
+                operators.add_operator(operator);
                 OwnerData { operators, balance: data.balance }
             }
-            None => OwnerData { balance: 0, operators: HashSet::new() },
+            None => OwnerData { balance: 0, operators: vec![] },
         };
         owner_map.set(actor_id_key(owner), new_owner_data)?;
         self.owner_data = owner_map.flush()?;
@@ -265,7 +264,7 @@ impl NFTState {
 
         let new_owner_data = owner_map.get(&actor_id_key(owner))?.map(|existing_data| {
             let mut operators = existing_data.operators.clone();
-            operators.remove(&operator);
+            operators.remove_operator(&operator);
             OwnerData { balance: existing_data.balance, operators }
         });
 
@@ -383,8 +382,7 @@ impl NFTState {
     ) -> Result<()> {
         let old_token_data =
             token_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?.clone();
-        let new_token_data =
-            TokenData { owner: receiver, operators: HashSet::new(), ..old_token_data };
+        let new_token_data = TokenData { owner: receiver, operators: vec![], ..old_token_data };
         token_array.set(token_id, new_token_data)?;
 
         let previous_owner_key = actor_id_key(old_token_data.owner);
@@ -400,7 +398,7 @@ impl NFTState {
         let new_owner_key = actor_id_key(receiver);
         let new_owner_data = match owner_map.get(&new_owner_key)? {
             Some(data) => OwnerData { balance: data.balance + 1, ..data.clone() },
-            None => OwnerData { balance: 1, operators: HashSet::new() },
+            None => OwnerData { balance: 1, operators: vec![] },
         };
         owner_map.set(new_owner_key, new_owner_data)?;
 
@@ -436,7 +434,7 @@ impl NFTState {
             .ok_or_else(|| StateError::InvariantFailed(format!("token {} not found", token_id)))?;
 
         // operator is approved at token-level
-        if token_data.operators.contains(&operator) {
+        if token_data.operators.contains_actor(&operator) {
             return Ok(true);
         }
 
@@ -444,7 +442,7 @@ impl NFTState {
         let owner_account = owner_map.get(&actor_id_key(token_data.owner))?.ok_or_else(|| {
             StateError::InvariantFailed(format!("owner of token {} not found", token_id))
         })?;
-        if owner_account.operators.contains(&operator) {
+        if owner_account.operators.contains_actor(&operator) {
             return Ok(true);
         }
 
