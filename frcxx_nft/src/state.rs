@@ -68,7 +68,7 @@ pub enum StateError {
     TokenNotFound(TokenID),
     #[error("actor {actor:?} is not the owner of the token {token_id:?}")]
     NotOwner { actor: ActorID, token_id: TokenID },
-    #[error("actor {actor:?} is not authorised for token {token_id:?}")]
+    #[error("actor {actor:?} is not authorized for token {token_id:?}")]
     NotAuthorized { actor: ActorID, token_id: TokenID },
     /// This error is returned for errors that should never happen
     #[error("invariant failed: {0}")]
@@ -230,7 +230,10 @@ impl NFTState {
     }
 
     /// Approves an operator to transfer tokens on behalf of the owner
-    pub fn approve_for_all<BS: Blockstore>(
+    ///
+    /// The operator is authorized at the account level, meaning that all tokens owned by the owner
+    /// can be transferred or burned by the operator including future tokens held by the account
+    pub fn approve_for_owner<BS: Blockstore>(
         &mut self,
         bs: &BS,
         owner: ActorID,
@@ -251,7 +254,7 @@ impl NFTState {
         Ok(())
     }
 
-    /// Revokes an operator's premission to transfer tokens on behalf of the owner
+    /// Revokes an operator's authorization to transfer tokens on behalf of the owner account
     pub fn revoke_for_all<BS: Blockstore>(
         &mut self,
         bs: &BS,
@@ -579,7 +582,7 @@ mod test {
         assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 2);
         assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
 
-        // alice is unauthorised to transfer that token now
+        // alice is unauthorized to transfer that token now
         let res = state.transfer_token(bs, ALICE_ID, ALICE_ID, &[0]).unwrap_err();
         if let StateError::NotOwner { actor: operator, token_id } = res {
             assert_eq!(operator, ALICE_ID);
@@ -636,7 +639,7 @@ mod test {
         }
 
         // approve bob to transfer on behalf of alice
-        state.approve_for_all(bs, ALICE_ID, BOB_ID).unwrap();
+        state.approve_for_owner(bs, ALICE_ID, BOB_ID).unwrap();
 
         // bob can now transfer from alice to himself
         // but cannot use the incorrect method
@@ -654,7 +657,7 @@ mod test {
         assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 1);
         assert_eq!(state.total_supply, 3);
 
-        // alice is unauthorised to transfer that token now
+        // alice is unauthorized to transfer that token now
         let res = state.transfer_token(bs, ALICE_ID, ALICE_ID, &[0]).unwrap_err();
         if let StateError::NotOwner { actor: operator, token_id } = res {
             assert_eq!(operator, ALICE_ID);
@@ -695,7 +698,7 @@ mod test {
         assert_eq!(state.get_balance(bs, ALICE_ID).unwrap(), 3);
         assert_eq!(state.get_balance(bs, BOB_ID).unwrap(), 4);
 
-        // bob's permission can be revoked
+        // bob's authorization can be revoked
         state.revoke_for_all(bs, ALICE_ID, BOB_ID).unwrap();
         let res = state.operator_transfer_token(bs, BOB_ID, BOB_ID, &[new_token_id]).unwrap_err();
         if let StateError::NotAuthorized { actor: operator, token_id } = res {
