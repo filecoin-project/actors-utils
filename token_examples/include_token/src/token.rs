@@ -33,6 +33,8 @@ pub enum RuntimeError {
     /// Error from serialising data to RawBytes
     #[error("ipld encoding error: {0}")]
     Encoding(#[from] fvm_ipld_encoding::Error),
+    #[error("ipld blockstore error: {0}")]
+    Blockstore(#[from] ErrorNumber),
 }
 
 pub fn caller_address() -> Address {
@@ -47,13 +49,13 @@ pub fn caller_address() -> Address {
 // this token implementation is designed to be embedded into some larger actor
 // where the state contains more than just the token
 
-struct BasicToken<'state> {
+pub struct BasicToken<'state> {
     /// Default token helper impl
-    util: Token<'state, Blockstore, FvmMessenger>,
+    pub util: Token<'state, Blockstore, FvmMessenger>,
     /// basic token identifier stuff, should it go here or store separately alongside the state
-    name: String,
-    symbol: String,
-    granularity: u64,
+    pub name: String,
+    pub symbol: String,
+    pub granularity: u64,
 }
 
 /// Implementation of the token API in a FVM actor
@@ -185,6 +187,11 @@ pub struct MintParams {
 
 impl Cbor for MintParams {}
 
+// TODO: add some state save/load/reload things here?
+// or am i looking at things the wrong way?
+// if BasicToken is a user implementation here then i don't need to worry about it so much
+// i should move the load/save stuff here though, then FRC46Token methods can call into it
+// it won't bother the invoke helper though, all it does is translate the incoming method number+params to token interface calls
 impl BasicToken<'_> {
     fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {
         // todo: revise error type here so it plays nice with the result and doesn't need unwrap
@@ -222,80 +229,95 @@ pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
     params.deserialize().unwrap()
 }
 
+fn return_ipld<T>(value: &T) -> std::result::Result<u32, RuntimeError>
+where
+    T: Serialize + ?Sized,
+{
+    let bytes = fvm_ipld_encoding::to_vec(value)?;
+    Ok(sdk::ipld::put_block(DAG_CBOR, bytes.as_slice())?)
+}
+
 /// Generic invoke for FRC46 Token methods
 /// Given a method number and parameter block id, invokes the appropriate method on the FRC46Token interface
+///
+/// The flush_state function passed into this must flush current state to the blockstore and update the root cid
+/// This is called after operations which mutate the state, such as changing an allowance or burning tokens.
+///
+/// Transfer and TransferFrom operations invoke the receiver hook which will require flushing state before calling the hook
+/// This must be done inside the FRC46Token::transfer/transfer_from functions
+///
 /// Possible returns:
-/// - Ok(None) - method not found or method returned no result (eg: RevokeAllowance)
-/// - Ok(Some(RawBytes)) - results of method call serialized to RawBytes
+/// - Ok(None) - method not found
+/// - Ok(Some(u32)) - block id of results saved to blockstore (or NO_DATA_BLOCK_ID if there is no result to return)
 /// - Err(error) - any error encountered during operation
 ///
-/// TODO: 'method not found' and 'method returned no result', should return distinct results
-///
-/// TODO: some operations need to save state before returning, others need to do it before calling a receiver hook
-/// how to deal with this? supply a separate 
-fn frc46_invoke<T>(method_num: u64, params: u32, token: &mut T) -> Result<Option<RawBytes>, RuntimeError>
+pub fn frc46_invoke<T, F>(
+    method_num: u64,
+    params: u32,
+    token: &mut T,
+    flush_state: F,
+) -> Result<Option<u32>, RuntimeError>
 where
     T: FRC46Token<RuntimeError>,
+    F: FnOnce(&mut T) -> Result<(), RuntimeError>,
 {
     match_method!(method_num, {
         "Name" => {
-            RawBytes::serialize(token.name()).map(Option::Some)
+            return_ipld(&token.name()).map(Option::Some)
         }
         "Symbol" => {
-            RawBytes::serialize(token.symbol()).map(Option::Some)
+            return_ipld(&token.symbol()).map(Option::Some)
         }
         "TotalSupply" => {
-            RawBytes::serialize(token.total_supply()).map(Option::Some)
+            return_ipld(&token.total_supply()).map(Option::Some)
         }
         "BalanceOf" => {
             let params = deserialize_params(params);
             let res = token.balance_of(params)?;
-            RawBytes::serialize(res).map(Option::Some)
+            return_ipld(&res).map(Option::Some)
         }
         "Allowance" => {
             let params = deserialize_params(params);
             let res = token.allowance(params)?;
-            RawBytes::serialize(res).map(Option::Some)
+            return_ipld(&res).map(Option::Some)
         }
         "IncreaseAllowance" => {
             let params = deserialize_params(params);
             let res = token.increase_allowance(params)?;
-            // TODO: this needs to flush state to the blockstore before returning
-            RawBytes::serialize(res).map(Option::Some)
+            flush_state(token)?;
+            return_ipld(&res).map(Option::Some)
         }
         "DecreaseAllowance" => {
             let params = deserialize_params(params);
             let res = token.decrease_allowance(params)?;
-            // TODO: this needs to flush state to the blockstore before returning
-            RawBytes::serialize(res).map(Option::Some)
+            flush_state(token)?;
+            return_ipld(&res).map(Option::Some)
         }
         "RevokeAllowance" => {
             let params = deserialize_params(params);
             token.revoke_allowance(params)?;
-            // TODO: this needs to flush state to the blockstore before returning
-            Ok(None)
+            flush_state(token)?;
+            Ok(Some(NO_DATA_BLOCK_ID))
         }
         "Burn" => {
             let params = deserialize_params(params);
             let res = token.burn(params)?;
-            // TODO: this needs to flush state to the blockstore before returning
-            RawBytes::serialize(res).map(Option::Some)
+            flush_state(token)?;
+            return_ipld(&res).map(Option::Some)
 
         }
         "TransferFrom" => {
             let params = deserialize_params(params);
             let res = token.transfer_from(params)?;
-            RawBytes::serialize(res).map(Option::Some)
+            return_ipld(&res).map(Option::Some)
         }
         "Transfer" => {
             let params = deserialize_params(params);
             let res = token.transfer(params)?;
-            RawBytes::serialize(res).map(Option::Some)
+            return_ipld(&res).map(Option::Some)
         }
         _ => {
-            // TODO:this might need a separate result type or something
-            // so we can tell the difference between an empty result (like RevokeAllowance) and method not found
-            // this shouldn't be an error though as we're expecting to be used as part of some larger parent invoke() function
+            // no method found - it's not considered an error here, but an upstream caller may choose to treat it as one
             Ok(None)
         }
     })
