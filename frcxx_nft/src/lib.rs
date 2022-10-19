@@ -9,7 +9,7 @@
 use cid::Cid;
 use fvm_actor_utils::messaging::{Messaging, MessagingError};
 use fvm_ipld_blockstore::Blockstore;
-use fvm_shared::address::Address;
+use fvm_shared::{address::Address, ActorID};
 use state::StateError;
 use thiserror::Error;
 
@@ -17,6 +17,7 @@ use self::state::{NFTState, TokenID};
 
 pub mod state;
 pub mod types;
+pub mod util;
 
 #[derive(Error, Debug)]
 pub enum NFTError {
@@ -76,8 +77,8 @@ where
     /// Burn a single NFT by TokenID
     ///
     /// A burnt TokenID can never be minted again
-    pub fn burn(&mut self, token_id: TokenID) -> Result<()> {
-        self.state.burn_token(&self.bs, token_id)?;
+    pub fn burn(&mut self, caller: ActorID, token_ids: &[TokenID]) -> Result<()> {
+        self.state.burn_tokens(&self.bs, caller, token_ids)?;
         Ok(())
     }
 }
