@@ -16,7 +16,7 @@ use fvm_ipld_encoding::{
     tuple::{Deserialize_tuple, Serialize_tuple},
     Cbor, RawBytes, DAG_CBOR,
 };
-use fvm_sdk::{self as sdk, sys::ErrorNumber, NO_DATA_BLOCK_ID};
+use fvm_sdk::{self as sdk, error::NoStateError, sys::ErrorNumber, NO_DATA_BLOCK_ID};
 use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode};
 use serde::{de::DeserializeOwned, ser::Serialize};
 use thiserror::Error;
@@ -35,6 +35,8 @@ pub enum RuntimeError {
     Encoding(#[from] fvm_ipld_encoding::Error),
     #[error("ipld blockstore error: {0}")]
     Blockstore(#[from] ErrorNumber),
+    #[error("actor state not found {0}")]
+    NoState(#[from] NoStateError),
 }
 
 pub fn caller_address() -> Address {
