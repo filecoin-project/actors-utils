@@ -39,88 +39,106 @@ fn test_nft_actor() {
     tester.call_method_ok(minter[0].1, actor_address, method_hash!("Constructor"), None);
     tester.call_method_ok(minter[0].1, receiver_address, method_hash!("Constructor"), None);
 
-    // Mint a single token
-    let mint_params = MintParams {
-        initial_owner: receiver_address,
-        metadata_id: vec![Cid::default()],
-        operator_data: RawBytes::default(),
-    };
-    let mint_params = RawBytes::serialize(&mint_params).unwrap();
-    let ret_val =
-        tester.call_method_ok(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
-    let mint_result = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
-    assert_eq!(mint_result.token_ids, vec![0]);
+    {
+        // Mint a single token
+        let mint_params = MintParams {
+            initial_owner: receiver_address,
+            metadata_id: vec![Cid::default()],
+            operator_data: RawBytes::default(),
+        };
+        let mint_params = RawBytes::serialize(&mint_params).unwrap();
+        let ret_val = tester.call_method_ok(
+            minter[0].1,
+            actor_address,
+            method_hash!("Mint"),
+            Some(mint_params),
+        );
+        let mint_result = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
+        assert_eq!(mint_result.token_ids, vec![0]);
 
-    // TODO: check metadata, ownership data etc. is updated
-    // Check the total supply increased
-    let ret_val =
-        tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
-    let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
-    assert_eq!(total_supply, 1);
+        // Check the total supply increased
+        let ret_val =
+            tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
+        let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
+        assert_eq!(total_supply, 1);
 
-    // Mint a second token
-    let mint_params = MintParams {
-        initial_owner: receiver_address,
-        metadata_id: vec![Cid::default()],
-        operator_data: RawBytes::default(),
-    };
-    let mint_params = RawBytes::serialize(&mint_params).unwrap();
-    let ret_val =
-        tester.call_method_ok(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
-    let mint_result = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
-    assert_eq!(mint_result.token_ids, vec![1]);
+        // TODO: check metatdata and operator balance etc. is correct
+    }
 
-    // TODO: check metadata, ownership data etc. is updated
-    // Check the total supply increased
-    let ret_val =
-        tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
-    let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
-    assert_eq!(total_supply, 2);
+    {
+        // Mint a second token
+        let mint_params = MintParams {
+            initial_owner: receiver_address,
+            metadata_id: vec![Cid::default()],
+            operator_data: RawBytes::default(),
+        };
+        let mint_params = RawBytes::serialize(&mint_params).unwrap();
+        let ret_val = tester.call_method_ok(
+            minter[0].1,
+            actor_address,
+            method_hash!("Mint"),
+            Some(mint_params),
+        );
+        let mint_result = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
+        assert_eq!(mint_result.token_ids, vec![1]);
 
-    // Attempt to burn a non-existent token
-    let burn_params: Vec<TokenID> = vec![100];
-    let burn_params = RawBytes::serialize(&burn_params).unwrap();
-    let ret_val =
-        tester.call_method(minter[0].1, actor_address, method_hash!("Burn"), Some(burn_params));
-    // call should fail
-    assert!(!ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
+        // Check the total supply increased
+        let ret_val =
+            tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
+        let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
+        assert_eq!(total_supply, 2);
+    }
 
-    // Check the total supply didn't change
-    let ret_val =
-        tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
-    let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
-    assert_eq!(total_supply, 2);
+    {
+        // Attempt to burn a non-existent token
+        let burn_params: Vec<TokenID> = vec![100];
+        let burn_params = RawBytes::serialize(&burn_params).unwrap();
+        let ret_val =
+            tester.call_method(minter[0].1, actor_address, method_hash!("Burn"), Some(burn_params));
+        // call should fail
+        assert!(!ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
 
-    // Attempt to burn the correct token but without permission
-    let burn_params: Vec<TokenID> = vec![0];
-    let burn_params = RawBytes::serialize(&burn_params).unwrap();
-    let ret_val =
-        tester.call_method(minter[0].1, actor_address, method_hash!("Burn"), Some(burn_params));
-    assert!(!ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
+        // Check the total supply didn't change
+        let ret_val =
+            tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
+        let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
+        assert_eq!(total_supply, 2);
+    }
 
-    // TODO: check metadata, ownership data etc. is updated
-    // Check the total supply didn't change
-    let ret_val =
-        tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
-    let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
-    assert_eq!(total_supply, 2);
+    {
+        // Attempt to burn the correct token but without permission
+        let burn_params: Vec<TokenID> = vec![0];
+        let burn_params = RawBytes::serialize(&burn_params).unwrap();
+        let ret_val =
+            tester.call_method(minter[0].1, actor_address, method_hash!("Burn"), Some(burn_params));
+        assert!(!ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
 
-    // Minting multiple tokens produces sequential ids
-    let mint_params = MintParams {
-        initial_owner: receiver_address,
-        metadata_id: vec![Cid::default(), Cid::default()],
-        operator_data: RawBytes::default(),
-    };
-    let mint_params = RawBytes::serialize(&mint_params).unwrap();
-    let ret_val =
-        tester.call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
-    assert!(ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
-    let mint_result = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
-    assert_eq!(mint_result.token_ids, vec![2, 3]);
+        // Check the total supply didn't change
+        let ret_val =
+            tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
+        let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
+        assert_eq!(total_supply, 2);
+    }
 
-    // Check the total supply increased
-    let ret_val = tester.call_method(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
-    assert!(ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
-    let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
-    assert_eq!(total_supply, 4);
+    {
+        // Minting multiple tokens produces sequential ids
+        let mint_params = MintParams {
+            initial_owner: receiver_address,
+            metadata_id: vec![Cid::default(), Cid::default()],
+            operator_data: RawBytes::default(),
+        };
+        let mint_params = RawBytes::serialize(&mint_params).unwrap();
+        let ret_val =
+            tester.call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
+        assert!(ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
+        let mint_result = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
+        assert_eq!(mint_result.token_ids, vec![2, 3]);
+
+        // Check the total supply increased by two
+        let ret_val =
+            tester.call_method(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
+        assert!(ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
+        let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
+        assert_eq!(total_supply, 4);
+    }
 }
