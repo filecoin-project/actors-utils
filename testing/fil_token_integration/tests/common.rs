@@ -158,7 +158,7 @@ impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {
         params: Option<RawBytes>,
     ) -> ApplyRet {
         let ret = self.call_method(from, to, method_num, params);
-        assert!(ret.msg_receipt.exit_code.is_success());
+        assert!(ret.msg_receipt.exit_code.is_success(), "call failed: {:?}", ret);
         ret
     }
 

@@ -2,6 +2,10 @@ use cid::Cid;
 use frc42_dispatch::match_method;
 use frcxx_nft::{
     state::{NFTState, TokenID},
+    types::{
+        ApproveForAllParams, ApproveParams, MintReturn, RevokeForAllParams, RevokeParams,
+        TransferFromParams, TransferParams,
+    },
     NFT,
 };
 use fvm_actor_utils::{blockstore::Blockstore, messaging::FvmMessenger};
@@ -40,17 +44,74 @@ fn invoke(params: u32) -> u32 {
         }
         "Mint" => {
             let params = deserialize_params::<MintParams>(params);
-            let res = handle.mint(Address::new_id(sdk::message::caller()), params.metadata_id).unwrap();
-
+            let caller = Address::new_id(sdk::message::caller());
+            let mut hook = handle.mint(caller, params.initial_owner, &params.metadata_id, RawBytes::default(), RawBytes::default()).unwrap();
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
-            return_ipld(&res).unwrap()
+
+            let hook_res = hook.call(&messenger).unwrap();
+            // TODO: generate return value
+            return_ipld(&MintReturn {balance: 0, supply: 0, recipient_data: RawBytes::default(), token_ids: hook_res.token_ids}).unwrap()
         }
         "Burn" => {
             let params = deserialize_params::<Vec<TokenID>>(params);
             let caller = sdk::message::caller();
             handle.burn(caller, &params).unwrap();
 
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
+        "Approve" => {
+            let params = deserialize_params::<ApproveParams>(params);
+            handle.approve(&caller_address(), &params.operator, &params.token_ids).unwrap();
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
+        "Revoke" => {
+            let params = deserialize_params::<RevokeParams>(params);
+            handle.revoke(&caller_address(), &params.operator, &params.token_ids).unwrap();
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
+        "ApproveForAll" => {
+            let params = deserialize_params::<ApproveForAllParams>(params);
+            handle.approve_for_owner(&caller_address(), &params.operator).unwrap();
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
+        "RevokeForAll" => {
+            let params = deserialize_params::<RevokeForAllParams>(params);
+            handle.revoke_for_all(&caller_address(), &params.operator).unwrap();
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
+        "Transfer" => {
+            let params = deserialize_params::<TransferParams>(params);
+            handle.transfer(
+                &caller_address(),
+                &params.to,
+                &params.token_ids,
+                params.operator_data,
+                RawBytes::default()
+            ).unwrap();
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            NO_DATA_BLOCK_ID
+        }
+        "TransferFrom" => {
+            let params = deserialize_params::<TransferFromParams>(params);
+            handle.transfer_from(
+                &caller_address(),
+                &params.to,
+                &params.token_ids,
+                params.operator_data,
+                RawBytes::default()
+            ).unwrap();
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
             NO_DATA_BLOCK_ID
@@ -71,7 +132,9 @@ pub fn constructor() {
 /// Minting tokens goes directly to the caller for now
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
-    metadata_id: Cid,
+    initial_owner: Address,
+    metadata_id: Vec<Cid>,
+    operator_data: RawBytes,
 }
 
 /// Grab the incoming parameters and convert from RawBytes to deserialized struct
@@ -95,4 +158,8 @@ where
 {
     let bytes = fvm_ipld_encoding::to_vec(value)?;
     Ok(sdk::ipld::put_block(DAG_CBOR, bytes.as_slice())?)
+}
+
+fn caller_address() -> Address {
+    Address::new_id(sdk::message::caller())
 }
