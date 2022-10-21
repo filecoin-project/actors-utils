@@ -1,5 +1,6 @@
 use frc42_dispatch::match_method;
 use frc46_token::receiver::{FRC46TokenReceived, FRC46_TOKEN_TYPE};
+use frcxx_nft::receiver::{FRCXXTokenReceived, FRCXX_TOKEN_TYPE};
 use fvm_actor_utils::receiver::UniversalReceiverParams;
 use fvm_ipld_encoding::{de::DeserializeOwned, RawBytes};
 use fvm_sdk as sdk;
@@ -18,7 +19,6 @@ fn invoke(input: u32) -> u32 {
     std::panic::set_hook(Box::new(|info| {
         sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{}", info)))
     }));
-
     let method_num = sdk::message::method_number();
     match_method!(method_num, {
         "Constructor" => {
@@ -29,16 +29,25 @@ fn invoke(input: u32) -> u32 {
             // Receive is passed a UniversalReceiverParams
             let params: UniversalReceiverParams = deserialize_params(input);
 
-            // reject if not an FRC46 token
+            // reject if not an FRC46 token or an FRCXX NFT
             // we don't know how to inspect other payloads in this example
-            if params.type_ != FRC46_TOKEN_TYPE {
-                panic!("invalid token type, rejecting transfer");
+            match params.type_ {
+                FRC46_TOKEN_TYPE => {
+                    // get token transfer data
+                    let _token_params: FRC46TokenReceived = params.payload.deserialize().unwrap();
+                    // TODO: inspect token_params and decide if we'll accept the transfer
+                    // to reject it, we just abort (or panic, which does the same thing)
+                }
+                FRCXX_TOKEN_TYPE => {
+                    // get token transfer data
+                    let _token_params: FRCXXTokenReceived = params.payload.deserialize().unwrap();
+                    // TODO: inspect token_params and decide if we'll accept the transfer
+                    // to reject it, we just abort (or panic, which does the same thing)
+                }
+                _ => {
+                    panic!("invalid token type, rejecting transfer");
+                }
             }
-
-            // get token transfer data
-            let _token_params: FRC46TokenReceived = params.payload.deserialize().unwrap();
-            // TODO: inspect token_params and decide if we'll accept the transfer
-            // to reject it, we just abort (or panic, which does the same thing)
 
             NO_DATA_BLOCK_ID
         },
