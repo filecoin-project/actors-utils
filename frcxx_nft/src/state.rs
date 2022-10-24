@@ -24,7 +24,11 @@ use thiserror::Error;
 use crate::receiver::FRCXXReceiverHook;
 use crate::receiver::FRCXXTokenReceived;
 use crate::types::MintIntermediate;
+use crate::types::MintReturn;
+use crate::types::TransferFromIntermediate;
+use crate::types::TransferFromReturn;
 use crate::types::TransferIntermediate;
+use crate::types::TransferReturn;
 use crate::util::OperatorSet;
 
 pub type TokenID = u64;
@@ -184,11 +188,9 @@ impl NFTState {
         self.token_data = token_array.flush()?;
         self.owner_data = owner_map.flush()?;
 
-        let recipient = Address::new_id(owner);
-
         // params for constructing our return value
         let mint_intermediate = MintIntermediate {
-            recipient,
+            to: owner,
             recipient_data: RawBytes::default(),
             token_ids: (first_token_id..self.next_token).collect(),
         };
@@ -202,7 +204,7 @@ impl NFTState {
             token_ids: mint_intermediate.token_ids.clone(),
         };
 
-        Ok(ReceiverHook::new_frcxx(recipient, params, mint_intermediate)?)
+        Ok(ReceiverHook::new_frcxx(Address::new_id(owner), params, mint_intermediate)?)
     }
 
     /// Get the number of tokens owned by a particular address
@@ -387,6 +389,7 @@ impl NFTState {
 
         let res = TransferIntermediate {
             to,
+            from: caller,
             token_ids: token_ids.into(),
             recipient_data: RawBytes::default(),
         };
@@ -406,7 +409,7 @@ impl NFTState {
         token_ids: &[TokenID],
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<ReceiverHook<TransferIntermediate>> {
+    ) -> Result<ReceiverHook<TransferFromIntermediate>> {
         let mut token_array = self.get_token_data_amt(bs)?;
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
@@ -430,7 +433,7 @@ impl NFTState {
             token_data,
         };
 
-        let res = TransferIntermediate {
+        let res = TransferFromIntermediate {
             to,
             token_ids: token_ids.into(),
             recipient_data: RawBytes::default(),
@@ -517,6 +520,93 @@ impl NFTState {
 
         Ok(false)
     }
+
+    /**
+     * Converts a MintIntermediate to a MintReturn
+     *
+     * This function should be called on a freshly loaded or known-up-to-date state
+     */
+    pub fn mint_return<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        intermediate: MintIntermediate,
+    ) -> Result<MintReturn> {
+        let owner_map = self.get_owner_data_hamt(bs)?;
+
+        let balance = owner_map
+            .get(&actor_id_key(intermediate.to))?
+            .ok_or_else(|| {
+                StateError::InvariantFailed(format!(
+                    "owner of tokens {:?} not found",
+                    intermediate.token_ids
+                ))
+            })?
+            .balance;
+
+        Ok(MintReturn {
+            balance,
+            supply: self.total_supply,
+            token_ids: intermediate.token_ids,
+            recipient_data: intermediate.recipient_data,
+        })
+    }
+
+    /**
+     * Converts a TransferIntermediate to a TransferReturn
+     *
+     * This function should be called on a freshly loaded or known-up-to-date state
+     */
+    pub fn transfer_return<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        intermediate: TransferIntermediate,
+    ) -> Result<TransferReturn> {
+        let owner_map = self.get_owner_data_hamt(bs)?;
+        let to_balance = owner_map
+            .get(&actor_id_key(intermediate.to))?
+            .ok_or_else(|| {
+                StateError::InvariantFailed(format!(
+                    "owner of tokens {:?} not found",
+                    intermediate.token_ids
+                ))
+            })?
+            .balance;
+        let from_balance = owner_map
+            .get(&actor_id_key(intermediate.from))?
+            .ok_or_else(|| {
+                StateError::InvariantFailed(format!(
+                    "owner of tokens {:?} not found",
+                    intermediate.token_ids
+                ))
+            })?
+            .balance;
+
+        Ok(TransferReturn { from_balance, to_balance, token_ids: intermediate.token_ids })
+    }
+
+    /**
+     * Converts a TransferFromIntermediate to a TransferFromReturn
+     *
+     * This function should be called on a freshly loaded or known-up-to-date state
+     */
+    pub fn transfer_from_return<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        intermediate: TransferFromIntermediate,
+    ) -> Result<TransferFromReturn> {
+        let owner_map = self.get_owner_data_hamt(bs)?;
+        let to_balance = owner_map
+            .get(&actor_id_key(intermediate.to))?
+            .ok_or_else(|| {
+                StateError::InvariantFailed(format!(
+                    "owner of tokens {:?} not found",
+                    intermediate.token_ids
+                ))
+            })?
+            .balance;
+
+        Ok(TransferFromReturn { to_balance, token_ids: intermediate.token_ids })
+    }
 }
 
 pub fn actor_id_key(a: ActorID) -> BytesKey {
@@ -533,7 +623,7 @@ mod test {
 
     use crate::{
         state::{StateError, TokenID},
-        types::{MintIntermediate, TransferIntermediate},
+        types::{MintIntermediate, TransferFromIntermediate, TransferIntermediate},
         NFTState,
     };
 
@@ -601,7 +691,7 @@ mod test {
             operator: ActorID,
             to: ActorID,
             token_ids: &[TokenID],
-        ) -> TransferIntermediate {
+        ) -> TransferFromIntermediate {
             let mut hook = self
                 .state
                 .operator_transfer_tokens(
@@ -624,10 +714,6 @@ mod test {
 
     #[test]
     fn it_mints_tokens_incrementally() {
-        // let bs = &MemoryBlockstore::new();
-        // let msg = &FakeMessenger::new(0, 100);
-        // let mut state = NFTState::new(bs).unwrap();
-
         let mut tester = StateTester::new();
 
         // mint first token
