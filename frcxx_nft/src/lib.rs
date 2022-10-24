@@ -8,6 +8,7 @@
 
 use cid::Cid;
 use fvm_actor_utils::{
+    actor::{Actor, ActorError},
     messaging::{Messaging, MessagingError},
     receiver::ReceiverHook,
 };
@@ -16,7 +17,10 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, ActorID};
 use state::StateError;
 use thiserror::Error;
-use types::{MintIntermediate, TransferIntermediate};
+use types::{
+    MintIntermediate, MintReturn, TransferFromIntermediate, TransferFromReturn,
+    TransferIntermediate, TransferReturn,
+};
 
 use self::state::{NFTState, TokenID};
 
@@ -31,41 +35,54 @@ pub enum NFTError {
     NFTState(#[from] StateError),
     #[error("error calling other actor: {0}")]
     Messaging(#[from] MessagingError),
+    #[error("error in runtime: {0}")]
+    Actor(#[from] ActorError),
 }
 
 pub type Result<T> = std::result::Result<T, NFTError>;
 
 /// A helper handle for NFTState that injects services into the state-level operations
-pub struct NFT<'st, BS, MSG>
+pub struct NFT<'st, BS, MSG, A>
 where
     BS: Blockstore,
     MSG: Messaging,
+    A: Actor,
 {
     bs: BS,
     msg: MSG,
     state: &'st mut NFTState,
+    actor: A,
 }
 
-impl<'st, BS, MSG> NFT<'st, BS, MSG>
+impl<'st, BS, MSG, A> NFT<'st, BS, MSG, A>
 where
     BS: Blockstore,
     MSG: Messaging,
+    A: Actor,
 {
     /// Wrap an instance of the state-tree in a handle for higher-level operations
-    pub fn wrap(bs: BS, msg: MSG, state: &'st mut NFTState) -> Self {
-        Self { bs, msg, state }
+    pub fn wrap(bs: BS, msg: MSG, actor: A, state: &'st mut NFTState) -> Self {
+        Self { bs, msg, actor, state }
     }
 
     /// Flush state and return Cid for root
     pub fn flush(&mut self) -> Result<Cid> {
         Ok(self.state.save(&self.bs)?)
     }
+
+    /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing state
+    /// The old state is returned for convenience but can be safely dropped
+    pub fn load_replace(&mut self, cid: &Cid) -> Result<NFTState> {
+        let new_state = NFTState::load(&self.bs, cid)?;
+        Ok(std::mem::replace(self.state, new_state))
+    }
 }
 
-impl<'st, BS, MSG> NFT<'st, BS, MSG>
+impl<'st, BS, MSG, A> NFT<'st, BS, MSG, A>
 where
     BS: Blockstore,
     MSG: Messaging,
+    A: Actor,
 {
     /// Return the total number of NFTs in circulation from this collection
     pub fn total_supply(&self) -> u64 {
@@ -95,6 +112,14 @@ where
             operator_data,
             token_data,
         )?)
+    }
+
+    /// Constructs MintReturn data from a MintIntermediate handle
+    ///
+    /// Creates an up-to-date view of the actor state where necessary to generate the values
+    pub fn mint_return(&mut self, intermediate: MintIntermediate, cid: Cid) -> Result<MintReturn> {
+        self.reload_if_changed(cid)?;
+        Ok(self.state.mint_return(&self.bs, intermediate)?)
     }
 
     /// Burn a single NFT by TokenID
@@ -185,6 +210,18 @@ where
         Ok(hook)
     }
 
+    /// Constructs TransferReturn data from a TransferIntermediate
+    ///
+    /// Creates an up-to-date view of the actor state where necessary to generate the values
+    pub fn transfer_return(
+        &mut self,
+        intermediate: TransferIntermediate,
+        cid: Cid,
+    ) -> Result<TransferReturn> {
+        self.reload_if_changed(cid)?;
+        Ok(self.state.transfer_return(&self.bs, intermediate)?)
+    }
+
     /// Transfers a token that the caller is an operator for
     pub fn transfer_from(
         &mut self,
@@ -193,7 +230,7 @@ where
         token_ids: &[TokenID],
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<ReceiverHook<TransferIntermediate>> {
+    ) -> Result<ReceiverHook<TransferFromIntermediate>> {
         // Attempt to instantiate the accounts if they don't exist
         let caller = self.msg.resolve_or_init(caller)?;
         let recipient = self.msg.resolve_or_init(recipient)?;
@@ -208,5 +245,31 @@ where
         )?;
 
         Ok(hook)
+    }
+
+    /// Constructs TransferReturn data from a TransferIntermediate
+    ///
+    /// Creates an up-to-date view of the actor state where necessary to generate the values
+    pub fn transfer_from_return(
+        &mut self,
+        intermediate: TransferFromIntermediate,
+        cid: Cid,
+    ) -> Result<TransferFromReturn> {
+        self.reload_if_changed(cid)?;
+        Ok(self.state.transfer_from_return(&self.bs, intermediate)?)
+    }
+
+    /// Reloads the state if the root cid has diverged (i.e. during re-entrant receiver hooks)
+    /// from the passed in cid
+    ///
+    /// Returns the current in-memory state if the root cid has changed else None
+    pub fn reload_if_changed(&mut self, cid: Cid) -> Result<Option<NFTState>> {
+        let new_cid = self.actor.root_cid()?;
+        if new_cid != cid {
+            let old_state = self.load_replace(&new_cid)?;
+            Ok(Some(old_state))
+        } else {
+            Ok(None)
+        }
     }
 }

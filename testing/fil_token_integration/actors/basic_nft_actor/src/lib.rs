@@ -3,12 +3,12 @@ use frc42_dispatch::match_method;
 use frcxx_nft::{
     state::{NFTState, TokenID},
     types::{
-        ApproveForAllParams, ApproveParams, MintReturn, RevokeForAllParams, RevokeParams,
-        TransferFromParams, TransferParams,
+        ApproveForAllParams, ApproveParams, RevokeForAllParams, RevokeParams, TransferFromParams,
+        TransferParams,
     },
     NFT,
 };
-use fvm_actor_utils::{blockstore::Blockstore, messaging::FvmMessenger};
+use fvm_actor_utils::{actor::FvmActor, blockstore::Blockstore, messaging::FvmMessenger};
 use fvm_ipld_encoding::{
     de::DeserializeOwned,
     ser,
@@ -33,9 +33,10 @@ fn invoke(params: u32) -> u32 {
     // After constructor has run we have state
     let bs = Blockstore {};
     let messenger = FvmMessenger::default();
+    let actor_helper = FvmActor {};
     let root_cid = sdk::sself::root().unwrap();
     let mut state = NFTState::load(&bs, &root_cid).unwrap();
-    let mut handle = NFT::wrap(bs, messenger, &mut state);
+    let mut handle = NFT::wrap(bs, messenger, actor_helper, &mut state);
 
     match_method!(method_num,{
         "TotalSupply" => {
@@ -46,12 +47,50 @@ fn invoke(params: u32) -> u32 {
             let params = deserialize_params::<MintParams>(params);
             let caller = Address::new_id(sdk::message::caller());
             let mut hook = handle.mint(caller, params.initial_owner, &params.metadata_id, RawBytes::default(), RawBytes::default()).unwrap();
+
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
 
             let hook_res = hook.call(&messenger).unwrap();
-            // TODO: generate return value
-            return_ipld(&MintReturn {balance: 0, supply: 0, recipient_data: RawBytes::default(), token_ids: hook_res.token_ids}).unwrap()
+
+            let ret_val = handle.mint_return(hook_res, cid).unwrap();
+            return_ipld(&ret_val).unwrap()
+        }
+        "Transfer" => {
+            let params = deserialize_params::<TransferParams>(params);
+            let mut hook = handle.transfer(
+                &caller_address(),
+                &params.to,
+                &params.token_ids,
+                params.operator_data,
+                RawBytes::default()
+            ).unwrap();
+
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+
+            let hook_res = hook.call(&messenger).unwrap();
+
+            let ret_val = handle.transfer_return(hook_res, cid).unwrap();
+            return_ipld(&ret_val).unwrap()
+        }
+        "TransferFrom" => {
+            let params = deserialize_params::<TransferFromParams>(params);
+            let mut hook = handle.transfer_from(
+                &caller_address(),
+                &params.to,
+                &params.token_ids,
+                params.operator_data,
+                RawBytes::default()
+            ).unwrap();
+
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+
+            let hook_res = hook.call(&messenger).unwrap();
+
+            let ret_val = handle.transfer_from_return(hook_res, cid).unwrap();
+            return_ipld(&ret_val).unwrap()
         }
         "Burn" => {
             let params = deserialize_params::<Vec<TokenID>>(params);
@@ -86,32 +125,6 @@ fn invoke(params: u32) -> u32 {
         "RevokeForAll" => {
             let params = deserialize_params::<RevokeForAllParams>(params);
             handle.revoke_for_all(&caller_address(), &params.operator).unwrap();
-            let cid = handle.flush().unwrap();
-            sdk::sself::set_root(&cid).unwrap();
-            NO_DATA_BLOCK_ID
-        }
-        "Transfer" => {
-            let params = deserialize_params::<TransferParams>(params);
-            handle.transfer(
-                &caller_address(),
-                &params.to,
-                &params.token_ids,
-                params.operator_data,
-                RawBytes::default()
-            ).unwrap();
-            let cid = handle.flush().unwrap();
-            sdk::sself::set_root(&cid).unwrap();
-            NO_DATA_BLOCK_ID
-        }
-        "TransferFrom" => {
-            let params = deserialize_params::<TransferFromParams>(params);
-            handle.transfer_from(
-                &caller_address(),
-                &params.to,
-                &params.token_ids,
-                params.operator_data,
-                RawBytes::default()
-            ).unwrap();
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
             NO_DATA_BLOCK_ID

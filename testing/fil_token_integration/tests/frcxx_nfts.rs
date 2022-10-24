@@ -55,6 +55,8 @@ fn test_nft_actor() {
         );
         let mint_result = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
         assert_eq!(mint_result.token_ids, vec![0]);
+        assert_eq!(mint_result.balance, 1);
+        assert_eq!(mint_result.supply, 1);
 
         // Check the total supply increased
         let ret_val =
@@ -81,6 +83,8 @@ fn test_nft_actor() {
         );
         let mint_result = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
         assert_eq!(mint_result.token_ids, vec![1]);
+        assert_eq!(mint_result.balance, 2);
+        assert_eq!(mint_result.supply, 2);
 
         // Check the total supply increased
         let ret_val =
@@ -133,6 +137,8 @@ fn test_nft_actor() {
         assert!(ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
         let mint_result = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
         assert_eq!(mint_result.token_ids, vec![2, 3]);
+        assert_eq!(mint_result.balance, 4);
+        assert_eq!(mint_result.supply, 4);
 
         // Check the total supply increased by two
         let ret_val =
