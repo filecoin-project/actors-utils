@@ -98,7 +98,7 @@ where
         &mut self,
         caller: Address,
         initial_owner: Address,
-        metadata_ids: &[Cid],
+        metadatas: &[Cid],
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<MintIntermediate>> {
@@ -108,7 +108,7 @@ where
             &self.bs,
             caller,
             initial_owner,
-            metadata_ids,
+            metadatas,
             operator_data,
             token_data,
         )?)

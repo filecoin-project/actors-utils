@@ -40,7 +40,7 @@ pub struct TokenData {
     pub owner: ActorID,
     // operators on this token
     pub operators: Vec<ActorID>, // or maybe as a Cid to an Amt
-    pub metadata_id: Cid,
+    pub metadata: Cid,
 }
 
 /// Each owner stores their own balance and other indexed data
@@ -155,7 +155,7 @@ impl NFTState {
         bs: &BS,
         caller: ActorID,
         owner: ActorID,
-        metadata_ids: &[Cid],
+        metadatas: &[Cid],
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<MintIntermediate>> {
@@ -165,10 +165,10 @@ impl NFTState {
 
         let first_token_id = self.next_token;
 
-        for metadata_id in metadata_ids {
+        for metadata in metadatas {
             let token_id = self.next_token;
             token_array
-                .set(token_id, TokenData { owner, operators: vec![], metadata_id: *metadata_id })?;
+                .set(token_id, TokenData { owner, operators: vec![], metadata: *metadata })?;
             // update owner data map
             let new_owner_data = match owner_map.get(&actor_id_key(owner)) {
                 Ok(entry) => {
@@ -623,6 +623,16 @@ impl NFTState {
             .balance;
 
         Ok(TransferFromReturn { to_balance, token_ids: intermediate.token_ids })
+    }
+
+    /**
+     * Get the metadata for a token
+     */
+    pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<Cid> {
+        let token_data_array = self.get_token_data_amt(bs)?;
+        let token =
+            token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
+        Ok(token.metadata)
     }
 }
 

@@ -46,7 +46,7 @@ fn invoke(params: u32) -> u32 {
         "Mint" => {
             let params = deserialize_params::<MintParams>(params);
             let caller = Address::new_id(sdk::message::caller());
-            let mut hook = handle.mint(caller, params.initial_owner, &params.metadata_id, RawBytes::default(), RawBytes::default()).unwrap();
+            let mut hook = handle.mint(caller, params.initial_owner, &params.metadata, RawBytes::default(), RawBytes::default()).unwrap();
 
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
@@ -146,7 +146,7 @@ pub fn constructor() {
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
     initial_owner: Address,
-    metadata_id: Vec<Cid>,
+    metadata: Vec<Cid>,
     operator_data: RawBytes,
 }
 
