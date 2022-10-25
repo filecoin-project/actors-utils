@@ -232,7 +232,7 @@ impl FakeAddressResolver {
     pub fn initialize_account(&mut self, address: &Address) -> Result<ActorID> {
         match address.payload() {
             fvm_shared::address::Payload::ID(id) => {
-                panic!("attempting to initialise an already resolved id {}", id)
+                panic!("attempting to initialise an already resolved id {id}")
             }
             fvm_shared::address::Payload::Secp256k1(_) => Ok(self._initialize_address(address)?),
             fvm_shared::address::Payload::BLS(_) => Ok(self._initialize_address(address)?),

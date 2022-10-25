@@ -672,7 +672,7 @@ where
         let receipt = self.msg.send(
             token_receiver,
             RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(&params)?,
+            &RawBytes::serialize(params)?,
             &TokenAmount::zero(),
         )?;
 
@@ -2065,7 +2065,7 @@ mod test {
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, TokenAmount::from_atto(10));
             }
-            e => panic!("Unexpected error {:?}", e),
+            e => panic!("Unexpected error {e:?}"),
         }
         // balances unchanged
         assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
@@ -2100,7 +2100,7 @@ mod test {
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, TokenAmount::zero());
             }
-            e => panic!("Unexpected error {:?}", e),
+            e => panic!("Unexpected error {e:?}"),
         }
         // balances unchanged
         assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
@@ -2165,7 +2165,7 @@ mod test {
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, burn_amount);
             }
-            e => panic!("unexpected error {:?}", e),
+            e => panic!("unexpected error {e:?}"),
         };
 
         // balances didn't change
@@ -2222,7 +2222,7 @@ mod test {
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, burn_amount);
             }
-            e => panic!("unexpected error {:?}", e),
+            e => panic!("unexpected error {e:?}"),
         };
         // balances unchanged
         assert_eq!(token.total_supply(), TokenAmount::from_atto(400_000));
@@ -2273,7 +2273,7 @@ mod test {
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, burn_amount);
             }
-            e => panic!("unexpected error {:?}", e),
+            e => panic!("unexpected error {e:?}"),
         };
         // balances unchanged
         assert_eq!(token.total_supply(), mint_amount);
@@ -2295,7 +2295,7 @@ mod test {
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, TokenAmount::zero());
             }
-            e => panic!("unexpected error {:?}", e),
+            e => panic!("unexpected error {e:?}"),
         };
         // balances unchanged
         assert_eq!(token.total_supply(), mint_amount);
@@ -2645,7 +2645,7 @@ mod test {
                             assert_eq!(a, TokenAmount::from_atto(allowance));
                             assert_eq!(delta, TokenAmount::from_atto(transfer));
                         } else {
-                            panic!("unexpected error {:?}", err);
+                            panic!("unexpected error {err:?}");
                         }
                     }
                     "BALANCE_ERR" => {
@@ -2659,7 +2659,7 @@ mod test {
                             assert_eq!(delta, TokenAmount::from_atto(transfer).neg());
                             assert_eq!(b, TokenAmount::from_atto(balance));
                         } else {
-                            panic!("unexpected error {:?}", err);
+                            panic!("unexpected error {err:?}");
                         }
                     }
                     "ADDRESS_ERR" => {
@@ -2668,7 +2668,7 @@ mod test {
                         {
                             assert!((addr == *operator) || (addr == *from));
                         } else {
-                            panic!("unexpected error {:?}", err);
+                            panic!("unexpected error {err:?}");
                         }
                     }
                     _ => panic!("test case not implemented"),

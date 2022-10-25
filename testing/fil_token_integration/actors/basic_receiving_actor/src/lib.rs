@@ -17,7 +17,7 @@ pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
 #[no_mangle]
 fn invoke(input: u32) -> u32 {
     std::panic::set_hook(Box::new(|info| {
-        sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{}", info)))
+        sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{info}")))
     }));
     let method_num = sdk::message::method_number();
     match_method!(method_num, {

@@ -346,7 +346,7 @@ impl NFTState {
 
             let owner_key = actor_id_key(token_data.owner);
             let owner_data = owner_map.get(&owner_key)?.ok_or_else(|| {
-                StateError::InvariantFailed(format!("owner of token {} not found", token_id))
+                StateError::InvariantFailed(format!("owner of token {token_id} not found"))
             })?;
 
             if owner_data.balance == 1 && owner_data.operators.is_empty() {
@@ -472,7 +472,7 @@ impl NFTState {
         let previous_owner_data = owner_map
             .get(&previous_owner_key)?
             .ok_or_else(|| {
-                StateError::InvariantFailed(format!("owner of token {} not found", token_id))
+                StateError::InvariantFailed(format!("owner of token {token_id} not found"))
             })?
             .clone();
         let previous_owner_data =
@@ -520,7 +520,7 @@ impl NFTState {
     ) -> Result<bool> {
         let token_data = token_array
             .get(token_id)?
-            .ok_or_else(|| StateError::InvariantFailed(format!("token {} not found", token_id)))?;
+            .ok_or_else(|| StateError::InvariantFailed(format!("token {token_id} not found")))?;
 
         // operator is approved at token-level
         if token_data.operators.contains_actor(&operator) {
@@ -529,7 +529,7 @@ impl NFTState {
 
         // operator is approved at account-level
         let owner_account = owner_map.get(&actor_id_key(token_data.owner))?.ok_or_else(|| {
-            StateError::InvariantFailed(format!("owner of token {} not found", token_id))
+            StateError::InvariantFailed(format!("owner of token {token_id} not found"))
         })?;
         if owner_account.operators.contains_actor(&operator) {
             return Ok(true);
@@ -910,7 +910,7 @@ mod test {
 
         fn assert_invariants(&self) {
             let (_, vec) = self.state.check_invariants(&self.bs);
-            assert!(vec.is_empty(), "invariants failed: {:?}", vec);
+            assert!(vec.is_empty(), "invariants failed: {vec:?}");
         }
     }
 
@@ -971,7 +971,7 @@ mod test {
         if let StateError::TokenNotFound(token_id) = err {
             assert_eq!(token_id, 99);
         } else {
-            panic!("unexpected error: {:?}", err);
+            panic!("unexpected error: {err:?}");
         }
         // no state change
         assert_eq!(tester.state.total_supply, 4);
@@ -1027,7 +1027,7 @@ mod test {
             assert_eq!(operator, BOB_ID);
             assert_eq!(token_id, 0);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
 
         // alice can transfer to bob
@@ -1052,7 +1052,7 @@ mod test {
             assert_eq!(operator, ALICE_ID);
             assert_eq!(token_id, 0);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
         // no state change
         tester.assert_balance(ALICE_ID, 2);
@@ -1104,7 +1104,7 @@ mod test {
             assert_eq!(operator, ALICE_ID);
             assert_eq!(token_id, 1);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
         // state unchanged
         tester.assert_balance(ALICE_ID, 3);
@@ -1142,7 +1142,7 @@ mod test {
             assert_eq!(operator, BOB_ID);
             assert_eq!(token_id, 0);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
 
         // approve bob to transfer on behalf of alice
@@ -1165,7 +1165,7 @@ mod test {
             assert_eq!(operator, BOB_ID);
             assert_eq!(token_id, 0);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
 
         // using correct method succeeds
@@ -1212,7 +1212,7 @@ mod test {
             assert_eq!(operator, ALICE_ID);
             assert_eq!(token_id, 0);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
         tester.assert_balance(ALICE_ID, 2);
         tester.assert_balance(BOB_ID, 1);
@@ -1291,7 +1291,7 @@ mod test {
             assert_eq!(operator, BOB_ID);
             assert_eq!(token_id, res.token_ids[1]);
         } else {
-            panic!("unexpected error: {:?}", err);
+            panic!("unexpected error: {err:?}");
         }
 
         // state didn't change
@@ -1370,7 +1370,7 @@ mod test {
                 assert_eq!(actor, CHARLIE_ID);
                 assert_eq!(token_id, token_0);
             } else {
-                panic!("unexpected error: {:?}", res);
+                panic!("unexpected error: {res:?}");
             }
 
             // alice approves bob and charlie as operators
@@ -1394,7 +1394,7 @@ mod test {
                 assert_eq!(actor, CHARLIE_ID);
                 assert_eq!(token_id, token_0);
             } else {
-                panic!("unexpected error: {:?}", res);
+                panic!("unexpected error: {res:?}");
             }
 
             // but bob can transfer token_0

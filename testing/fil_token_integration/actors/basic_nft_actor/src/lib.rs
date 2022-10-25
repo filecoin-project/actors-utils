@@ -130,7 +130,7 @@ fn invoke(params: u32) -> u32 {
             NO_DATA_BLOCK_ID
         }
         _ => {
-            sdk::vm::abort(ExitCode::USR_ILLEGAL_ARGUMENT.value(), Some(&format!("Unknown method number {:?} was invoked", method_num)));
+            sdk::vm::abort(ExitCode::USR_ILLEGAL_ARGUMENT.value(), Some(&format!("Unknown method number {method_num:?} was invoked")));
         }
     })
 }
