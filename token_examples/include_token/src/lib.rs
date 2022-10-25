@@ -1,20 +1,22 @@
 use frc42_dispatch::match_method;
-use frc46_token::token::Token;
-use fvm_actor_utils::{
-    blockstore::Blockstore, messaging::FvmMessenger, receiver::ReceiverHookError,
-};
+use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_sdk::NO_DATA_BLOCK_ID;
 use fvm_shared::error::ExitCode;
 mod token;
 
-use token::{frc46_invoke, BasicToken};
+use token::{deserialize_params, frc46_invoke, return_ipld, BasicToken, MintParams};
 
-fn construct_token() {
-    let bs = Blockstore::default();
-    // TODO: need to construct a BasicToken and store that, not only the TokenState
-    let mut token_state = Token::<_, FvmMessenger>::create_state(&bs).unwrap();
-    let mut token = Token::wrap(bs, FvmMessenger::default(), 1, &mut token_state);
-    let cid = token.flush().unwrap();
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct ConstructorParams {
+    pub name: String,
+    pub symbol: String,
+    pub granularity: u64,
+    // TODO: minting strategy stuff
+}
+
+fn construct_token(params: ConstructorParams) {
+    let token = BasicToken::new(params.name, params.symbol, params.granularity);
+    let cid = token.save().unwrap();
     fvm_sdk::sself::set_root(&cid).unwrap();
 }
 
@@ -29,31 +31,28 @@ pub fn invoke(params: u32) -> u32 {
     // which handles any methods in the FRC46 token interface to save us writing the same
     match_method!(method_num, {
         "Constructor" => {
-            construct_token();
+            let params = deserialize_params(params);
+            construct_token(params);
             NO_DATA_BLOCK_ID
         }
         "Mint" => {
-            fvm_sdk::vm::abort(
-                ExitCode::USR_UNHANDLED_MESSAGE.value(),
-                Some("Unknown method number"),
-            )
+            let root_cid = fvm_sdk::sself::root().unwrap();
+            let params: MintParams = deserialize_params(params);
+            let mut token_actor = BasicToken::load(&root_cid).unwrap();
+            let res = token_actor.mint(params).unwrap();
+            return_ipld(&res).unwrap()
         }
         _ => {
             let root_cid = fvm_sdk::sself::root().unwrap();
 
-            let bs = Blockstore::default();
-            // TODO: we need to load (and later store) more than just this basic state now
-            let mut token_state = Token::<_, FvmMessenger>::load_state(&bs, &root_cid).unwrap();
-
-            let mut token_actor =
-                BasicToken { util: Token::wrap(bs, FvmMessenger::default(), 1, &mut token_state), name: String::from("Test Token"), symbol: String::from("TEST"), granularity: 1 };
+            let mut token_actor = BasicToken::load(&root_cid).unwrap();
 
             // call FRC46 token methods
             // note that the `token_actor` passed in here needs to know how to save and load state
             let res = frc46_invoke(method_num, params, &mut token_actor, |token| {
                 // `token` is passed through from the original token provided in the function call
                 // so it won't break mutable borrow rules when used here (trying to use token_actor directly won't work)
-                let cid = token.util.flush()?; // TODO: we need to store the entire BasicToken now, so util.flush() won't be enough
+                let cid = token.token().flush()?; // TODO: we need to store the entire BasicToken now, so util.flush() won't be enough
                 fvm_sdk::sself::set_root(&cid)?;
                 Ok(())
             }).unwrap();
@@ -61,10 +60,12 @@ pub fn invoke(params: u32) -> u32 {
                 // handled by frc46_invoke, return result
                 Some(r) => r,
                 // method not found
-                None => fvm_sdk::vm::abort(
+                None => {
+                    fvm_sdk::vm::abort(
                         ExitCode::USR_UNHANDLED_MESSAGE.value(),
                         Some("Unknown method number"),
                     )
+                }
             }
         }
     })
