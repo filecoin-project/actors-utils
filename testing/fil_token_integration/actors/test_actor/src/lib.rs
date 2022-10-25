@@ -3,6 +3,7 @@ use frc46_token::{
     receiver::{FRC46TokenReceived, FRC46_TOKEN_TYPE},
     token::types::{BurnParams, TransferParams},
 };
+use frcxx_nft::receiver::FRCXX_TOKEN_TYPE;
 use fvm_actor_utils::receiver::UniversalReceiverParams;
 use fvm_ipld_encoding::{
     de::DeserializeOwned,
@@ -111,7 +112,7 @@ fn invoke(input: u32) -> u32 {
 
             // reject if not an FRC46 token
             // we don't know how to inspect other payloads here
-            if params.type_ != FRC46_TOKEN_TYPE {
+            if params.type_ != FRC46_TOKEN_TYPE  && params.type_ != FRCXX_TOKEN_TYPE{
                 panic!("invalid token type, rejecting transfer");
             }
 

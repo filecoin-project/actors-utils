@@ -10,7 +10,8 @@ use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
 
 mod common;
-use common::{construct_tester, TestHelpers, TokenHelpers};
+use common::frc46_token::TokenHelpers;
+use common::{construct_tester, TestHelpers};
 
 const BASIC_TOKEN_ACTOR_WASM: &str =
     "../../target/debug/wbuild/basic_token_actor/basic_token_actor.compact.wasm";

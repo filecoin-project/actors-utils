@@ -14,7 +14,7 @@ use common::{construct_tester, TestHelpers};
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
     initial_owner: Address,
-    metadata_id: Vec<Cid>,
+    metadata: Vec<Cid>,
     operator_data: RawBytes,
 }
 
@@ -43,7 +43,7 @@ fn test_nft_actor() {
         // Mint a single token
         let mint_params = MintParams {
             initial_owner: receiver_address,
-            metadata_id: vec![Cid::default()],
+            metadata: vec![Cid::default()],
             operator_data: RawBytes::default(),
         };
         let mint_params = RawBytes::serialize(&mint_params).unwrap();
@@ -71,7 +71,7 @@ fn test_nft_actor() {
         // Mint a second token
         let mint_params = MintParams {
             initial_owner: receiver_address,
-            metadata_id: vec![Cid::default()],
+            metadata: vec![Cid::default()],
             operator_data: RawBytes::default(),
         };
         let mint_params = RawBytes::serialize(&mint_params).unwrap();
@@ -128,7 +128,7 @@ fn test_nft_actor() {
         // Minting multiple tokens produces sequential ids
         let mint_params = MintParams {
             initial_owner: receiver_address,
-            metadata_id: vec![Cid::default(), Cid::default()],
+            metadata: vec![Cid::default(), Cid::default()],
             operator_data: RawBytes::default(),
         };
         let mint_params = RawBytes::serialize(&mint_params).unwrap();

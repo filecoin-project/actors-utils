@@ -6,7 +6,8 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, receipt::Receipt};
 
 mod common;
-use common::{construct_tester, TestHelpers, TokenHelpers};
+use common::frc46_token::TokenHelpers;
+use common::{construct_tester, TestHelpers};
 use test_actor::{action, ActionParams, TestAction};
 
 const BASIC_TOKEN_ACTOR_WASM: &str =
