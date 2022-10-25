@@ -349,14 +349,17 @@ impl NFTState {
                 StateError::InvariantFailed(format!("owner of token {} not found", token_id))
             })?;
 
-            // TODO: if balance goes to zero AND approved array is empty, delete the owner entry
-            owner_map.set(
-                owner_key,
-                OwnerData {
-                    balance: owner_data.balance - 1,
-                    operators: owner_data.operators.clone(),
-                },
-            )?;
+            if owner_data.balance == 1 && owner_data.operators.is_empty() {
+                owner_map.delete(&owner_key)?;
+            } else {
+                owner_map.set(
+                    owner_key,
+                    OwnerData {
+                        balance: owner_data.balance - 1,
+                        operators: owner_data.operators.clone(),
+                    },
+                )?;
+            }
         }
 
         self.total_supply -= token_ids.len() as u64;
