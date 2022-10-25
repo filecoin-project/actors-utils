@@ -30,6 +30,7 @@ test-actors: install-toolchain
 	cargo test --package greeter --package fil_token_integration_tests
 
 install-toolchain:
+	rustup update
 	rustup component add rustfmt
 	rustup component add clippy
 	rustup target add wasm32-unknown-unknown
