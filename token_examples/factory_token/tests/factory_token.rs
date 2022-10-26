@@ -54,6 +54,10 @@ pub fn action(action: TestAction) -> RawBytes {
     RawBytes::serialize(action).unwrap()
 }
 
+fn action_params(token_address: Address, action: TestAction) -> RawBytes {
+    RawBytes::serialize(ActionParams { token_address, action }).unwrap()
+}
+
 #[test]
 fn factory_token() {
     let blockstore = MemoryBlockstore::default();
@@ -118,5 +122,19 @@ fn factory_token() {
 
         // check balance of test actor, should be zero
         tester.assert_token_balance(operator[0].1, token_actor, alice, TokenAmount::from_atto(100));
+    }
+
+    // transfer those tokens from alice to bob, who accepts
+    {
+        let params =
+            action_params(token_actor, TestAction::Transfer(bob, action(TestAction::Accept)));
+        let ret_val =
+            tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
+        // check the receipt we got in return data
+        let receipt: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
+        assert!(receipt.exit_code.is_success());
+        // check balances
+        tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
+        tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(100));
     }
 }
