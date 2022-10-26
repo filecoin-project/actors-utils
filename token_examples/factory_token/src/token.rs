@@ -126,7 +126,8 @@ impl FRC46Token<RuntimeError> for BasicToken {
             RawBytes::default(),
         )?;
 
-        let cid = self.token().flush()?;
+        //let cid = self.token().flush()?;
+        let cid = self.save()?;
         sdk::sself::set_root(&cid).unwrap();
 
         let hook_ret = hook.call(self.token().msg())?;
@@ -151,7 +152,8 @@ impl FRC46Token<RuntimeError> for BasicToken {
             RawBytes::default(),
         )?;
 
-        let cid = self.token().flush()?;
+        //let cid = self.token().flush()?;
+        let cid = self.save()?;
         sdk::sself::set_root(&cid).unwrap();
 
         let hook_ret = hook.call(self.token().msg())?;
@@ -269,7 +271,8 @@ impl BasicToken {
             Default::default(),
         )?;
 
-        let cid = self.token().flush()?;
+        //let cid = self.token().flush()?;
+        let cid = self.save()?;
         sdk::sself::set_root(&cid).unwrap();
 
         let hook_ret = hook.call(self.token().msg())?;
