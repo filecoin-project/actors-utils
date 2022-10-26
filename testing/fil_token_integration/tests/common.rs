@@ -131,7 +131,7 @@ pub mod frc46_token {
     use super::TestHelpers;
 
     // this is here so we don't need to link every test against the basic_token_actor
-    // otherwise we can't link against test_actor or any other test/example actors,
+    // otherwise we can't link against frc46_test_actor or any other test/example actors,
     // because the invoke() functions will conflict at link time
     #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
     pub struct MintParams {

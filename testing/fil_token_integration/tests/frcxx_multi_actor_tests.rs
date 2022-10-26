@@ -8,11 +8,12 @@ use fvm_shared::{address::Address, receipt::Receipt};
 mod common;
 // use common::frcxx_nft::NFTHelpers;
 use common::{construct_tester, TestHelpers};
-use test_actor::{action, ActionParams, TestAction};
+use frc46_test_actor::{action, ActionParams, TestAction};
 
 const BASIC_NFT_ACTOR_WASM: &str =
     "../../target/debug/wbuild/basic_nft_actor/basic_nft_actor.compact.wasm";
-const TEST_ACTOR_WASM: &str = "../../target/debug/wbuild/test_actor/test_actor.compact.wasm";
+const TEST_ACTOR_WASM: &str =
+    "../../target/debug/wbuild/frc46_test_actor/frc46_test_actor.compact.wasm";
 
 fn action_params(token_address: Address, action: TestAction) -> RawBytes {
     RawBytes::serialize(ActionParams { token_address, action }).unwrap()
