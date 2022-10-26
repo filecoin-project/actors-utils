@@ -224,8 +224,7 @@ impl Cbor for MintParams {}
 // i should move the load/save stuff here though, then FRC46Token methods can call into it
 // it won't bother the invoke helper though, all it does is translate the incoming method number+params to token interface calls
 impl BasicToken {
-    pub fn new(name: String, symbol: String, granularity: u64) -> Self {
-        let bs = Blockstore::default();
+    pub fn new<BS: _BS>(bs: &BS, name: String, symbol: String, granularity: u64) -> Self {
         BasicToken { token: TokenState::new(&bs).unwrap(), name, symbol, granularity }
     }
 

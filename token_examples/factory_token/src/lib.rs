@@ -1,8 +1,9 @@
 use frc42_dispatch::match_method;
+use fvm_actor_utils::blockstore::Blockstore;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_sdk::NO_DATA_BLOCK_ID;
 use fvm_shared::error::ExitCode;
-mod token;
+pub mod token;
 
 use token::{deserialize_params, frc46_invoke, return_ipld, BasicToken, MintParams};
 
@@ -15,7 +16,8 @@ pub struct ConstructorParams {
 }
 
 fn construct_token(params: ConstructorParams) {
-    let token = BasicToken::new(params.name, params.symbol, params.granularity);
+    let bs = Blockstore::default();
+    let token = BasicToken::new(&bs, params.name, params.symbol, params.granularity);
     let cid = token.save().unwrap();
     fvm_sdk::sself::set_root(&cid).unwrap();
 }
