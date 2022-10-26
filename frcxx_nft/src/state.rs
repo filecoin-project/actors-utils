@@ -333,12 +333,56 @@ impl NFTState {
         bs: &BS,
         caller: ActorID,
         token_ids: &[TokenID],
-    ) -> Result<()> {
+    ) -> Result<u64> {
         let mut token_array = self.get_token_data_amt(bs)?;
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         for token_id in token_ids {
             Self::owns_token(&token_array, caller, *token_id)?;
+
+            let _token_data = token_array
+                .delete(*token_id)?
+                .ok_or_else(|| StateError::TokenNotFound(*token_id))?;
+        }
+
+        // we only reach here if all tokens were burned successfully so assume the caller is valid
+        let owner_key = actor_id_key(caller);
+        let mut new_owner_data = owner_map
+            .get(&owner_key)?
+            .ok_or_else(|| StateError::InvariantFailed("owner of tokens not found".into()))?
+            .clone();
+        let new_balance = new_owner_data.balance - token_ids.len() as u64;
+
+        // update the owner's balance
+        new_owner_data.balance = new_balance;
+        if new_owner_data.balance == 0 && new_owner_data.operators.is_empty() {
+            owner_map.delete(&owner_key)?;
+        } else {
+            owner_map.set(owner_key, new_owner_data)?;
+        }
+
+        self.total_supply -= token_ids.len() as u64;
+        self.token_data = token_array.flush()?;
+        self.owner_data = owner_map.flush()?;
+        Ok(new_balance)
+    }
+
+    /// Burns a set of token, removing them from circulation and deleting associated metadata.
+    /// The caller must be an approved operator at the token or account level.
+    ///
+    /// If any of the token_ids is not valid (i.e. non-existent/already burned or not authorized for
+    /// the caller), the entire batch of burns fails
+    pub fn operator_burn_tokens<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        caller: u64,
+        token_ids: &[u64],
+    ) -> Result<()> {
+        let mut token_array = self.get_token_data_amt(bs)?;
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
+
+        for token_id in token_ids {
+            Self::approved_for_token(&token_array, &owner_map, caller, *token_id)?;
 
             let token_data = token_array
                 .delete(*token_id)?

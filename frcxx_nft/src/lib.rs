@@ -89,6 +89,16 @@ where
         self.state.total_supply
     }
 
+    /// Return the number of NFTs held by a particular address
+    pub fn balance_of(&self, address: &Address) -> Result<u64> {
+        let balance = match self.msg.resolve_id(address) {
+            Ok(owner) => self.state.get_balance(&self.bs, owner)?,
+            Err(MessagingError::AddressNotResolved(_)) => 0,
+            Err(e) => return Err(e.into()),
+        };
+        Ok(balance)
+    }
+
     /// Create a single new NFT belonging to the initial_owner. The mint method is not standardised
     /// as part of the actor's interface but this is a usefuly method at the library level to
     /// generate new tokens that will maintain the necessary state invariants.
@@ -96,14 +106,14 @@ where
     /// Returns a MintIntermediate that can be used to construct return data
     pub fn mint(
         &mut self,
-        caller: Address,
-        initial_owner: Address,
+        caller: &Address,
+        initial_owner: &Address,
         metadatas: &[Cid],
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<MintIntermediate>> {
-        let caller = self.msg.resolve_or_init(&caller)?;
-        let initial_owner = self.msg.resolve_or_init(&initial_owner)?;
+        let caller = self.msg.resolve_or_init(caller)?;
+        let initial_owner = self.msg.resolve_or_init(initial_owner)?;
         Ok(self.state.mint_tokens(
             &self.bs,
             caller,
@@ -122,11 +132,19 @@ where
         Ok(self.state.mint_return(&self.bs, intermediate)?)
     }
 
-    /// Burn a single NFT by TokenID
+    /// Burn a set of NFTs as the owner
     ///
     /// A burnt TokenID can never be minted again
-    pub fn burn(&mut self, caller: ActorID, token_ids: &[TokenID]) -> Result<()> {
-        self.state.burn_tokens(&self.bs, caller, token_ids)?;
+    pub fn burn(&mut self, caller: ActorID, token_ids: &[TokenID]) -> Result<u64> {
+        let balance = self.state.burn_tokens(&self.bs, caller, token_ids)?;
+        Ok(balance)
+    }
+
+    /// Burn a set of NFTs as an operator
+    ///
+    /// A burnt TokenID can never be minted again
+    pub fn burn_for(&mut self, caller: ActorID, token_ids: &[TokenID]) -> Result<()> {
+        self.state.operator_burn_tokens(&self.bs, caller, token_ids)?;
         Ok(())
     }
 

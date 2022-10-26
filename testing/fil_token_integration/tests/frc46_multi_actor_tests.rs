@@ -13,7 +13,7 @@ use frc46_test_actor::{action, ActionParams, TestAction};
 const BASIC_TOKEN_ACTOR_WASM: &str =
     "../../target/debug/wbuild/basic_token_actor/basic_token_actor.compact.wasm";
 const TEST_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/frc46_frc46_test_actor/frc46_frc46_test_actor.compact.wasm";
+    "../../target/debug/wbuild/frc46_test_actor/frc46_test_actor.compact.wasm";
 
 fn action_params(token_address: Address, action: TestAction) -> RawBytes {
     RawBytes::serialize(ActionParams { token_address, action }).unwrap()
