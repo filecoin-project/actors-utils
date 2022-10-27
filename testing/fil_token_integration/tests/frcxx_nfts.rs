@@ -8,6 +8,7 @@ use fvm_shared::address::Address;
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
 mod common;
+use common::frcxx_nft::NFTHelpers;
 use common::{construct_tester, TestHelpers};
 
 /// Copied from basic_nft_actor
@@ -64,7 +65,10 @@ fn test_nft_actor() {
         let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
         assert_eq!(total_supply, 1);
 
-        // TODO: check metatdata and operator balance etc. is correct
+        // Check the balance is correct
+        tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 1);
+
+        // TODO: check metatdata is correct
     }
 
     {
@@ -91,6 +95,9 @@ fn test_nft_actor() {
             tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
         let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
         assert_eq!(total_supply, 2);
+
+        // Check the balance increased
+        tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 2);
     }
 
     {
@@ -107,6 +114,9 @@ fn test_nft_actor() {
             tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
         let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
         assert_eq!(total_supply, 2);
+
+        // Check the balance didn't change
+        tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 2);
     }
 
     {
@@ -122,6 +132,9 @@ fn test_nft_actor() {
             tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
         let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
         assert_eq!(total_supply, 2);
+
+        // Check the balance didn't change
+        tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 2);
     }
 
     {

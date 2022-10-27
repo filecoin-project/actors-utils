@@ -592,17 +592,7 @@ impl NFTState {
         bs: &BS,
         intermediate: MintIntermediate,
     ) -> Result<MintReturn> {
-        let owner_map = self.get_owner_data_hamt(bs)?;
-
-        let balance = owner_map
-            .get(&actor_id_key(intermediate.to))?
-            .ok_or_else(|| {
-                StateError::InvariantFailed(format!(
-                    "owner of tokens {:?} not found",
-                    intermediate.token_ids
-                ))
-            })?
-            .balance;
+        let balance = self.get_balance(bs, intermediate.to)?;
 
         Ok(MintReturn {
             balance,
@@ -622,26 +612,9 @@ impl NFTState {
         bs: &BS,
         intermediate: TransferIntermediate,
     ) -> Result<TransferReturn> {
-        let owner_map = self.get_owner_data_hamt(bs)?;
-        let to_balance = owner_map
-            .get(&actor_id_key(intermediate.to))?
-            .ok_or_else(|| {
-                StateError::InvariantFailed(format!(
-                    "owner of tokens {:?} not found",
-                    intermediate.token_ids
-                ))
-            })?
-            .balance;
-        let from_balance = owner_map
-            .get(&actor_id_key(intermediate.from))?
-            .ok_or_else(|| {
-                StateError::InvariantFailed(format!(
-                    "owner of tokens {:?} not found",
-                    intermediate.token_ids
-                ))
-            })?
-            .balance;
-
+        // TODO: optimise a pattern to avoid reading the owner data hamt twice
+        let to_balance = self.get_balance(bs, intermediate.to)?;
+        let from_balance = self.get_balance(bs, intermediate.from)?;
         Ok(TransferReturn { from_balance, to_balance, token_ids: intermediate.token_ids })
     }
 
@@ -655,17 +628,7 @@ impl NFTState {
         bs: &BS,
         intermediate: TransferFromIntermediate,
     ) -> Result<TransferFromReturn> {
-        let owner_map = self.get_owner_data_hamt(bs)?;
-        let to_balance = owner_map
-            .get(&actor_id_key(intermediate.to))?
-            .ok_or_else(|| {
-                StateError::InvariantFailed(format!(
-                    "owner of tokens {:?} not found",
-                    intermediate.token_ids
-                ))
-            })?
-            .balance;
-
+        let to_balance = self.get_balance(bs, intermediate.to)?;
         Ok(TransferFromReturn { to_balance, token_ids: intermediate.token_ids })
     }
 

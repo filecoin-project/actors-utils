@@ -94,7 +94,7 @@ impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {
         params: Option<RawBytes>,
     ) -> ApplyRet {
         let ret = self.call_method(from, to, method_num, params);
-        assert!(ret.msg_receipt.exit_code.is_success(), "call failed: {ret:?}");
+        assert!(ret.msg_receipt.exit_code.is_success(), "call failed: {ret:#?}");
         ret
     }
 
@@ -324,7 +324,7 @@ pub mod frcxx_nft {
         fn nft_balance(&mut self, operator: Address, token_actor: Address, target: Address) -> u64 {
             let params = RawBytes::serialize(target).unwrap();
             let ret_val =
-                self.call_method(operator, token_actor, method_hash!("Balance"), Some(params));
+                self.call_method(operator, token_actor, method_hash!("BalanceOf"), Some(params));
             ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap()
         }
 
@@ -336,13 +336,12 @@ pub mod frcxx_nft {
             amount: usize,
             operator_data: RawBytes,
         ) -> ApplyRet {
-            let params = RawBytes::serialize(MintParams {
+            let mint_params = MintParams {
                 initial_owner: target,
                 metadata: vec![Cid::default(); amount],
                 operator_data,
-            })
-            .unwrap();
-
+            };
+            let params = RawBytes::serialize(mint_params).unwrap();
             self.call_method(operator, token_actor, method_hash!("Mint"), Some(params))
         }
 
