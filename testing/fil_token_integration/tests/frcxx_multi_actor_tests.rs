@@ -80,6 +80,24 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_balance_zero(op_addr, token_actor, bob);
     }
 
+    // TEST: alice mints to herself, burning the token
+    {
+        // this is the first mint (so will produce token id 0)
+        let ret_val =
+            tester.mint_nfts(op_addr, token_actor, alice, 1, action(TestAction::Burn(vec![0])));
+
+        // the return value shows the completed state
+        let mint_return: MintReturn = ret_val.msg_receipt.return_data.deserialize().unwrap();
+        assert_eq!(mint_return.balance, 0);
+        // although it was subsequently burned, the token_id 0 was successfully minted
+        assert_eq!(mint_return.token_ids, vec![0]);
+
+        // method succeeds
+        assert!(ret_val.msg_receipt.exit_code.is_success());
+        // balances are unchanged
+        tester.assert_nft_total_supply_zero(op_addr, token_actor);
+        tester.assert_nft_balance_zero(op_addr, token_actor, bob);
+    }
     // TEST: alice sends bob a transfer of zero amount (rejecting first time and then accepting)
     {
         // first, tell bob to reject it
