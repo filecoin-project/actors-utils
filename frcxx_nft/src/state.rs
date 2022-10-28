@@ -1146,7 +1146,6 @@ mod test {
         tester.assert_balance(ALICE_ID, 1);
         tester.assert_balance(BOB_ID, 2);
         assert_eq!(res.token_ids, vec![1, 2]);
-
         tester.assert_invariants();
     }
 
@@ -1500,7 +1499,6 @@ mod test {
             // total supply is updated
             assert_eq!(tester.state.total_supply, 1);
         }
-
         tester.assert_invariants();
     }
 }
