@@ -226,24 +226,25 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_balance(op_addr, token_actor, bob, 1);
     }
 
-    return;
-
-    // TEST: alice sends bob a transfer of zero amount (rejecting first time and then accepting)
+    // TEST: alice sends bob a transfer of zero amount, bob rejects
     {
-        // first, tell bob to reject it
         let params = action_params(
             token_actor,
             TestAction::Transfer(bob, vec![], action(TestAction::Reject)),
         );
         let ret_val = tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(params));
+
         // we told bob to reject, so the action call should return success but give us the error result as return data
         // check the receipt we got in return data
         let bob_receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(!bob_receipt.exit_code.is_success());
 
-        // tester.assert_nft_balance_zero(op_addr, token_actor, alice);
-        tester.assert_nft_balance_zero(op_addr, token_actor, bob);
+        // state unchanged
+        tester.assert_nft_total_supply(op_addr, token_actor, 2);
+        tester.assert_nft_balance(op_addr, token_actor, alice, 1);
+        tester.assert_nft_balance(op_addr, token_actor, bob, 1);
     }
+
     {
         // now tell bob to accept it
         let params = action_params(
@@ -251,48 +252,100 @@ fn frcxx_multi_actor_tests() {
             TestAction::Transfer(bob, vec![], action(TestAction::Accept)),
         );
         let ret_val = tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(params));
+
         // check the receipt we got in return data
         let bob_receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(bob_receipt.exit_code.is_success());
+        let transfer_return: TransferReturn = bob_receipt.return_data.deserialize().unwrap();
+        assert_eq!(transfer_return.from_balance, 1);
+        assert_eq!(transfer_return.to_balance, 1);
+        assert_eq!(transfer_return.token_ids, Vec::<u64>::default());
+
+        // state unchanged
+        tester.assert_nft_total_supply(op_addr, token_actor, 2);
+        tester.assert_nft_balance(op_addr, token_actor, alice, 1);
+        tester.assert_nft_balance(op_addr, token_actor, bob, 1);
     }
 
-    // TEST: mint to alice then transfer from alice to bob
-    // as before, we'll have bob reject it the first time and accept it the second
     {
+        // mint some tokens to alice so we can test batch transfers
         let ret_val =
             tester.mint_nfts_ok(op_addr, token_actor, alice, 3, action(TestAction::Accept));
         let mint_return = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
-        assert_eq!(mint_return.supply, 3);
-        assert_eq!(mint_return.balance, 3);
-        assert_eq!(mint_return.token_ids, vec![0, 1, 2]);
-        tester.assert_nft_balance(op_addr, token_actor, alice, 3);
+        assert_eq!(mint_return.supply, 5); // 2 from before, 3 from this mint
+        assert_eq!(mint_return.balance, 4); // 1 from before, 3 from this mint
+        assert_eq!(mint_return.token_ids, vec![3, 4, 5]); // three minted total from before (one was burned)
+
+        // check state after minting
+        tester.assert_nft_total_supply(op_addr, token_actor, 5);
+        tester.assert_nft_balance(op_addr, token_actor, alice, 4);
+        tester.assert_nft_balance(op_addr, token_actor, bob, 1);
     }
+
+    // TEST: transfer from alice to bob who will reject them
     {
         // send to bob who will reject them
         let params = action_params(
             token_actor,
-            TestAction::Transfer(bob, vec![0], action(TestAction::Reject)),
+            TestAction::Transfer(bob, vec![2], action(TestAction::Reject)),
         );
         let ret_val = tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(params));
         // check the receipt we got in return data
         let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(!receipt.exit_code.is_success());
-        // alice should keep the tokens, while bob has nothing
-        tester.assert_nft_balance(op_addr, token_actor, alice, 3);
-        tester.assert_nft_balance_zero(op_addr, token_actor, bob);
+
+        // check state is unchanged
+        tester.assert_nft_total_supply(op_addr, token_actor, 5);
+        tester.assert_nft_balance(op_addr, token_actor, alice, 4);
+        tester.assert_nft_balance(op_addr, token_actor, bob, 1);
     }
+
+    // TEST: transfer from alice to bob who will accept it
     {
-        // now send to bob who will accept them
         let params = action_params(
             token_actor,
-            TestAction::Transfer(bob, vec![0], action(TestAction::Accept)),
+            TestAction::Transfer(bob, vec![2], action(TestAction::Accept)),
         );
         let ret_val = tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(params));
         // check the receipt we got in return data
-        let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
-        assert!(receipt.exit_code.is_success());
-        // alice should keep the tokens, while bob has nothing
-        tester.assert_nft_balance(op_addr, token_actor, alice, 2);
-        tester.assert_nft_balance(op_addr, token_actor, bob, 1);
+        let action_receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
+
+        assert!(action_receipt.exit_code.is_success());
+
+        // check the transfer return data
+        let transfer_return: TransferReturn = action_receipt.return_data.deserialize().unwrap();
+        assert_eq!(transfer_return.from_balance, 3);
+        assert_eq!(transfer_return.to_balance, 2);
+        assert_eq!(transfer_return.token_ids, vec![2]);
+
+        // check the updated state
+        tester.assert_nft_total_supply(op_addr, token_actor, 5);
+        tester.assert_nft_balance(op_addr, token_actor, alice, 3);
+        tester.assert_nft_balance(op_addr, token_actor, bob, 2);
+    }
+
+    // TEST: transfer a batch from alice to bob who will burn some of it
+    {
+        let params = action_params(
+            token_actor,
+            // transfer 3 tokens, have bob burn the first 2
+            TestAction::Transfer(bob, vec![3, 4, 5], action(TestAction::Burn(vec![3, 4]))),
+        );
+        let ret_val = tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(params));
+        // check the receipt we got in return data
+        let action_receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
+
+        assert!(action_receipt.exit_code.is_success());
+
+        // check the transfer return data
+        let transfer_return: TransferReturn = action_receipt.return_data.deserialize().unwrap();
+        assert_eq!(transfer_return.from_balance, 0); // 3 to start - 3 transferred
+        assert_eq!(transfer_return.to_balance, 3); // 2 to start + 3 transferred - 2 burned
+        assert_eq!(transfer_return.token_ids, vec![3, 4, 5]); // all 3 tokens were transferred
+
+        // check the updated state
+        tester.assert_nft_total_supply(op_addr, token_actor, 3); // 5 to start - 2 burned
+        tester.assert_nft_balance(op_addr, token_actor, alice, 0);
+        tester.assert_nft_balance(op_addr, token_actor, bob, 3);
     }
 }
