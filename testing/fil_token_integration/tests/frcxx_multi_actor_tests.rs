@@ -49,6 +49,22 @@ fn frcxx_multi_actor_tests() {
         assert!(ret_val.msg_receipt.exit_code.is_success());
     }
 
+    // TEST: mint to token contract itself
+    {
+        let mint_params = MintParams {
+            initial_owner: token_actor,
+            metadata: vec![Cid::default()],
+            operator_data: RawBytes::default(),
+        };
+
+        let params = RawBytes::serialize(mint_params).unwrap();
+        let ret_val = tester.call_method(op_addr, token_actor, method_hash!("Mint"), Some(params));
+
+        assert!(!ret_val.msg_receipt.exit_code.is_success());
+        tester.assert_nft_total_supply_zero(op_addr, token_actor);
+        tester.assert_nft_balance_zero(op_addr, token_actor, bob);
+    }
+
     // TEST: mint to alice who rejects in receive hook
     {
         let mint_params = MintParams {
