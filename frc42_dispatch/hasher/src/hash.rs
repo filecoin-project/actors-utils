@@ -79,7 +79,7 @@ impl<T: Hasher> MethodResolver<T> {
             return Ok(Self::CONSTRUCTOR_METHOD_NUMBER);
         }
 
-        let method_name = format!("1|{}", method_name);
+        let method_name = format!("1|{method_name}");
         let digest = self.hasher.hash(method_name.as_bytes());
 
         for chunk in digest.chunks(Self::DIGEST_CHUNK_LENGTH) {

@@ -1,4 +1,5 @@
 //! Abstraction of the on-chain state related to NFT accounting
+use std::collections::HashMap;
 use std::vec;
 
 use cid::multihash::Code;
@@ -145,7 +146,9 @@ impl NFTState {
         let res = OwnerMap::load_with_bit_width(&self.owner_data, store, HAMT_BIT_WIDTH)?;
         Ok(res)
     }
+}
 
+impl NFTState {
     /// Mint a new token to the specified address
     pub fn mint_tokens<BS: Blockstore>(
         &mut self,
@@ -308,7 +311,12 @@ impl NFTState {
         });
 
         if let Some(data) = new_owner_data {
-            owner_map.set(actor_id_key(owner), data)?;
+            let actor_key = actor_id_key(owner);
+            if data.balance == 0 && data.operators.is_empty() {
+                owner_map.delete(&actor_key)?;
+            } else {
+                owner_map.set(actor_key, data)?;
+            }
         }
 
         self.owner_data = owner_map.flush()?;
@@ -338,17 +346,20 @@ impl NFTState {
 
             let owner_key = actor_id_key(token_data.owner);
             let owner_data = owner_map.get(&owner_key)?.ok_or_else(|| {
-                StateError::InvariantFailed(format!("owner of token {} not found", token_id))
+                StateError::InvariantFailed(format!("owner of token {token_id} not found"))
             })?;
 
-            // TODO: if balance goes to zero AND approved array is empty, delete the owner entry
-            owner_map.set(
-                owner_key,
-                OwnerData {
-                    balance: owner_data.balance - 1,
-                    operators: owner_data.operators.clone(),
-                },
-            )?;
+            if owner_data.balance == 1 && owner_data.operators.is_empty() {
+                owner_map.delete(&owner_key)?;
+            } else {
+                owner_map.set(
+                    owner_key,
+                    OwnerData {
+                        balance: owner_data.balance - 1,
+                        operators: owner_data.operators.clone(),
+                    },
+                )?;
+            }
         }
 
         self.total_supply -= token_ids.len() as u64;
@@ -461,12 +472,18 @@ impl NFTState {
         let previous_owner_data = owner_map
             .get(&previous_owner_key)?
             .ok_or_else(|| {
-                StateError::InvariantFailed(format!("owner of token {} not found", token_id))
+                StateError::InvariantFailed(format!("owner of token {token_id} not found"))
             })?
             .clone();
         let previous_owner_data =
             OwnerData { balance: previous_owner_data.balance - 1, ..previous_owner_data };
-        owner_map.set(previous_owner_key, previous_owner_data)?;
+
+        if previous_owner_data.balance == 0 && previous_owner_data.operators.is_empty() {
+            owner_map.delete(&previous_owner_key)?;
+        } else {
+            owner_map.set(previous_owner_key, previous_owner_data)?;
+        }
+
         let new_owner_key = actor_id_key(receiver);
         let new_owner_data = match owner_map.get(&new_owner_key)? {
             Some(data) => OwnerData { balance: data.balance + 1, ..data.clone() },
@@ -503,7 +520,7 @@ impl NFTState {
     ) -> Result<bool> {
         let token_data = token_array
             .get(token_id)?
-            .ok_or_else(|| StateError::InvariantFailed(format!("token {} not found", token_id)))?;
+            .ok_or_else(|| StateError::InvariantFailed(format!("token {token_id} not found")))?;
 
         // operator is approved at token-level
         if token_data.operators.contains_actor(&operator) {
@@ -512,7 +529,7 @@ impl NFTState {
 
         // operator is approved at account-level
         let owner_account = owner_map.get(&actor_id_key(token_data.owner))?.ok_or_else(|| {
-            StateError::InvariantFailed(format!("owner of token {} not found", token_id))
+            StateError::InvariantFailed(format!("owner of token {token_id} not found"))
         })?;
         if owner_account.operators.contains_actor(&operator) {
             return Ok(true);
@@ -609,12 +626,192 @@ impl NFTState {
     }
 }
 
+pub struct StateSummary {
+    pub total_supply: u64,
+    pub owner_data: Option<HashMap<ActorID, OwnerData>>,
+    pub token_data: Option<HashMap<TokenID, TokenData>>,
+}
+
+#[derive(Error, Debug)]
+pub enum StateInvariantError {
+    #[error(
+        "the total supply {total_supply:?} does not match the number of toknens recorded{token_count:?}"
+    )]
+    TotalSupplyMismatch { total_supply: u64, token_count: u64 },
+    #[error(
+        "the token array recorded {token_count:?} tokens but the owner map recorded {owner_count:?} owners"
+    )]
+    TokenBalanceMismatch { token_count: u64, owner_count: u64 },
+    #[error("invalid serialized owner key {0:?}")]
+    InvalidBytesKey(BytesKey),
+    #[error("actorids stored in operator array were not strictly increasing {0:?}")]
+    InvalidOperatorArray(Vec<u64>),
+    #[error("underlying state error {0}")]
+    State(#[from] StateError),
+    #[error("entry for {0:?} in owner map had no tokens and no operators")]
+    ExplicitEmptyOwner(u64),
+}
+
+impl NFTState {
+    /**
+     * Checks that the state is internally consistent and obeys the specified invariants
+     *
+     * Checks that balances in the TokenArray and OwnerMap are consistent. Checks that the total supply
+     * is consistent with the number of tokens in the TokenArray. Checks that the OwnerHamt is clear of
+     * semantically empty entries. Checks that all bytes keys are valid actor ids.
+     *
+     * Returns a state summary that can be used to check application specific invariants and a list
+     * of errors that were found.
+     */
+    pub fn check_invariants<BS: Blockstore>(
+        &self,
+        bs: &BS,
+    ) -> (StateSummary, Vec<StateInvariantError>) {
+        // accumulate errors encountered in the state
+        let mut errors: Vec<StateInvariantError> = vec![];
+
+        // get token data
+        let token_data = match self.get_token_data_amt(bs) {
+            Ok(token_amt) => Some(token_amt),
+            Err(e) => {
+                errors.push(e.into());
+                None
+            }
+        };
+
+        // get owner data
+        let owner_data = match self.get_owner_data_hamt(bs) {
+            Ok(owner_hamt) => Some(owner_hamt),
+            Err(e) => {
+                errors.push(e.into());
+                None
+            }
+        };
+
+        // there's no point continuing if either are missing as something serious is wrong
+        // we can't do meaningful state checks without the underlying data being loadable
+        if owner_data.is_none() || token_data.is_none() {
+            return (
+                StateSummary {
+                    owner_data: None,
+                    token_data: None,
+                    total_supply: self.total_supply,
+                },
+                errors,
+            );
+        }
+
+        let owner_data = owner_data.unwrap();
+        let token_data = token_data.unwrap();
+
+        // check the total supply matches the number of NFTs stored
+        if self.total_supply != token_data.count() {
+            errors.push(StateInvariantError::TotalSupplyMismatch {
+                total_supply: self.total_supply,
+                token_count: token_data.count(),
+            });
+        }
+
+        // tally the ownership of each token to check for consistency against owner_data
+        let mut counted_balances = HashMap::<ActorID, u64>::new();
+
+        let mut token_map = HashMap::<TokenID, TokenData>::new();
+        token_data
+            .for_each(|id, data| {
+                // tally owner of token
+                let owner = data.owner;
+                let count = counted_balances.entry(owner).or_insert(0);
+                *count += 1;
+
+                // assert operator array has no duplicates and is ordered
+                let res = Self::assert_operator_array(&data.operators);
+                if res.is_err() {
+                    errors.push(res.err().unwrap());
+                }
+
+                token_map.insert(id, data.clone());
+                Ok(())
+            })
+            .unwrap();
+
+        let mut owner_map = HashMap::<ActorID, OwnerData>::new();
+        // check owner data is consistent with token data
+        owner_data
+            .for_each(|owner_key, data| {
+                if let Some(actor_id) = Self::decode_key_addr(owner_key, &mut errors) {
+                    // assert balance matches the balance derived from the token array
+                    let expected_balance = counted_balances.get(&actor_id).unwrap_or(&0);
+                    if *expected_balance != data.balance {
+                        errors.push(StateInvariantError::TokenBalanceMismatch {
+                            token_count: *expected_balance,
+                            owner_count: data.balance,
+                        });
+                    }
+
+                    // if balance is zero and there are no operators, there should be no entry in the owner map
+                    if data.balance == 0 && data.operators.is_empty() {
+                        errors.push(StateInvariantError::ExplicitEmptyOwner(actor_id));
+                    }
+
+                    owner_map.insert(actor_id, data.clone());
+                } else {
+                    errors.push(StateInvariantError::InvalidBytesKey(owner_key.clone()));
+                }
+
+                // assert operator array has no duplicates and is ordered
+                let res = Self::assert_operator_array(&data.operators);
+                if res.is_err() {
+                    errors.push(res.err().unwrap());
+                }
+
+                Ok(())
+            })
+            .unwrap();
+
+        (
+            StateSummary {
+                owner_data: Some(owner_map),
+                token_data: Some(token_map),
+                total_supply: self.total_supply,
+            },
+            errors,
+        )
+    }
+
+    fn assert_operator_array(operators: &[u64]) -> std::result::Result<(), StateInvariantError> {
+        for pair in operators.windows(2) {
+            if pair[0] >= pair[1] {
+                // pairs need to be unique and strictly increasing
+                return Err(StateInvariantError::InvalidOperatorArray(operators.to_vec()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Helper to decode keys from bytes, recording errors if they fail
+    fn decode_key_addr(key: &BytesKey, errors: &mut Vec<StateInvariantError>) -> Option<ActorID> {
+        match decode_actor_id(key) {
+            Some(actor_id) => Some(actor_id),
+            None => {
+                errors.push(StateInvariantError::InvalidBytesKey(key.clone()));
+                None
+            }
+        }
+    }
+}
+
 pub fn actor_id_key(a: ActorID) -> BytesKey {
     a.encode_var_vec().into()
 }
 
+pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
+    u64::decode_var(key.0.as_slice()).map(|a| a.0)
+}
+
 #[cfg(test)]
 mod test {
+    use std::vec;
+
     use cid::Cid;
     use fvm_actor_utils::messaging::FakeMessenger;
     use fvm_ipld_blockstore::MemoryBlockstore;
@@ -710,6 +907,11 @@ mod test {
             let balance = self.state.get_balance(&self.bs, owner).unwrap();
             assert_eq!(balance, expected);
         }
+
+        fn assert_invariants(&self) {
+            let (_, vec) = self.state.check_invariants(&self.bs);
+            assert!(vec.is_empty(), "invariants failed: {vec:?}");
+        }
     }
 
     #[test]
@@ -753,6 +955,8 @@ mod test {
         tester.assert_balance(BOB_ID, 1);
         assert_eq!(res.token_ids, Vec::<TokenID>::default());
         assert_eq!(tester.state.total_supply, 3);
+
+        tester.assert_invariants();
     }
 
     #[test]
@@ -767,7 +971,7 @@ mod test {
         if let StateError::TokenNotFound(token_id) = err {
             assert_eq!(token_id, 99);
         } else {
-            panic!("unexpected error: {:?}", err);
+            panic!("unexpected error: {err:?}");
         }
         // no state change
         assert_eq!(tester.state.total_supply, 4);
@@ -796,6 +1000,8 @@ mod test {
         // total supply and balance should not change
         tester.assert_balance(ALICE_ID, 1);
         assert_eq!(tester.state.total_supply, 1);
+
+        tester.assert_invariants();
     }
 
     #[test]
@@ -821,7 +1027,7 @@ mod test {
             assert_eq!(operator, BOB_ID);
             assert_eq!(token_id, 0);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
 
         // alice can transfer to bob
@@ -846,7 +1052,7 @@ mod test {
             assert_eq!(operator, ALICE_ID);
             assert_eq!(token_id, 0);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
         // no state change
         tester.assert_balance(ALICE_ID, 2);
@@ -898,7 +1104,7 @@ mod test {
             assert_eq!(operator, ALICE_ID);
             assert_eq!(token_id, 1);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
         // state unchanged
         tester.assert_balance(ALICE_ID, 3);
@@ -908,7 +1114,9 @@ mod test {
         let res = tester.transfer(ALICE_ID, BOB_ID, &[1, 2]);
         tester.assert_balance(ALICE_ID, 1);
         tester.assert_balance(BOB_ID, 2);
-        assert_eq!(res.token_ids, vec![1, 2])
+        assert_eq!(res.token_ids, vec![1, 2]);
+
+        tester.assert_invariants();
     }
 
     #[test]
@@ -934,7 +1142,7 @@ mod test {
             assert_eq!(operator, BOB_ID);
             assert_eq!(token_id, 0);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
 
         // approve bob to transfer on behalf of alice
@@ -957,7 +1165,7 @@ mod test {
             assert_eq!(operator, BOB_ID);
             assert_eq!(token_id, 0);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
 
         // using correct method succeeds
@@ -1004,7 +1212,7 @@ mod test {
             assert_eq!(operator, ALICE_ID);
             assert_eq!(token_id, 0);
         } else {
-            panic!("unexpected error: {:?}", res);
+            panic!("unexpected error: {res:?}");
         }
         tester.assert_balance(ALICE_ID, 2);
         tester.assert_balance(BOB_ID, 1);
@@ -1083,12 +1291,14 @@ mod test {
             assert_eq!(operator, BOB_ID);
             assert_eq!(token_id, res.token_ids[1]);
         } else {
-            panic!("unexpected error: {:?}", err);
+            panic!("unexpected error: {err:?}");
         }
 
         // state didn't change
         tester.assert_balance(ALICE_ID, 3);
         tester.assert_balance(BOB_ID, 4);
+
+        tester.assert_invariants();
     }
 
     #[test]
@@ -1160,7 +1370,7 @@ mod test {
                 assert_eq!(actor, CHARLIE_ID);
                 assert_eq!(token_id, token_0);
             } else {
-                panic!("unexpected error: {:?}", res);
+                panic!("unexpected error: {res:?}");
             }
 
             // alice approves bob and charlie as operators
@@ -1184,7 +1394,7 @@ mod test {
                 assert_eq!(actor, CHARLIE_ID);
                 assert_eq!(token_id, token_0);
             } else {
-                panic!("unexpected error: {:?}", res);
+                panic!("unexpected error: {res:?}");
             }
 
             // but bob can transfer token_0
@@ -1216,5 +1426,7 @@ mod test {
             tester.assert_balance(BOB_ID, 1);
             tester.assert_balance(CHARLIE_ID, 1);
         }
+
+        tester.assert_invariants();
     }
 }

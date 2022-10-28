@@ -25,7 +25,7 @@ impl<T: RecipientData> FRCXXReceiverHook<T> for ReceiverHook<T> {
     ) -> std::result::Result<ReceiverHook<T>, ReceiverHookError> {
         Ok(ReceiverHook::new(
             address,
-            RawBytes::serialize(&frcxx_params)?,
+            RawBytes::serialize(frcxx_params)?,
             FRCXX_TOKEN_TYPE,
             result_data,
         ))
