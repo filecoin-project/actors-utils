@@ -584,11 +584,9 @@ impl NFTState {
         Ok(false)
     }
 
-    /**
-     * Converts a MintIntermediate to a MintReturn
-     *
-     * This function should be called on a freshly loaded or known-up-to-date state
-     */
+    /// Converts a MintIntermediate to a MintReturn
+    ///
+    /// This function should be called on a freshly loaded or known-up-to-date state
     pub fn mint_return<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -604,11 +602,9 @@ impl NFTState {
         })
     }
 
-    /**
-     * Converts a TransferIntermediate to a TransferReturn
-     *
-     * This function should be called on a freshly loaded or known-up-to-date state
-     */
+    /// Converts a TransferIntermediate to a TransferReturn
+    ///
+    /// This function should be called on a freshly loaded or known-up-to-date state
     pub fn transfer_return<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -620,11 +616,9 @@ impl NFTState {
         Ok(TransferReturn { from_balance, to_balance, token_ids: intermediate.token_ids })
     }
 
-    /**
-     * Converts a TransferFromIntermediate to a TransferFromReturn
-     *
-     * This function should be called on a freshly loaded or known-up-to-date state
-     */
+    /// Converts a TransferFromIntermediate to a TransferFromReturn
+    ///
+    /// This function should be called on a freshly loaded or known-up-to-date state
     pub fn transfer_from_return<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -634,14 +628,20 @@ impl NFTState {
         Ok(TransferFromReturn { to_balance, token_ids: intermediate.token_ids })
     }
 
-    /**
-     * Get the metadata for a token
-     */
+    /// Get the metadata for a token
     pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<Cid> {
         let token_data_array = self.get_token_data_amt(bs)?;
         let token =
             token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
         Ok(token.metadata)
+    }
+
+    /// Get the owner of a token
+    pub fn get_owner<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<ActorID> {
+        let token_data_array = self.get_token_data_amt(bs)?;
+        let token =
+            token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
+        Ok(token.owner)
     }
 }
 

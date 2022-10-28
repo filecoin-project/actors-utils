@@ -48,6 +48,11 @@ fn invoke(params: u32) -> u32 {
             let res = handle.total_supply();
             return_ipld(&res).unwrap()
         }
+        "OwnerOf" => {
+            let params = deserialize_params::<TokenID>(params);
+            let res = handle.owner_of(params).unwrap();
+            return_ipld(&res).unwrap()
+        }
         "Mint" => {
             let params = deserialize_params::<MintParams>(params);
             let caller = Address::new_id(sdk::message::caller());

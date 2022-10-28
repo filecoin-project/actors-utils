@@ -69,7 +69,8 @@ fn test_nft_actor() {
 
         // Check the balance is correct
         tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 1);
-
+        // Check the owner is correct
+        tester.assert_nft_owner(minter[0].1, actor_address, 0, receiver_address.id().unwrap());
         // TODO: check metatdata is correct
     }
 
@@ -100,6 +101,8 @@ fn test_nft_actor() {
 
         // Check the balance increased
         tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 2);
+        // Check the owner is correct
+        tester.assert_nft_owner(minter[0].1, actor_address, 1, receiver_address.id().unwrap());
     }
 
     {
@@ -160,6 +163,9 @@ fn test_nft_actor() {
             tester.call_method(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
         assert!(ret_val.msg_receipt.exit_code.is_success(), "{ret_val:#?}");
         let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
+        // Check the owner is correct
+        tester.assert_nft_owner(minter[0].1, actor_address, 2, receiver_address.id().unwrap());
+        tester.assert_nft_owner(minter[0].1, actor_address, 3, receiver_address.id().unwrap());
         assert_eq!(total_supply, 4);
     }
 }

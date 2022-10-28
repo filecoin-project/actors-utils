@@ -99,6 +99,11 @@ where
         Ok(balance)
     }
 
+    /// Return the owner of an NFT
+    pub fn owner_of(&self, token_id: TokenID) -> Result<ActorID> {
+        Ok(self.state.get_owner(&self.bs, token_id)?)
+    }
+
     /// Create a single new NFT belonging to the initial_owner. The mint method is not standardised
     /// as part of the actor's interface but this is a usefuly method at the library level to
     /// generate new tokens that will maintain the necessary state invariants.
