@@ -2,7 +2,7 @@ use basic_nft_actor::MintParams;
 use cid::Cid;
 use frc42_dispatch::method_hash;
 use frcxx_nft::state::NFTState;
-use frcxx_nft::types::{MintReturn, TransferParams, TransferReturn};
+use frcxx_nft::types::{MintReturn, TransferReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
