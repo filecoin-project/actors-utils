@@ -2,7 +2,7 @@ use basic_nft_actor::MintParams;
 use cid::Cid;
 use frc42_dispatch::method_hash;
 use frcxx_nft::state::NFTState;
-use frcxx_nft::types::{MintReturn, TransferParams};
+use frcxx_nft::types::{MintReturn, TransferParams, TransferReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
@@ -65,6 +65,25 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_balance_zero(op_addr, token_actor, bob);
     }
 
+    // TEST: transfer to token contract itself
+    {
+        let action_params = action_params(
+            token_actor,
+            TestAction::Transfer(token_actor, vec![], RawBytes::default()),
+        );
+        let ret_val =
+            tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(action_params));
+
+        // the return value should be a failure
+        let action_return: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
+        assert!(!action_return.exit_code.is_success());
+
+        // balances are unchanged
+        tester.assert_nft_total_supply_zero(op_addr, token_actor);
+        tester.assert_nft_balance_zero(op_addr, token_actor, alice);
+        tester.assert_nft_balance_zero(op_addr, token_actor, token_actor);
+    }
+
     // TEST: mint to alice who rejects in receive hook
     {
         let mint_params = MintParams {
@@ -91,8 +110,33 @@ fn frcxx_multi_actor_tests() {
         let ret_val =
             tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(action_params));
 
+        // the return value should update the new state
+        let action_return: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
+        let transfer_return: TransferReturn = action_return.return_data.deserialize().unwrap();
+        assert_eq!(transfer_return.from_balance, 0);
+        assert_eq!(transfer_return.to_balance, 0);
+        assert_eq!(transfer_return.token_ids, Vec::<u64>::default());
+
         // method succeeds
         assert!(ret_val.msg_receipt.exit_code.is_success());
+        // balances are unchanged
+        tester.assert_nft_total_supply_zero(op_addr, token_actor);
+        tester.assert_nft_balance_zero(op_addr, token_actor, alice);
+    }
+
+    // TEST: alice transfers zero-amount to herself, rejecting
+    {
+        let action_params = action_params(
+            token_actor,
+            TestAction::Transfer(alice, vec![], action(TestAction::Reject)),
+        );
+        let ret_val =
+            tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(action_params));
+
+        // the return value should be a failure
+        let action_return: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
+        assert!(!action_return.exit_code.is_success());
+
         // balances are unchanged
         tester.assert_nft_total_supply_zero(op_addr, token_actor);
         tester.assert_nft_balance_zero(op_addr, token_actor, alice);
@@ -154,6 +198,27 @@ fn frcxx_multi_actor_tests() {
         // the token remains with alice
         assert_eq!(mint_return.balance, 1);
         assert_eq!(mint_return.token_ids, vec![2]);
+
+        // check global state
+        tester.assert_nft_total_supply(op_addr, token_actor, 2);
+        tester.assert_nft_balance(op_addr, token_actor, alice, 1);
+        tester.assert_nft_balance(op_addr, token_actor, bob, 1);
+    }
+
+    // TEST: alice transfers non-zero amount to self
+    {
+        let params = action_params(
+            token_actor,
+            TestAction::Transfer(alice, vec![2], action(TestAction::Accept)),
+        );
+        let ret_val = tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(params));
+
+        // the return value should update the new state
+        let action_return: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
+        let transfer_return: TransferReturn = action_return.return_data.deserialize().unwrap();
+        assert_eq!(transfer_return.from_balance, 1);
+        assert_eq!(transfer_return.to_balance, 1);
+        assert_eq!(transfer_return.token_ids, vec![2]);
 
         // check global state
         tester.assert_nft_total_supply(op_addr, token_actor, 2);
