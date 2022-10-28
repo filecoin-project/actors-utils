@@ -1,3 +1,5 @@
+use basic_nft_actor::MintParams;
+use cid::Cid;
 use frc42_dispatch::method_hash;
 use frcxx_nft::state::NFTState;
 use frcxx_nft::types::MintReturn;
@@ -26,11 +28,12 @@ fn frcxx_multi_actor_tests() {
     let mut tester = construct_tester(&blockstore);
 
     let operator: [Account; 1] = tester.create_accounts().unwrap();
+    let op_addr = operator[0].1;
 
     let initial_nft_state = NFTState::new(&blockstore).unwrap();
 
     let token_actor =
-        tester.install_actor_with_state(BASIC_NFT_ACTOR_WASM, 10000, initial_nft_state);
+        tester.install_actor_with_state(BASIC_NFT_ACTOR_WASM, 10000, initial_nft_state.clone());
     // we'll use up to four actors for some of these tests, though most use only two
     let alice = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
     let bob = tester.install_actor_stateless(TEST_ACTOR_WASM, 10011);
@@ -42,8 +45,23 @@ fn frcxx_multi_actor_tests() {
 
     // construct actors
     for actor in [token_actor, alice, bob, carol, dave] {
-        let ret_val = tester.call_method(operator[0].1, actor, method_hash!("Constructor"), None);
+        let ret_val = tester.call_method(op_addr, actor, method_hash!("Constructor"), None);
         assert!(ret_val.msg_receipt.exit_code.is_success());
+    }
+
+    // TEST: mint to alice who rejects in receive hook
+    {
+        let mint_params = MintParams {
+            initial_owner: alice,
+            metadata: vec![Cid::default()],
+            operator_data: action(TestAction::Reject),
+        };
+        let params = RawBytes::serialize(mint_params).unwrap();
+        let ret_val = tester.call_method(op_addr, token_actor, method_hash!("Mint"), Some(params));
+
+        assert!(!ret_val.msg_receipt.exit_code.is_success());
+        tester.assert_nft_total_supply_zero(op_addr, token_actor);
+        tester.assert_nft_balance_zero(op_addr, token_actor, bob);
     }
 
     // TEST: alice sends bob a transfer of zero amount (rejecting first time and then accepting)
@@ -53,15 +71,14 @@ fn frcxx_multi_actor_tests() {
             token_actor,
             TestAction::Transfer(bob, vec![], action(TestAction::Reject)),
         );
-        let ret_val =
-            tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
+        let ret_val = tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(params));
         // we told bob to reject, so the action call should return success but give us the error result as return data
         // check the receipt we got in return data
         let bob_receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(!bob_receipt.exit_code.is_success());
 
-        // tester.assert_nft_balance_zero(operator[0].1, token_actor, alice);
-        tester.assert_nft_balance_zero(operator[0].1, token_actor, bob);
+        // tester.assert_nft_balance_zero(op_addr, token_actor, alice);
+        tester.assert_nft_balance_zero(op_addr, token_actor, bob);
     }
     {
         // now tell bob to accept it
@@ -69,8 +86,7 @@ fn frcxx_multi_actor_tests() {
             token_actor,
             TestAction::Transfer(bob, vec![], action(TestAction::Accept)),
         );
-        let ret_val =
-            tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
+        let ret_val = tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(params));
         // check the receipt we got in return data
         let bob_receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(bob_receipt.exit_code.is_success());
@@ -80,12 +96,12 @@ fn frcxx_multi_actor_tests() {
     // as before, we'll have bob reject it the first time and accept it the second
     {
         let ret_val =
-            tester.mint_nfts_ok(operator[0].1, token_actor, alice, 3, action(TestAction::Accept));
+            tester.mint_nfts_ok(op_addr, token_actor, alice, 3, action(TestAction::Accept));
         let mint_return = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
         assert_eq!(mint_return.supply, 3);
         assert_eq!(mint_return.balance, 3);
         assert_eq!(mint_return.token_ids, vec![0, 1, 2]);
-        tester.assert_nft_balance(operator[0].1, token_actor, alice, 3);
+        tester.assert_nft_balance(op_addr, token_actor, alice, 3);
     }
     {
         // send to bob who will reject them
@@ -93,14 +109,13 @@ fn frcxx_multi_actor_tests() {
             token_actor,
             TestAction::Transfer(bob, vec![0], action(TestAction::Reject)),
         );
-        let ret_val =
-            tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
+        let ret_val = tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(params));
         // check the receipt we got in return data
         let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(!receipt.exit_code.is_success());
         // alice should keep the tokens, while bob has nothing
-        tester.assert_nft_balance(operator[0].1, token_actor, alice, 3);
-        tester.assert_nft_balance_zero(operator[0].1, token_actor, bob);
+        tester.assert_nft_balance(op_addr, token_actor, alice, 3);
+        tester.assert_nft_balance_zero(op_addr, token_actor, bob);
     }
     {
         // now send to bob who will accept them
@@ -108,13 +123,12 @@ fn frcxx_multi_actor_tests() {
             token_actor,
             TestAction::Transfer(bob, vec![0], action(TestAction::Accept)),
         );
-        let ret_val =
-            tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
+        let ret_val = tester.call_method_ok(op_addr, alice, method_hash!("Action"), Some(params));
         // check the receipt we got in return data
         let receipt = ret_val.msg_receipt.return_data.deserialize::<Receipt>().unwrap();
         assert!(receipt.exit_code.is_success());
         // alice should keep the tokens, while bob has nothing
-        tester.assert_nft_balance(operator[0].1, token_actor, alice, 2);
-        tester.assert_nft_balance(operator[0].1, token_actor, bob, 1);
+        tester.assert_nft_balance(op_addr, token_actor, alice, 2);
+        tester.assert_nft_balance(op_addr, token_actor, bob, 1);
     }
 }

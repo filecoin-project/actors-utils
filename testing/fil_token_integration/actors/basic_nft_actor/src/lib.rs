@@ -159,9 +159,9 @@ pub fn constructor() {
 /// Minting tokens goes directly to the caller for now
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
-    initial_owner: Address,
-    metadata: Vec<Cid>,
-    operator_data: RawBytes,
+    pub initial_owner: Address,
+    pub metadata: Vec<Cid>,
+    pub operator_data: RawBytes,
 }
 
 /// Grab the incoming parameters and convert from RawBytes to deserialized struct

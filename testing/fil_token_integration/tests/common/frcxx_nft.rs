@@ -57,6 +57,12 @@ pub trait NFTHelpers {
 
     /// Check token balance, asserting a zero balance
     fn assert_nft_balance_zero(&mut self, operator: Address, token_actor: Address, target: Address);
+
+    /// Check the total supply, asserting that it matches the provided amount
+    fn assert_nft_total_supply(&mut self, operator: Address, token_actor: Address, amount: u64);
+
+    /// Check the total supply, asserting that it is zero
+    fn assert_nft_total_supply_zero(&mut self, operator: Address, token_actor: Address);
 }
 
 impl<BS: Blockstore, E: Externs> NFTHelpers for Tester<BS, E> {
@@ -116,5 +122,15 @@ impl<BS: Blockstore, E: Externs> NFTHelpers for Tester<BS, E> {
     ) {
         let balance = self.nft_balance(operator, token_actor, target);
         assert_eq!(balance, 0);
+    }
+
+    fn assert_nft_total_supply(&mut self, operator: Address, token_actor: Address, amount: u64) {
+        let ret_val = self.call_method(operator, token_actor, method_hash!("TotalSupply"), None);
+        let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
+        assert_eq!(total_supply, amount);
+    }
+
+    fn assert_nft_total_supply_zero(&mut self, operator: Address, token_actor: Address) {
+        self.assert_nft_total_supply(operator, token_actor, 0);
     }
 }
