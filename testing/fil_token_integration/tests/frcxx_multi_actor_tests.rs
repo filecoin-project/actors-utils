@@ -138,6 +138,29 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_balance(op_addr, token_actor, bob, 1);
     }
 
+    // TEST: mint to alice who transfers to bob in hook, but bob rejects it
+    {
+        // this is the third mint (so will produce token id 2)
+        let ret_val = tester.mint_nfts_ok(
+            op_addr,
+            token_actor,
+            alice,
+            1,
+            action(TestAction::Transfer(bob, vec![2], action(TestAction::Reject))),
+        );
+
+        // the return value shows the completed state
+        let mint_return: MintReturn = ret_val.msg_receipt.return_data.deserialize().unwrap();
+        // the token remains with alice
+        assert_eq!(mint_return.balance, 1);
+        assert_eq!(mint_return.token_ids, vec![2]);
+
+        // check global state
+        tester.assert_nft_total_supply(op_addr, token_actor, 2);
+        tester.assert_nft_balance(op_addr, token_actor, alice, 1);
+        tester.assert_nft_balance(op_addr, token_actor, bob, 1);
+    }
+
     return;
 
     // TEST: alice sends bob a transfer of zero amount (rejecting first time and then accepting)
