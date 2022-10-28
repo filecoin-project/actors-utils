@@ -1,5 +1,5 @@
 [package]
-name = "test_actor"
+name = "frcxx_test_actor"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,6 +7,7 @@ edition = "2021"
 cid = { version = "0.8.5", default-features = false }
 frc46_token = { version = "1.1.0", path = "../../../../frc46_token" }
 frc42_dispatch = { path = "../../../../frc42_dispatch" }
+frcxx_nft = { version = "0.1.0", path = "../../../../frcxx_nft" }
 fvm_actor_utils = { version = "0.1.0", path = "../../../../fvm_actor_utils" }
 fvm_ipld_blockstore = { version = "0.1.1" }
 fvm_ipld_encoding = { version = "0.2.2" }
