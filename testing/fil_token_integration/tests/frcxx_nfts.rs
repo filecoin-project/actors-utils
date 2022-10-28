@@ -8,13 +8,14 @@ use fvm_shared::address::Address;
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
 mod common;
+use common::frcxx_nft::NFTHelpers;
 use common::{construct_tester, TestHelpers};
 
 /// Copied from basic_nft_actor
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
     initial_owner: Address,
-    metadata_id: Vec<Cid>,
+    metadata: Vec<Cid>,
     operator_data: RawBytes,
 }
 
@@ -43,7 +44,7 @@ fn test_nft_actor() {
         // Mint a single token
         let mint_params = MintParams {
             initial_owner: receiver_address,
-            metadata_id: vec![Cid::default()],
+            metadata: vec![Cid::default()],
             operator_data: RawBytes::default(),
         };
         let mint_params = RawBytes::serialize(&mint_params).unwrap();
@@ -64,14 +65,17 @@ fn test_nft_actor() {
         let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
         assert_eq!(total_supply, 1);
 
-        // TODO: check metatdata and operator balance etc. is correct
+        // Check the balance is correct
+        tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 1);
+
+        // TODO: check metatdata is correct
     }
 
     {
         // Mint a second token
         let mint_params = MintParams {
             initial_owner: receiver_address,
-            metadata_id: vec![Cid::default()],
+            metadata: vec![Cid::default()],
             operator_data: RawBytes::default(),
         };
         let mint_params = RawBytes::serialize(&mint_params).unwrap();
@@ -91,6 +95,9 @@ fn test_nft_actor() {
             tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
         let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
         assert_eq!(total_supply, 2);
+
+        // Check the balance increased
+        tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 2);
     }
 
     {
@@ -107,6 +114,9 @@ fn test_nft_actor() {
             tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
         let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
         assert_eq!(total_supply, 2);
+
+        // Check the balance didn't change
+        tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 2);
     }
 
     {
@@ -122,13 +132,16 @@ fn test_nft_actor() {
             tester.call_method_ok(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
         let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
         assert_eq!(total_supply, 2);
+
+        // Check the balance didn't change
+        tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 2);
     }
 
     {
         // Minting multiple tokens produces sequential ids
         let mint_params = MintParams {
             initial_owner: receiver_address,
-            metadata_id: vec![Cid::default(), Cid::default()],
+            metadata: vec![Cid::default(), Cid::default()],
             operator_data: RawBytes::default(),
         };
         let mint_params = RawBytes::serialize(&mint_params).unwrap();

@@ -39,6 +39,11 @@ fn invoke(params: u32) -> u32 {
     let mut handle = NFT::wrap(bs, messenger, actor_helper, &mut state);
 
     match_method!(method_num,{
+        "BalanceOf" => {
+            let params = deserialize_params::<Address>(params);
+            let res = handle.balance_of(&params).unwrap();
+            return_ipld(&res).unwrap()
+        }
         "TotalSupply" => {
             let res = handle.total_supply();
             return_ipld(&res).unwrap()
@@ -46,7 +51,7 @@ fn invoke(params: u32) -> u32 {
         "Mint" => {
             let params = deserialize_params::<MintParams>(params);
             let caller = Address::new_id(sdk::message::caller());
-            let mut hook = handle.mint(caller, params.initial_owner, &params.metadata_id, RawBytes::default(), RawBytes::default()).unwrap();
+            let mut hook = handle.mint(&caller, &params.initial_owner, &params.metadata, params.operator_data, RawBytes::default()).unwrap();
 
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
@@ -95,7 +100,16 @@ fn invoke(params: u32) -> u32 {
         "Burn" => {
             let params = deserialize_params::<Vec<TokenID>>(params);
             let caller = sdk::message::caller();
-            handle.burn(caller, &params).unwrap();
+            let ret_val = handle.burn(caller, &params).unwrap();
+
+            let cid = handle.flush().unwrap();
+            sdk::sself::set_root(&cid).unwrap();
+            return_ipld(&ret_val).unwrap()
+        }
+        "BurnFor" => {
+            let params = deserialize_params::<Vec<TokenID>>(params);
+            let caller = sdk::message::caller();
+            handle.burn_for(caller, &params).unwrap();
 
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
@@ -146,7 +160,7 @@ pub fn constructor() {
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
     initial_owner: Address,
-    metadata_id: Vec<Cid>,
+    metadata: Vec<Cid>,
     operator_data: RawBytes,
 }
 

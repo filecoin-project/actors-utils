@@ -24,4 +24,5 @@ basic_nft_actor = {path = "actors/basic_nft_actor"}
 basic_receiving_actor = { path = "actors/basic_receiving_actor" }
 basic_token_actor = { path = "actors/basic_token_actor" }
 basic_transfer_actor = { path = "actors/basic_transfer_actor" }
-test_actor = { path = "actors/test_actor" }
+frc46_test_actor = { path = "actors/frc46_test_actor" }
+frcxx_test_actor = { path = "actors/frcxx_test_actor" }
