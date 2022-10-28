@@ -64,7 +64,7 @@ fn transfer_tokens() {
 
     // check balance of transfer actor
     let balance = tester.token_balance(operator[0].1, token_address, transfer_address);
-    println!("balance held by transfer actor: {:?}", balance);
+    println!("balance held by transfer actor: {balance:?}");
     assert_eq!(balance, TokenAmount::from_atto(100));
 
     // forward from transfer to receiving actor
@@ -75,10 +75,10 @@ fn transfer_tokens() {
 
     // check balance of receiver actor
     let balance = tester.token_balance(operator[0].1, token_address, transfer_address);
-    println!("balance held by transfer actor: {:?}", balance);
+    println!("balance held by transfer actor: {balance:?}");
     assert_eq!(balance, TokenAmount::from_atto(0));
 
     let balance = tester.token_balance(operator[0].1, token_address, receiver_address);
-    println!("balance held by receiver actor: {:?}", balance);
+    println!("balance held by receiver actor: {balance:?}");
     assert_eq!(balance, TokenAmount::from_atto(100));
 }

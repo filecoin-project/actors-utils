@@ -76,7 +76,7 @@ fn test_greeter() {
     let return_data = ret_val.msg_receipt.return_data;
     let greeting: String = return_data.deserialize().unwrap();
     // display the result - run `cargo test -- --nocapture` to see output
-    println!("greeting: {}", greeting);
+    println!("greeting: {greeting}");
 
     assert_eq!(greeting, "Hello, World!")
 }

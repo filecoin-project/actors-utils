@@ -96,11 +96,11 @@ fn test_nft_actor() {
     {
         // Attempt to burn a non-existent token
         let burn_params: Vec<TokenID> = vec![100];
-        let burn_params = RawBytes::serialize(&burn_params).unwrap();
+        let burn_params = RawBytes::serialize(burn_params).unwrap();
         let ret_val =
             tester.call_method(minter[0].1, actor_address, method_hash!("Burn"), Some(burn_params));
         // call should fail
-        assert!(!ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
+        assert!(!ret_val.msg_receipt.exit_code.is_success(), "{ret_val:#?}");
 
         // Check the total supply didn't change
         let ret_val =
@@ -112,10 +112,10 @@ fn test_nft_actor() {
     {
         // Attempt to burn the correct token but without permission
         let burn_params: Vec<TokenID> = vec![0];
-        let burn_params = RawBytes::serialize(&burn_params).unwrap();
+        let burn_params = RawBytes::serialize(burn_params).unwrap();
         let ret_val =
             tester.call_method(minter[0].1, actor_address, method_hash!("Burn"), Some(burn_params));
-        assert!(!ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
+        assert!(!ret_val.msg_receipt.exit_code.is_success(), "{ret_val:#?}");
 
         // Check the total supply didn't change
         let ret_val =
@@ -134,7 +134,7 @@ fn test_nft_actor() {
         let mint_params = RawBytes::serialize(&mint_params).unwrap();
         let ret_val =
             tester.call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
-        assert!(ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
+        assert!(ret_val.msg_receipt.exit_code.is_success(), "{ret_val:#?}");
         let mint_result = ret_val.msg_receipt.return_data.deserialize::<MintReturn>().unwrap();
         assert_eq!(mint_result.token_ids, vec![2, 3]);
         assert_eq!(mint_result.balance, 4);
@@ -143,7 +143,7 @@ fn test_nft_actor() {
         // Check the total supply increased by two
         let ret_val =
             tester.call_method(minter[0].1, actor_address, method_hash!("TotalSupply"), None);
-        assert!(ret_val.msg_receipt.exit_code.is_success(), "{:#?}", ret_val);
+        assert!(ret_val.msg_receipt.exit_code.is_success(), "{ret_val:#?}");
         let total_supply = ret_val.msg_receipt.return_data.deserialize::<u64>().unwrap();
         assert_eq!(total_supply, 4);
     }
