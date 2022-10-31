@@ -1,4 +1,3 @@
-use cid::Cid;
 use frc42_dispatch::method_hash;
 use frcxx_nft::state::TokenID;
 use fvm::{executor::ApplyRet, externs::Externs};
@@ -16,13 +15,13 @@ use super::TestHelpers;
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
     pub initial_owner: Address,
-    pub metadata: Vec<Cid>,
+    pub metadata: Vec<String>,
     pub operator_data: RawBytes,
 }
 
 impl Cbor for MintParams {}
 
-pub trait NFTHelpers {
+pub trait NFTHelper {
     /// Get balance from token actor for a given address
     /// This is a very common thing to check during tests
     fn nft_balance(&mut self, operator: Address, token_actor: Address, target: Address) -> u64;
@@ -73,9 +72,18 @@ pub trait NFTHelpers {
         token_id: TokenID,
         owner: ActorID,
     );
+
+    /// Check the tokens metadata, asserting that it matches the provided metadata
+    fn assert_nft_metadata(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        token_id: TokenID,
+        metadata: String,
+    );
 }
 
-impl<BS: Blockstore, E: Externs> NFTHelpers for Tester<BS, E> {
+impl<BS: Blockstore, E: Externs> NFTHelper for Tester<BS, E> {
     fn nft_balance(&mut self, operator: Address, token_actor: Address, target: Address) -> u64 {
         let params = RawBytes::serialize(target).unwrap();
         let ret_val =
@@ -93,7 +101,7 @@ impl<BS: Blockstore, E: Externs> NFTHelpers for Tester<BS, E> {
     ) -> ApplyRet {
         let mint_params = MintParams {
             initial_owner: target,
-            metadata: vec![Cid::default(); amount],
+            metadata: vec![String::default(); amount],
             operator_data,
         };
         let params = RawBytes::serialize(mint_params).unwrap();
@@ -156,5 +164,19 @@ impl<BS: Blockstore, E: Externs> NFTHelpers for Tester<BS, E> {
             self.call_method(operator, token_actor, method_hash!("OwnerOf"), Some(params));
         let owner = ret_val.msg_receipt.return_data.deserialize::<ActorID>().unwrap();
         assert_eq!(owner, actor);
+    }
+
+    fn assert_nft_metadata(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        token_id: TokenID,
+        metadata: String,
+    ) {
+        let params = RawBytes::serialize(token_id).unwrap();
+        let ret_val =
+            self.call_method(operator, token_actor, method_hash!("Metadata"), Some(params));
+        let owner = ret_val.msg_receipt.return_data.deserialize::<String>().unwrap();
+        assert_eq!(owner, metadata);
     }
 }

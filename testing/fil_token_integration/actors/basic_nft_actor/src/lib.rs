@@ -1,4 +1,3 @@
-use cid::Cid;
 use frc42_dispatch::match_method;
 use frcxx_nft::{
     state::{NFTState, TokenID},
@@ -53,10 +52,15 @@ fn invoke(params: u32) -> u32 {
             let res = handle.owner_of(params).unwrap();
             return_ipld(&res).unwrap()
         }
+        "Metadata" => {
+            let params = deserialize_params::<TokenID>(params);
+            let res = handle.metadata(params).unwrap();
+            return_ipld(&res).unwrap()
+        }
         "Mint" => {
             let params = deserialize_params::<MintParams>(params);
             let caller = Address::new_id(sdk::message::caller());
-            let mut hook = handle.mint(&caller, &params.initial_owner, &params.metadata, params.operator_data, RawBytes::default()).unwrap();
+            let mut hook = handle.mint(&caller, &params.initial_owner, params.metadata, params.operator_data, RawBytes::default()).unwrap();
 
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
@@ -168,7 +172,7 @@ pub fn constructor() {
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
     pub initial_owner: Address,
-    pub metadata: Vec<Cid>,
+    pub metadata: Vec<String>,
     pub operator_data: RawBytes,
 }
 

@@ -1,25 +1,12 @@
-use cid::Cid;
 use frc42_dispatch::method_hash;
 use frcxx_nft::{state::TokenID, types::MintReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
-use fvm_shared::address::Address;
-use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
 mod common;
-use common::frcxx_nft::NFTHelpers;
+use common::frcxx_nft_helpers::{MintParams, NFTHelper};
 use common::{construct_tester, TestHelpers};
-
-/// Copied from basic_nft_actor
-// this is here so we don't need to link every test against the basic_nft_actor
-// to avoid conflict of the invoke method at link time
-#[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
-pub struct MintParams {
-    initial_owner: Address,
-    metadata: Vec<Cid>,
-    operator_data: RawBytes,
-}
 
 const BASIC_NFT_ACTOR_WASM: &str =
     "../../target/debug/wbuild/basic_nft_actor/basic_nft_actor.compact.wasm";
@@ -46,7 +33,7 @@ fn test_nft_actor() {
         // Mint a single token
         let mint_params = MintParams {
             initial_owner: receiver_address,
-            metadata: vec![Cid::default()],
+            metadata: vec![String::from("metadata")],
             operator_data: RawBytes::default(),
         };
         let mint_params = RawBytes::serialize(&mint_params).unwrap();
@@ -71,14 +58,15 @@ fn test_nft_actor() {
         tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 1);
         // Check the owner is correct
         tester.assert_nft_owner(minter[0].1, actor_address, 0, receiver_address.id().unwrap());
-        // TODO: check metatdata is correct
+        // Check metatdata is correct
+        tester.assert_nft_metadata(minter[0].1, actor_address, 0, "metadata".into())
     }
 
     {
         // Mint a second token
         let mint_params = MintParams {
             initial_owner: receiver_address,
-            metadata: vec![Cid::default()],
+            metadata: vec![String::from("metadata2")],
             operator_data: RawBytes::default(),
         };
         let mint_params = RawBytes::serialize(&mint_params).unwrap();
@@ -103,6 +91,8 @@ fn test_nft_actor() {
         tester.assert_nft_balance(minter[0].1, actor_address, receiver_address, 2);
         // Check the owner is correct
         tester.assert_nft_owner(minter[0].1, actor_address, 1, receiver_address.id().unwrap());
+        // Check metatdata is correct
+        tester.assert_nft_metadata(minter[0].1, actor_address, 1, "metadata2".into())
     }
 
     {
@@ -146,7 +136,7 @@ fn test_nft_actor() {
         // Minting multiple tokens produces sequential ids
         let mint_params = MintParams {
             initial_owner: receiver_address,
-            metadata: vec![Cid::default(), Cid::default()],
+            metadata: vec![String::default(), String::default()],
             operator_data: RawBytes::default(),
         };
         let mint_params = RawBytes::serialize(&mint_params).unwrap();

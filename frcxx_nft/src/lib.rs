@@ -104,16 +104,23 @@ where
         Ok(self.state.get_owner(&self.bs, token_id)?)
     }
 
-    /// Create a single new NFT belonging to the initial_owner. The mint method is not standardised
+    /// Return the metadata for an NFT
+    pub fn metadata(&self, token_id: TokenID) -> Result<String> {
+        Ok(self.state.get_metadata(&self.bs, token_id)?)
+    }
+
+    /// Create new NFTs belonging to the initial_owner. The mint method is not standardised
     /// as part of the actor's interface but this is a usefuly method at the library level to
     /// generate new tokens that will maintain the necessary state invariants.
+    ///
+    /// For each string in metadata_array, a new NFT will be minted with the given metadata.
     ///
     /// Returns a MintIntermediate that can be used to construct return data
     pub fn mint(
         &mut self,
         caller: &Address,
         initial_owner: &Address,
-        metadatas: &[Cid],
+        metadata_array: Vec<String>,
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<MintIntermediate>> {
@@ -123,7 +130,7 @@ where
             &self.bs,
             caller,
             initial_owner,
-            metadatas,
+            metadata_array,
             operator_data,
             token_data,
         )?)

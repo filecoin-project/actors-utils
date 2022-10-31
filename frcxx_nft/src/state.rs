@@ -1,5 +1,6 @@
 //! Abstraction of the on-chain state related to NFT accounting
 use std::collections::HashMap;
+use std::mem;
 use std::vec;
 
 use cid::multihash::Code;
@@ -40,7 +41,7 @@ pub struct TokenData {
     pub owner: ActorID,
     // operators on this token
     pub operators: Vec<ActorID>, // or maybe as a Cid to an Amt
-    pub metadata: Cid,
+    pub metadata: String,
 }
 
 /// Each owner stores their own balance and other indexed data
@@ -155,7 +156,7 @@ impl NFTState {
         bs: &BS,
         caller: ActorID,
         owner: ActorID,
-        metadatas: &[Cid],
+        metadatas: Vec<String>,
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<MintIntermediate>> {
@@ -165,10 +166,12 @@ impl NFTState {
 
         let first_token_id = self.next_token;
 
-        for metadata in metadatas {
+        for mut metadata in metadatas {
             let token_id = self.next_token;
-            token_array
-                .set(token_id, TokenData { owner, operators: vec![], metadata: *metadata })?;
+            token_array.set(
+                token_id,
+                TokenData { owner, operators: vec![], metadata: mem::take(&mut metadata) },
+            )?;
             // update owner data map
             let new_owner_data = match owner_map.get(&actor_id_key(owner)) {
                 Ok(entry) => {
@@ -629,11 +632,11 @@ impl NFTState {
     }
 
     /// Get the metadata for a token
-    pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<Cid> {
+    pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<String> {
         let token_data_array = self.get_token_data_amt(bs)?;
         let token =
             token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
-        Ok(token.metadata)
+        Ok(token.metadata.clone())
     }
 
     /// Get the owner of a token
@@ -831,7 +834,6 @@ pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
 mod test {
     use std::vec;
 
-    use cid::Cid;
     use fvm_actor_utils::messaging::FakeMessenger;
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
@@ -872,7 +874,7 @@ mod test {
                     &self.bs,
                     0,
                     to,
-                    &vec![Cid::default(); num_tokens as usize],
+                    vec![String::default(); num_tokens as usize],
                     RawBytes::default(),
                     RawBytes::default(),
                 )
@@ -965,7 +967,7 @@ mod test {
         // mint 0 tokens (manual empty array should succeed)
         let mut hook = tester
             .state
-            .mint_tokens(&tester.bs, 0, ALICE_ID, &[], RawBytes::default(), RawBytes::default())
+            .mint_tokens(&tester.bs, 0, ALICE_ID, vec![], RawBytes::default(), RawBytes::default())
             .unwrap();
         let res = hook.call(&tester.msg).unwrap();
         assert_eq!(res.token_ids, Vec::<TokenID>::default());

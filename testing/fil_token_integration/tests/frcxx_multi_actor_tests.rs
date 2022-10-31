@@ -1,4 +1,3 @@
-use cid::Cid;
 use frc42_dispatch::method_hash;
 use frcxx_nft::state::NFTState;
 use frcxx_nft::types::{MintReturn, TransferReturn};
@@ -8,7 +7,7 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, receipt::Receipt};
 
 mod common;
-use common::frcxx_nft::{MintParams, NFTHelpers};
+use common::frcxx_nft_helpers::{MintParams, NFTHelper};
 use common::{construct_tester, TestHelpers};
 use frcxx_test_actor::{action, ActionParams, TestAction};
 
@@ -32,7 +31,7 @@ fn frcxx_multi_actor_tests() {
     let initial_nft_state = NFTState::new(&blockstore).unwrap();
 
     let token_actor =
-        tester.install_actor_with_state(BASIC_NFT_ACTOR_WASM, 10000, initial_nft_state.clone());
+        tester.install_actor_with_state(BASIC_NFT_ACTOR_WASM, 10000, initial_nft_state);
     // we'll use up to four actors for some of these tests, though most use only two
     let alice = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
     let bob = tester.install_actor_stateless(TEST_ACTOR_WASM, 10011);
@@ -52,7 +51,7 @@ fn frcxx_multi_actor_tests() {
     {
         let mint_params = MintParams {
             initial_owner: token_actor,
-            metadata: vec![Cid::default()],
+            metadata: vec![String::default()],
             operator_data: RawBytes::default(),
         };
 
@@ -97,7 +96,7 @@ fn frcxx_multi_actor_tests() {
     {
         let mint_params = MintParams {
             initial_owner: alice,
-            metadata: vec![Cid::default()],
+            metadata: vec![String::default()],
             operator_data: action(TestAction::Reject),
         };
         let params = RawBytes::serialize(mint_params).unwrap();
