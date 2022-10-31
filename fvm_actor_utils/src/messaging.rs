@@ -5,6 +5,7 @@ use frc42_dispatch::method_hash;
 use fvm_ipld_encoding::Error as IpldError;
 use fvm_ipld_encoding::RawBytes;
 use fvm_sdk::{actor, message, send, sys::ErrorNumber};
+use fvm_shared::address::Payload;
 use fvm_shared::error::ExitCode;
 use fvm_shared::receipt::Receipt;
 use fvm_shared::MethodNum;
@@ -207,13 +208,12 @@ impl FakeAddressResolver {
 
     pub fn initialize_account(&mut self, address: &Address) -> Result<ActorID> {
         match address.payload() {
-            fvm_shared::address::Payload::ID(id) => {
+            Payload::ID(id) => {
                 panic!("attempting to initialise an already resolved id {}", id)
             }
-            fvm_shared::address::Payload::Secp256k1(_) => Ok(self._initialize_address(address)?),
-            fvm_shared::address::Payload::BLS(_) => Ok(self._initialize_address(address)?),
-            fvm_shared::address::Payload::Actor(_) => {
-                Err(MessagingError::AddressNotInitialized(*address))
+            Payload::Actor(_) => Err(MessagingError::AddressNotInitialized(*address)),
+            Payload::Secp256k1(_) | Payload::BLS(_) | Payload::Delegated(_) => {
+                Ok(self._initialize_address(address)?)
             }
         }
     }
@@ -226,7 +226,7 @@ impl FakeAddressResolver {
 
         // else resolve it if it is an id address
         match address.payload() {
-            fvm_shared::address::Payload::ID(id) => Ok(*id),
+            Payload::ID(id) => Ok(*id),
             _ => Err(MessagingError::AddressNotResolved(*address)),
         }
     }
