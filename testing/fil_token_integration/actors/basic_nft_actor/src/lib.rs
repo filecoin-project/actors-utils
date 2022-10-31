@@ -156,12 +156,15 @@ pub fn constructor() {
     sdk::sself::set_root(&state_cid).unwrap();
 }
 
+// Note that the below MintParams needs to be manually synced with
+// testing/fil_token_integration/tests/frcxx_nfts.rs::MintParams
+
 /// Minting tokens goes directly to the caller for now
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
-    initial_owner: Address,
-    metadata: Vec<Cid>,
-    operator_data: RawBytes,
+    pub initial_owner: Address,
+    pub metadata: Vec<Cid>,
+    pub operator_data: RawBytes,
 }
 
 /// Grab the incoming parameters and convert from RawBytes to deserialized struct
