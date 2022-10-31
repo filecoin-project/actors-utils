@@ -137,4 +137,19 @@ fn factory_token() {
         tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
         tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(100));
     }
+
+    // mint some more to alice, who burns them upon receipt
+    {
+        let ret_val = tester.mint_tokens(
+            operator[0].1,
+            token_actor,
+            alice,
+            TokenAmount::from_atto(100),
+            action(TestAction::Burn),
+        );
+        assert!(ret_val.msg_receipt.exit_code.is_success(), "second minting returned {:#?}", ret_val);
+
+        // check balance of test actor, should be zero
+        tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
+    }
 }

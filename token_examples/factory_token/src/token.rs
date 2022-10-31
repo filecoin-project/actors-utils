@@ -257,7 +257,8 @@ impl BasicToken {
     fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {
         let new_cid = sdk::sself::root()?;
         if new_cid != *initial_cid {
-            self.token().load_replace(&new_cid)?;
+            let new_state = Self::load(&new_cid)?;
+            let _old = std::mem::replace(self, new_state);
         }
         Ok(())
     }
