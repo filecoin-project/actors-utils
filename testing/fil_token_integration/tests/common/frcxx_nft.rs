@@ -14,9 +14,9 @@ use super::TestHelpers;
 // because the invoke() functions will conflict at link time
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
-    initial_owner: Address,
-    metadata: Vec<Cid>,
-    operator_data: RawBytes,
+    pub initial_owner: Address,
+    pub metadata: Vec<Cid>,
+    pub operator_data: RawBytes,
 }
 
 impl Cbor for MintParams {}

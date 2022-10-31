@@ -156,6 +156,9 @@ pub fn constructor() {
     sdk::sself::set_root(&state_cid).unwrap();
 }
 
+// Note that the below MintParams needs to be manually synced with
+// testing/fil_token_integration/tests/frcxx_nfts.rs::MintParams
+
 /// Minting tokens goes directly to the caller for now
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {

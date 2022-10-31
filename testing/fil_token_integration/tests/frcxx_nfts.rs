@@ -12,6 +12,8 @@ use common::frcxx_nft::NFTHelpers;
 use common::{construct_tester, TestHelpers};
 
 /// Copied from basic_nft_actor
+// this is here so we don't need to link every test against the basic_nft_actor
+// to avoid conflict of the invoke method at link time
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
     initial_owner: Address,

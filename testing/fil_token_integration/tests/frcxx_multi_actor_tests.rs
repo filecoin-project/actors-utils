@@ -1,4 +1,3 @@
-use basic_nft_actor::MintParams;
 use cid::Cid;
 use frc42_dispatch::method_hash;
 use frcxx_nft::state::NFTState;
@@ -9,7 +8,7 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, receipt::Receipt};
 
 mod common;
-use common::frcxx_nft::NFTHelpers;
+use common::frcxx_nft::{MintParams, NFTHelpers};
 use common::{construct_tester, TestHelpers};
 use frcxx_test_actor::{action, ActionParams, TestAction};
 
