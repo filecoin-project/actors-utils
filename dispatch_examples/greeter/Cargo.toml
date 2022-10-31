@@ -17,4 +17,4 @@ fvm_integration_tests = "2.0.0-alpha.1"
 actors-v9 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "b40284a166adb22612b4fd98ab6c2483f581d8f7" }
 
 [build-dependencies]
-wasm-builder = "3.0"
+substrate-wasm-builder = "4.0"
