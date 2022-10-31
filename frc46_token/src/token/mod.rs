@@ -672,7 +672,7 @@ where
         let receipt = self.msg.send(
             token_receiver,
             RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(&params)?,
+            &RawBytes::serialize(params)?,
             &TokenAmount::zero(),
         )?;
 
