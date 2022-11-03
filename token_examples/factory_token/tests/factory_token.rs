@@ -65,7 +65,7 @@ fn factory_token() {
 
     let operator: [Account; 1] = tester.create_accounts().unwrap();
 
-    let initial_token_state = BasicToken::new(&blockstore, String::new(), String::new(), 1);
+    let initial_token_state = BasicToken::new(&blockstore, String::new(), String::new(), 1, None);
 
     // install actors required for our test: a token actor and one instance of the test actor
     let token_actor =
@@ -80,8 +80,12 @@ fn factory_token() {
 
     // construct token actor for a test token
     {
-        let params =
-            ConstructorParams { name: "Test Token".into(), symbol: "TEST".into(), granularity: 1 };
+        let params = ConstructorParams {
+            name: "Test Token".into(),
+            symbol: "TEST".into(),
+            granularity: 1,
+            minter: Some(operator[0].1),
+        };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method(
             operator[0].1,
@@ -147,7 +151,39 @@ fn factory_token() {
             TokenAmount::from_atto(100),
             action(TestAction::Burn),
         );
-        assert!(ret_val.msg_receipt.exit_code.is_success(), "second minting returned {:#?}", ret_val);
+        assert!(
+            ret_val.msg_receipt.exit_code.is_success(),
+            "second minting returned {:#?}",
+            ret_val
+        );
+
+        // check balance of test actor, should be zero
+        tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
+    }
+
+    // disable minting and attempt to mint afterwards
+    {
+        let ret_val =
+            tester.call_method(operator[0].1, token_actor, method_hash!("DisableMint"), None);
+        assert!(
+            ret_val.msg_receipt.exit_code.is_success(),
+            "actor constructor returned {:#?}",
+            ret_val
+        );
+
+        // try minting some tokens, which should fail
+        let ret_val = tester.mint_tokens(
+            operator[0].1,
+            token_actor,
+            alice,
+            TokenAmount::from_atto(100),
+            action(TestAction::Accept),
+        );
+        assert!(
+            !ret_val.msg_receipt.exit_code.is_success(),
+            "third minting returned {:#?}",
+            ret_val
+        );
 
         // check balance of test actor, should be zero
         tester.assert_token_balance_zero(operator[0].1, token_actor, alice);

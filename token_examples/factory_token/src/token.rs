@@ -51,6 +51,10 @@ pub enum RuntimeError {
     State(#[from] StateError),
     #[error("actor messaging error {0}")]
     Messaging(#[from] MessagingError),
+    #[error("address not authorized")]
+    AddressNotAuthorized,
+    #[error("minting has been permanently disabled")]
+    MintingDisabled,
 }
 
 pub fn caller_address() -> Address {
@@ -72,6 +76,8 @@ pub struct BasicToken {
     pub name: String,
     pub symbol: String,
     pub granularity: u64,
+    /// address of authorised minting operator
+    pub minter: Option<Address>,
 }
 
 /// Implementation of the token API in a FVM actor
@@ -220,14 +226,15 @@ pub struct MintParams {
 
 impl Cbor for MintParams {}
 
-// TODO: add some state save/load/reload things here?
-// or am i looking at things the wrong way?
-// if BasicToken is a user implementation here then i don't need to worry about it so much
-// i should move the load/save stuff here though, then FRC46Token methods can call into it
-// it won't bother the invoke helper though, all it does is translate the incoming method number+params to token interface calls
 impl BasicToken {
-    pub fn new<BS: _BS>(bs: &BS, name: String, symbol: String, granularity: u64) -> Self {
-        BasicToken { token: TokenState::new(&bs).unwrap(), name, symbol, granularity }
+    pub fn new<BS: _BS>(
+        bs: &BS,
+        name: String,
+        symbol: String,
+        granularity: u64,
+        minter: Option<Address>,
+    ) -> Self {
+        BasicToken { token: TokenState::new(&bs).unwrap(), name, symbol, granularity, minter }
     }
 
     pub fn token(&mut self) -> Token<'_, Blockstore, FvmMessenger> {
@@ -264,8 +271,18 @@ impl BasicToken {
     }
 
     pub fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
+        // todo: check that caller matches our minter address
+        let caller = caller_address();
+        // no minter means minting has been permanently disabled
+        let minter = self.minter.ok_or(RuntimeError::MintingDisabled)?;
+        // if there is a minter, check them
+        let msg = FvmMessenger::default();
+        if !msg.same_address(&caller, &minter) {
+            return Err(RuntimeError::AddressNotAuthorized);
+        }
+
         let mut hook = self.token().mint(
-            &caller_address(),
+            &caller,
             &params.initial_owner,
             &params.amount,
             params.operator_data,
@@ -282,6 +299,25 @@ impl BasicToken {
         let ret = self.token().mint_return(hook_ret)?;
 
         Ok(ret)
+    }
+
+    /// Permanently disable minting
+    /// Only the authorised mint operator can do this
+    ///
+    /// TODO: should authorised minter be separate to a token 'owner' ?
+    /// also, should it be a single address, a list of addresses, or some other means?
+    pub fn disable_mint(&mut self) -> Result<(), RuntimeError> {
+        let caller = caller_address();
+        // no minter means minting has already been permanently disabled
+        // we return this if already disabled because it will make more sense than failing the address check below
+        let minter = self.minter.ok_or(RuntimeError::MintingDisabled)?;
+        let msg = FvmMessenger::default();
+        if !msg.same_address(&caller, &minter) {
+            return Err(RuntimeError::AddressNotAuthorized);
+        }
+
+        self.minter = None;
+        Ok(())
     }
 }
 

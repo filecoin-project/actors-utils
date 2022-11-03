@@ -2,7 +2,7 @@ use frc42_dispatch::match_method;
 use fvm_actor_utils::blockstore::Blockstore;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_sdk::NO_DATA_BLOCK_ID;
-use fvm_shared::error::ExitCode;
+use fvm_shared::{address::Address, error::ExitCode};
 pub mod token;
 
 use token::{deserialize_params, frc46_invoke, return_ipld, BasicToken, MintParams};
@@ -12,12 +12,14 @@ pub struct ConstructorParams {
     pub name: String,
     pub symbol: String,
     pub granularity: u64,
-    // TODO: minting strategy stuff
+    /// authorised mint operator
+    /// only this address can mint tokens or remove themselves to permanently disable minting
+    pub minter: Option<Address>,
 }
 
 fn construct_token(params: ConstructorParams) {
     let bs = Blockstore::default();
-    let token = BasicToken::new(&bs, params.name, params.symbol, params.granularity);
+    let token = BasicToken::new(&bs, params.name, params.symbol, params.granularity, params.minter);
     let cid = token.save().unwrap();
     fvm_sdk::sself::set_root(&cid).unwrap();
 }
@@ -43,6 +45,17 @@ pub fn invoke(params: u32) -> u32 {
             let mut token_actor = BasicToken::load(&root_cid).unwrap();
             let res = token_actor.mint(params).unwrap();
             return_ipld(&res).unwrap()
+        }
+        "DisableMint" => {
+            let root_cid = fvm_sdk::sself::root().unwrap();
+            let mut token_actor = BasicToken::load(&root_cid).unwrap();
+            // disable minting forever
+            token_actor.disable_mint().unwrap();
+            // save state
+            let cid = token_actor.save().unwrap();
+            fvm_sdk::sself::set_root(&cid).unwrap();
+            // no return
+            NO_DATA_BLOCK_ID
         }
         _ => {
             let root_cid = fvm_sdk::sself::root().unwrap();
