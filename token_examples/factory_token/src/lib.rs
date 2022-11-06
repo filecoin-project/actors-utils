@@ -67,7 +67,6 @@ pub fn invoke(params: u32) -> u32 {
             let res = frc46_invoke(method_num, params, &mut token_actor, |token| {
                 // `token` is passed through from the original token provided in the function call
                 // so it won't break mutable borrow rules when used here (trying to use token_actor directly won't work)
-                //let cid = token.token().flush()?; // TODO: we need to store the entire BasicToken now, so util.flush() won't be enough
                 let cid = token.save()?;
                 fvm_sdk::sself::set_root(&cid)?;
                 Ok(())

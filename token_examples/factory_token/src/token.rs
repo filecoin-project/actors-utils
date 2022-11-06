@@ -85,12 +85,10 @@ pub struct BasicToken {
 /// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
 impl FRC46Token<RuntimeError> for BasicToken {
     fn name(&self) -> String {
-        //String::from("FRC-0046 Token")
         self.name.clone()
     }
 
     fn symbol(&self) -> String {
-        //String::from("FRC46")
         self.symbol.clone()
     }
 
@@ -132,7 +130,6 @@ impl FRC46Token<RuntimeError> for BasicToken {
             RawBytes::default(),
         )?;
 
-        //let cid = self.token().flush()?;
         let cid = self.save()?;
         sdk::sself::set_root(&cid).unwrap();
 
@@ -158,7 +155,6 @@ impl FRC46Token<RuntimeError> for BasicToken {
             RawBytes::default(),
         )?;
 
-        //let cid = self.token().flush()?;
         let cid = self.save()?;
         sdk::sself::set_root(&cid).unwrap();
 
@@ -271,11 +267,10 @@ impl BasicToken {
     }
 
     pub fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
-        // todo: check that caller matches our minter address
         let caller = caller_address();
-        // no minter means minting has been permanently disabled
+        // check if the caller matches our authorise mint operator
+        // no minter address means minting has been permanently disabled
         let minter = self.minter.ok_or(RuntimeError::MintingDisabled)?;
-        // if there is a minter, check them
         let msg = FvmMessenger::default();
         if !msg.same_address(&caller, &minter) {
             return Err(RuntimeError::AddressNotAuthorized);
@@ -289,7 +284,6 @@ impl BasicToken {
             Default::default(),
         )?;
 
-        //let cid = self.token().flush()?;
         let cid = self.save()?;
         sdk::sself::set_root(&cid).unwrap();
 
@@ -348,6 +342,8 @@ where
 /// - Ok(None) - method not found
 /// - Ok(Some(u32)) - block id of results saved to blockstore (or NO_DATA_BLOCK_ID if there is no result to return)
 /// - Err(error) - any error encountered during operation
+///
+/// TODO: improve the error type/handling so this can be moved into a library and work with any token code 
 ///
 pub fn frc46_invoke<T, F>(
     method_num: u64,
