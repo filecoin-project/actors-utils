@@ -65,24 +65,24 @@ pub trait Messaging {
         value: &TokenAmount,
     ) -> Result<Receipt>;
 
-    /// Attempts to resolve the given address to its ID address form
+    /// Attempts to resolve the given address to its ID address form, asserting that the target has previously been initialized
     ///
     /// Returns MessagingError::AddressNotResolved if the address could not be resolved
-    fn resolve_id(&self, address: &Address) -> Result<ActorID>;
+    fn resolve_existing(&self, address: &Address) -> Result<ActorID>;
 
-    /// Creates an account at a pubkey address and returns the ID address
+    /// Attempts to initialize an address by sending a zero amount of FIL
     ///
     /// Returns MessagingError::AddressNotInitialized if the address could not be created
-    fn initialize_account(&self, address: &Address) -> Result<ActorID>;
+    fn initialize_address(&self, address: &Address) -> Result<ActorID>;
 
     /// Resolves an address to an ID address, sending a message to initialize an account there if
     /// it doesn't exist
     ///
     /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
     fn resolve_or_init(&self, address: &Address) -> Result<ActorID> {
-        let id = match self.resolve_id(address) {
+        let id = match self.resolve_existing(address) {
             Ok(addr) => addr,
-            Err(MessagingError::AddressNotResolved(_e)) => self.initialize_account(address)?,
+            Err(MessagingError::AddressNotResolved(_e)) => self.initialize_address(address)?,
             Err(e) => return Err(e),
         };
         Ok(id)
@@ -100,11 +100,11 @@ pub trait Messaging {
             address_a == address_b
         } else {
             // attempt to resolve both to ActorID
-            let id_a = match self.resolve_id(address_a) {
+            let id_a = match self.resolve_existing(address_a) {
                 Ok(id) => id,
                 Err(_) => return false,
             };
-            let id_b = match self.resolve_id(address_b) {
+            let id_b = match self.resolve_existing(address_b) {
                 Ok(id) => id,
                 Err(_) => return false,
             };
@@ -135,11 +135,11 @@ impl Messaging for FvmMessenger {
         Ok(send::send(to, method, params.clone(), value.clone())?)
     }
 
-    fn resolve_id(&self, address: &Address) -> Result<ActorID> {
+    fn resolve_existing(&self, address: &Address) -> Result<ActorID> {
         actor::resolve_address(address).ok_or(MessagingError::AddressNotResolved(*address))
     }
 
-    fn initialize_account(&self, address: &Address) -> Result<ActorID> {
+    fn initialize_address(&self, address: &Address) -> Result<ActorID> {
         if let Err(e) = send::send(address, METHOD_SEND, Default::default(), TokenAmount::zero()) {
             return Err(e.into());
         }
@@ -207,11 +207,11 @@ impl Messaging for FakeMessenger {
         Ok(Receipt { exit_code: ExitCode::OK, return_data: Default::default(), gas_used: 0 })
     }
 
-    fn resolve_id(&self, address: &Address) -> Result<ActorID> {
+    fn resolve_existing(&self, address: &Address) -> Result<ActorID> {
         self.address_resolver.borrow().resolve_id(address)
     }
 
-    fn initialize_account(&self, address: &Address) -> Result<ActorID> {
+    fn initialize_address(&self, address: &Address) -> Result<ActorID> {
         self.address_resolver.borrow_mut().initialize_account(address)
     }
 }
@@ -386,21 +386,21 @@ mod test_fake_messenger {
         let actor_1 = &actor_address(1);
 
         // none resolvable initially
-        m.resolve_id(secp_1).unwrap_err();
-        m.resolve_id(secp_2).unwrap_err();
-        m.resolve_id(bls_1).unwrap_err();
-        m.resolve_id(bls_2).unwrap_err();
-        m.resolve_id(actor_1).unwrap_err();
+        m.resolve_existing(secp_1).unwrap_err();
+        m.resolve_existing(secp_2).unwrap_err();
+        m.resolve_existing(bls_1).unwrap_err();
+        m.resolve_existing(bls_2).unwrap_err();
+        m.resolve_existing(actor_1).unwrap_err();
 
         // creates new actor ids
-        assert_eq!(m.initialize_account(secp_1).unwrap(), 1);
-        assert_eq!(m.initialize_account(secp_2).unwrap(), 2);
-        assert_eq!(m.initialize_account(bls_1).unwrap(), 3);
-        assert_eq!(m.initialize_account(bls_2).unwrap(), 4);
+        assert_eq!(m.initialize_address(secp_1).unwrap(), 1);
+        assert_eq!(m.initialize_address(secp_2).unwrap(), 2);
+        assert_eq!(m.initialize_address(bls_1).unwrap(), 3);
+        assert_eq!(m.initialize_address(bls_2).unwrap(), 4);
 
         // cannot assign actor id to an account address
-        m.initialize_account(actor_1).unwrap_err();
+        m.initialize_address(actor_1).unwrap_err();
 
-        assert_eq!(m.resolve_id(&Address::new_id(1)).unwrap(), 1);
+        assert_eq!(m.resolve_existing(&Address::new_id(1)).unwrap(), 1);
     }
 }

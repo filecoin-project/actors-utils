@@ -211,7 +211,7 @@ where
     pub fn balance_of(&self, owner: &Address) -> Result<TokenAmount> {
         // Don't instantiate an account if unable to resolve to an ID address, as non-initialized
         // addresses have an implicit zero balance
-        match self.msg.resolve_id(owner) {
+        match self.msg.resolve_existing(owner) {
             Ok(owner) => Ok(self.state.get_balance(&self.bs, owner)?),
             Err(MessagingError::AddressNotResolved(_)) => {
                 // uninitialized address has implicit zero balance
@@ -228,7 +228,7 @@ where
     pub fn allowance(&self, owner: &Address, operator: &Address) -> Result<TokenAmount> {
         // Don't instantiate an account if unable to resolve owner-ID, as non-initialized addresses
         // give implicit zero allowances to all addresses
-        let owner = match self.msg.resolve_id(owner) {
+        let owner = match self.msg.resolve_existing(owner) {
             Ok(owner) => owner,
             Err(MessagingError::AddressNotResolved(_)) => {
                 return Ok(TokenAmount::zero());
@@ -238,7 +238,7 @@ where
 
         // Don't instantiate an account if unable to resolve operator-ID, as non-initialized
         // addresses have an implicit zero allowance
-        let operator = match self.msg.resolve_id(operator) {
+        let operator = match self.msg.resolve_existing(operator) {
             Ok(operator) => operator,
             Err(MessagingError::AddressNotResolved(_)) => {
                 return Ok(TokenAmount::zero());
@@ -300,7 +300,7 @@ where
 
     /// Sets the allowance between owner and operator to zero, returning the old allowance
     pub fn revoke_allowance(&mut self, owner: &Address, operator: &Address) -> Result<TokenAmount> {
-        let owner = match self.msg.resolve_id(owner) {
+        let owner = match self.msg.resolve_existing(owner) {
             Ok(owner) => owner,
             Err(MessagingError::AddressNotResolved(_)) => {
                 // uninitialized address has implicit zero allowance already
@@ -308,7 +308,7 @@ where
             }
             Err(e) => return Err(e.into()),
         };
-        let operator = match self.msg.resolve_id(operator) {
+        let operator = match self.msg.resolve_existing(operator) {
             Ok(operator) => operator,
             Err(MessagingError::AddressNotResolved(_)) => {
                 // uninitialized address has implicit zero allowance already
@@ -391,7 +391,7 @@ where
         }
 
         // operator must exist to have a non-zero allowance
-        let operator = match self.msg.resolve_id(operator) {
+        let operator = match self.msg.resolve_existing(operator) {
             Ok(operator) => operator,
             Err(MessagingError::AddressNotResolved(addr)) => {
                 // if not resolved, implicit zero allowance is not permitted to burn, so return an
@@ -408,7 +408,7 @@ where
         };
 
         // owner must exist to have set a non-zero allowance
-        let owner = match self.msg.resolve_id(owner) {
+        let owner = match self.msg.resolve_existing(owner) {
             Ok(owner) => owner,
             Err(MessagingError::AddressNotResolved(addr)) => {
                 return Err(TokenStateError::InsufficientAllowance {
@@ -548,7 +548,7 @@ where
         }
 
         // operator-initiated transfer must have a resolvable operator
-        let operator_id = match self.msg.resolve_id(operator) {
+        let operator_id = match self.msg.resolve_existing(operator) {
             // if operator resolved, we can continue with other checks
             Ok(id) => id,
             // if we cannot resolve the operator, they are forbidden to transfer
@@ -564,7 +564,7 @@ where
         };
 
         // the owner must exist to have specified a non-zero allowance
-        let from_id = match self.msg.resolve_id(from) {
+        let from_id = match self.msg.resolve_existing(from) {
             Ok(id) => id,
             Err(MessagingError::AddressNotResolved(from)) => {
                 return Err(TokenError::TokenState(TokenStateError::InsufficientAllowance {
@@ -1103,7 +1103,7 @@ mod test {
             FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
-                to: token.msg.resolve_id(&secp_address).unwrap(),
+                to: token.msg.resolve_existing(&secp_address).unwrap(),
                 amount: TokenAmount::from_atto(1_000_000),
                 operator_data: Default::default(),
                 token_data: Default::default(),
@@ -1138,7 +1138,7 @@ mod test {
             FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
-                to: token.msg.resolve_id(&bls_address).unwrap(),
+                to: token.msg.resolve_existing(&bls_address).unwrap(),
                 amount: TokenAmount::from_atto(1_000_000),
                 operator_data: Default::default(),
                 token_data: Default::default(),
@@ -1534,7 +1534,7 @@ mod test {
             FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
-                to: token.msg.resolve_id(secp_address).unwrap(),
+                to: token.msg.resolve_existing(secp_address).unwrap(),
                 amount: TokenAmount::from_atto(10),
                 operator_data: Default::default(),
                 token_data: Default::default(),
@@ -1585,7 +1585,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::zero());
 
         // secp_address was initialized
-        assert!(token.msg.resolve_id(secp_address).is_ok());
+        assert!(token.msg.resolve_existing(secp_address).is_ok());
 
         let actor_address = &actor_address();
         // transfers from actors fail with uninitializable
@@ -1612,7 +1612,7 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::zero());
 
         // actor address was not initialized
-        assert!(token.msg.resolve_id(actor_address).is_err());
+        assert!(token.msg.resolve_existing(actor_address).is_err());
         token.assert_invariants().unwrap();
     }
 
@@ -1957,7 +1957,7 @@ mod test {
         hook.call(token.msg()).unwrap();
 
         let initialised_address = &secp_address();
-        token.msg.initialize_account(initialised_address).unwrap();
+        token.msg.initialize_address(initialised_address).unwrap();
 
         // an initialised pubkey cannot transfer zero out of Alice balance without an allowance
         token
@@ -2073,7 +2073,7 @@ mod test {
         // supply unchanged
         assert_eq!(token.total_supply(), TokenAmount::from_atto(100));
         // account wasn't created
-        assert!(token.msg.resolve_id(secp_address).is_err());
+        assert!(token.msg.resolve_existing(secp_address).is_err());
 
         // zero transfer by an uninitialized pubkey
         let err = token
@@ -2108,7 +2108,7 @@ mod test {
         // supply unchanged
         assert_eq!(token.total_supply(), TokenAmount::from_atto(100));
         // account wasn't created
-        assert!(token.msg.resolve_id(secp_address).is_err());
+        assert!(token.msg.resolve_existing(secp_address).is_err());
     }
 
     #[test]
@@ -2186,7 +2186,7 @@ mod test {
 
         // create a resolvable pubkey
         let secp_address = &secp_address();
-        let secp_id = token.msg.initialize_account(secp_address).unwrap();
+        let secp_id = token.msg.initialize_address(secp_address).unwrap();
 
         // mint the total amount
         let mut hook = token
@@ -2303,7 +2303,7 @@ mod test {
         assert_eq!(token.allowance(TREASURY, secp_address).unwrap(), TokenAmount::zero());
 
         // account was not initialised
-        assert!(token.msg.resolve_id(secp_address).is_err());
+        assert!(token.msg.resolve_existing(secp_address).is_err());
     }
 
     #[test]
@@ -2551,13 +2551,13 @@ mod test {
         assert_eq!(allowance, TokenAmount::zero());
 
         // accounts were not initialized
-        let err = token.msg.resolve_id(bls).unwrap_err();
+        let err = token.msg.resolve_existing(bls).unwrap_err();
         if let MessagingError::AddressNotResolved(e) = err {
             assert_eq!(e, *bls);
         } else {
             panic!("expected AddressNotResolved error");
         }
-        let err = token.msg.resolve_id(secp).unwrap_err();
+        let err = token.msg.resolve_existing(secp).unwrap_err();
         if let MessagingError::AddressNotResolved(e) = err {
             assert_eq!(e, *secp);
         } else {
@@ -2571,13 +2571,13 @@ mod test {
         assert_eq!(balance, TokenAmount::zero());
 
         // accounts were not initialized
-        let err = token.msg.resolve_id(bls).unwrap_err();
+        let err = token.msg.resolve_existing(bls).unwrap_err();
         if let MessagingError::AddressNotResolved(e) = err {
             assert_eq!(e, *bls);
         } else {
             panic!("expected AddressNotResolved error");
         }
-        let err = token.msg.resolve_id(secp).unwrap_err();
+        let err = token.msg.resolve_existing(secp).unwrap_err();
         if let MessagingError::AddressNotResolved(e) = err {
             assert_eq!(e, *secp);
         } else {
@@ -2655,7 +2655,7 @@ mod test {
                             delta,
                         }) = err
                         {
-                            assert_eq!(owner, token.msg.resolve_id(from).unwrap());
+                            assert_eq!(owner, token.msg.resolve_existing(from).unwrap());
                             assert_eq!(delta, TokenAmount::from_atto(transfer).neg());
                             assert_eq!(b, TokenAmount::from_atto(balance));
                         } else {
