@@ -47,8 +47,8 @@ fn invoke(params: u32) -> u32 {
             let res = handle.total_supply();
             return_ipld(&res).unwrap()
         }
-        "ListTokens" -> {
-            let res = handle.list_tokens();
+        "ListTokens" => {
+            let res = handle.list_tokens().unwrap();
             return_ipld(&res).unwrap()
         }
         "OwnerOf" => {
