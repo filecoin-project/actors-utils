@@ -47,6 +47,10 @@ fn invoke(params: u32) -> u32 {
             let res = handle.total_supply();
             return_ipld(&res).unwrap()
         }
+        "ListTokens" -> {
+            let res = handle.list_tokens();
+            return_ipld(&res).unwrap()
+        }
         "OwnerOf" => {
             let params = deserialize_params::<TokenID>(params);
             let res = handle.owner_of(params).unwrap();

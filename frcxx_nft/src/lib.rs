@@ -289,6 +289,11 @@ where
         Ok(self.state.transfer_from_return(&self.bs, intermediate)?)
     }
 
+    /// Lists all the tokens in the collection
+    pub fn list_tokens(&mut self) -> Result<Vec<TokenID>> {
+        Ok(self.state.list_tokens(&self.bs)?)
+    }
+
     /// Reloads the state if the root cid has diverged (i.e. during re-entrant receiver hooks)
     /// from the passed in cid
     ///

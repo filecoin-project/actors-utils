@@ -652,6 +652,18 @@ impl NFTState {
             token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
         Ok(token.owner)
     }
+
+    pub fn list_tokens<BS: Blockstore>(&self, bs: &BS) -> Result<Vec<TokenID>> {
+        let token_amt = self.get_token_data_amt(bs)?;
+        let mut vec = vec![];
+        token_amt
+            .for_each(|id, _| {
+                vec.push(id);
+                Ok(())
+            })
+            .unwrap();
+        Ok(vec)
+    }
 }
 
 pub struct StateSummary {
