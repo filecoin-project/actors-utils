@@ -62,12 +62,6 @@ pub fn caller_address() -> Address {
     Address::new_id(caller)
 }
 
-// NOTE: this is mostly lifted from the basic token actor we use in integration testing
-// differences are how state load/store is handled
-// and the build-in invoke() designed to be called from an upstream invoke()
-
-// this token implementation is designed to be embedded into some larger actor
-// where the state contains more than just the token
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct BasicToken {
     /// Default token helper impl
@@ -297,9 +291,6 @@ impl BasicToken {
 
     /// Permanently disable minting
     /// Only the authorised mint operator can do this
-    ///
-    /// TODO: should authorised minter be separate to a token 'owner' ?
-    /// also, should it be a single address, a list of addresses, or some other means?
     pub fn disable_mint(&mut self) -> Result<(), RuntimeError> {
         let caller = caller_address();
         // no minter means minting has already been permanently disabled
@@ -343,7 +334,7 @@ where
 /// - Ok(Some(u32)) - block id of results saved to blockstore (or NO_DATA_BLOCK_ID if there is no result to return)
 /// - Err(error) - any error encountered during operation
 ///
-/// TODO: improve the error type/handling so this can be moved into a library and work with any token code 
+/// TODO: improve the error type/handling so this can be moved into a library and work with any token code
 ///
 pub fn frc46_invoke<T, F>(
     method_num: u64,
