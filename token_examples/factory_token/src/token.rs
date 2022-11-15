@@ -63,7 +63,7 @@ pub fn caller_address() -> Address {
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
-pub struct BasicToken {
+pub struct FactoryToken {
     /// Default token helper impl
     pub token: TokenState,
     /// basic token identifier stuff, should it go here or store separately alongside the state
@@ -77,7 +77,7 @@ pub struct BasicToken {
 /// Implementation of the token API in a FVM actor
 ///
 /// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
-impl FRC46Token<RuntimeError> for BasicToken {
+impl FRC46Token<RuntimeError> for FactoryToken {
     fn name(&self) -> String {
         self.name.clone()
     }
@@ -216,7 +216,7 @@ pub struct MintParams {
 
 impl Cbor for MintParams {}
 
-impl BasicToken {
+impl FactoryToken {
     pub fn new<BS: _BS>(
         bs: &BS,
         name: String,
@@ -224,7 +224,7 @@ impl BasicToken {
         granularity: u64,
         minter: Option<Address>,
     ) -> Self {
-        BasicToken { token: TokenState::new(&bs).unwrap(), name, symbol, granularity, minter }
+        FactoryToken { token: TokenState::new(&bs).unwrap(), name, symbol, granularity, minter }
     }
 
     pub fn token(&mut self) -> Token<'_, Blockstore, FvmMessenger> {
