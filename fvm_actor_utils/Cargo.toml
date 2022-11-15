@@ -13,7 +13,7 @@ cid = { version = "0.8.3", default-features = false, features = ["serde-codec"] 
 frc42_dispatch = { version = "1.0.0", path = "../frc42_dispatch" }
 fvm_ipld_blockstore = "0.1.1"
 fvm_ipld_encoding = "0.3.0"
-fvm_shared = "3.0.0-alpha.8"
-fvm_sdk = "3.0.0-alpha.8"
+fvm_shared = "3.0.0-alpha.11"
+fvm_sdk = "3.0.0-alpha.11"
 num-traits = { version = "0.2.15" }
 thiserror = { version = "1.0.31" }

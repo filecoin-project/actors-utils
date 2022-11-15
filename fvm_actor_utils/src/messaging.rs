@@ -178,10 +178,11 @@ impl Messaging for FakeMessenger {
                 exit_code: ExitCode::USR_UNSPECIFIED,
                 gas_used: 0,
                 return_data: Default::default(),
+                events_root: None,
             });
         }
 
-        Ok(Receipt { exit_code: ExitCode::OK, return_data: Default::default(), gas_used: 0 })
+        Ok(Receipt { exit_code: ExitCode::OK, return_data: Default::default(), gas_used: 0, events_root: None })
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
