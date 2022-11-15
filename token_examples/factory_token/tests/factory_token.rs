@@ -84,7 +84,7 @@ fn factory_token() {
             name: "Test Token".into(),
             symbol: "TEST".into(),
             granularity: 1,
-            minter: Some(operator[0].1),
+            minter: operator[0].1,
         };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method(

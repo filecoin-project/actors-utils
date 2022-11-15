@@ -14,7 +14,7 @@ pub struct ConstructorParams {
     pub granularity: u64,
     /// authorised mint operator
     /// only this address can mint tokens or remove themselves to permanently disable minting
-    pub minter: Option<Address>,
+    pub minter: Address,
 }
 
 fn construct_token(params: ConstructorParams) {
