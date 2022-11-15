@@ -5,7 +5,9 @@ use fvm_sdk::NO_DATA_BLOCK_ID;
 use fvm_shared::{address::Address, error::ExitCode};
 pub mod token;
 
-use token::{deserialize_params, frc46_invoke, return_ipld, BasicToken, MintParams};
+use token::{
+    deserialize_params, frc46_invoke, return_ipld, FactoryToken, MintParams, RuntimeError,
+};
 
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct ConstructorParams {
@@ -17,50 +19,45 @@ pub struct ConstructorParams {
     pub minter: Address,
 }
 
-fn construct_token(params: ConstructorParams) {
+fn construct_token(params: ConstructorParams) -> Result<u32, RuntimeError> {
     let bs = Blockstore::default();
-    let token = BasicToken::new(&bs, params.name, params.symbol, params.granularity, params.minter);
-    let cid = token.save().unwrap();
-    fvm_sdk::sself::set_root(&cid).unwrap();
+    let token =
+        FactoryToken::new(&bs, params.name, params.symbol, params.granularity, Some(params.minter));
+
+    let cid = token.save()?;
+    fvm_sdk::sself::set_root(&cid)?;
+
+    Ok(NO_DATA_BLOCK_ID)
 }
 
-#[no_mangle]
-pub fn invoke(params: u32) -> u32 {
-    std::panic::set_hook(Box::new(|info| {
-        fvm_sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{}", info)))
-    }));
-
-    let method_num = fvm_sdk::message::method_number();
-    // we only implement our own methods in this handler, anything we don't handle directly is delegated to frc46_invoke
-    // which handles any methods in the FRC46 token interface to save us writing the same
+fn token_invoke(method_num: u64, params: u32) -> Result<u32, RuntimeError> {
     match_method!(method_num, {
         "Constructor" => {
             let params = deserialize_params(params);
-            construct_token(params);
-            NO_DATA_BLOCK_ID
+            construct_token(params)
         }
         "Mint" => {
-            let root_cid = fvm_sdk::sself::root().unwrap();
+            let root_cid = fvm_sdk::sself::root()?;
             let params: MintParams = deserialize_params(params);
-            let mut token_actor = BasicToken::load(&root_cid).unwrap();
-            let res = token_actor.mint(params).unwrap();
-            return_ipld(&res).unwrap()
+            let mut token_actor = FactoryToken::load(&root_cid)?;
+            let res = token_actor.mint(params)?;
+            return_ipld(&res)
         }
         "DisableMint" => {
-            let root_cid = fvm_sdk::sself::root().unwrap();
-            let mut token_actor = BasicToken::load(&root_cid).unwrap();
+            let root_cid = fvm_sdk::sself::root()?;
+            let mut token_actor = FactoryToken::load(&root_cid)?;
             // disable minting forever
-            token_actor.disable_mint().unwrap();
+            token_actor.disable_mint()?;
             // save state
-            let cid = token_actor.save().unwrap();
-            fvm_sdk::sself::set_root(&cid).unwrap();
+            let cid = token_actor.save()?;
+            fvm_sdk::sself::set_root(&cid)?;
             // no return
-            NO_DATA_BLOCK_ID
+            Ok(NO_DATA_BLOCK_ID)
         }
         _ => {
-            let root_cid = fvm_sdk::sself::root().unwrap();
+            let root_cid = fvm_sdk::sself::root()?;
 
-            let mut token_actor = BasicToken::load(&root_cid).unwrap();
+            let mut token_actor = FactoryToken::load(&root_cid)?;
 
             // call FRC46 token methods
             // note that the `token_actor` passed in here needs to know how to save and load state
@@ -70,10 +67,10 @@ pub fn invoke(params: u32) -> u32 {
                 let cid = token.save()?;
                 fvm_sdk::sself::set_root(&cid)?;
                 Ok(())
-            }).unwrap();
+            })?;
             match res {
                 // handled by frc46_invoke, return result
-                Some(r) => r,
+                Some(r) => Ok(r),
                 // method not found
                 None => {
                     fvm_sdk::vm::abort(
@@ -84,4 +81,19 @@ pub fn invoke(params: u32) -> u32 {
             }
         }
     })
+}
+
+#[no_mangle]
+pub fn invoke(params: u32) -> u32 {
+    std::panic::set_hook(Box::new(|info| {
+        fvm_sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{}", info)))
+    }));
+
+    let method_num = fvm_sdk::message::method_number();
+    match token_invoke(method_num, params) {
+        Ok(ret) => ret,
+        Err(err) => {
+            fvm_sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&err.to_string()))
+        }
+    }
 }
