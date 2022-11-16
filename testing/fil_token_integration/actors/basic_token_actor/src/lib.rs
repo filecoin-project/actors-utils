@@ -11,7 +11,7 @@ use frc46_token::token::Token;
 use fvm_actor_utils::blockstore::Blockstore;
 use fvm_actor_utils::messaging::FvmMessenger;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
-use fvm_ipld_encoding::{Cbor, RawBytes, DAG_CBOR};
+use fvm_ipld_encoding::{RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
 use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
@@ -150,8 +150,6 @@ pub struct MintParams {
     pub amount: TokenAmount,
     pub operator_data: RawBytes,
 }
-
-impl Cbor for MintParams {}
 
 impl BasicToken<'_> {
     fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {

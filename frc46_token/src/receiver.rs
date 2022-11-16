@@ -1,6 +1,6 @@
 use frc42_dispatch::method_hash;
 use fvm_actor_utils::receiver::{ReceiverHook, ReceiverHookError, ReceiverType, RecipientData};
-use fvm_ipld_encoding::{Cbor, RawBytes};
+use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
@@ -46,5 +46,3 @@ pub struct FRC46TokenReceived {
     /// Additional data specified by the token-actor during transfer/mint
     pub token_data: RawBytes,
 }
-
-impl Cbor for FRC46TokenReceived {}

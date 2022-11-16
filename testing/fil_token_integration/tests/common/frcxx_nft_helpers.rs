@@ -3,7 +3,7 @@ use frcxx_nft::state::TokenID;
 use fvm::{executor::ApplyRet, externs::Externs};
 use fvm_integration_tests::tester::Tester;
 use fvm_ipld_blockstore::Blockstore;
-use fvm_ipld_encoding::{Cbor, RawBytes};
+use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, ActorID};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
@@ -18,8 +18,6 @@ pub struct MintParams {
     pub metadata: Vec<String>,
     pub operator_data: RawBytes,
 }
-
-impl Cbor for MintParams {}
 
 pub trait NFTHelper {
     /// Get balance from token actor for a given address

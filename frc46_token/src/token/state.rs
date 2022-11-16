@@ -6,7 +6,6 @@ use cid::Cid;
 use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::tuple::*;
-use fvm_ipld_encoding::Cbor;
 use fvm_ipld_encoding::CborStore;
 use fvm_ipld_encoding::DAG_CBOR;
 use fvm_ipld_hamt::Hamt;
@@ -742,8 +741,6 @@ pub fn actor_id_key(a: ActorID) -> BytesKey {
 pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
     u64::decode_var(key.0.as_slice()).map(|a| a.0)
 }
-
-impl Cbor for TokenState {}
 
 /// A summary of the current state to allow checking application specific invariants
 #[derive(Clone, Debug)]

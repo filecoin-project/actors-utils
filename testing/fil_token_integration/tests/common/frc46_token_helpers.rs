@@ -2,7 +2,7 @@ use frc42_dispatch::method_hash;
 use fvm::{executor::ApplyRet, externs::Externs};
 use fvm_integration_tests::tester::Tester;
 use fvm_ipld_blockstore::Blockstore;
-use fvm_ipld_encoding::{Cbor, RawBytes};
+use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
@@ -17,8 +17,6 @@ pub struct MintParams {
     pub amount: TokenAmount,
     pub operator_data: RawBytes,
 }
-
-impl Cbor for MintParams {}
 
 /// Helper routines to simplify common token operations
 pub trait TokenHelper {
