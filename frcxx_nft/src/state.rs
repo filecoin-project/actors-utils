@@ -1,5 +1,6 @@
 //! Abstraction of the on-chain state related to NFT accounting
 use std::collections::HashMap;
+use std::mem;
 use std::vec;
 
 use cid::multihash::Code;
@@ -8,6 +9,7 @@ use fvm_actor_utils::receiver::ReceiverHook;
 use fvm_actor_utils::receiver::ReceiverHookError;
 use fvm_ipld_amt::Amt;
 use fvm_ipld_amt::Error as AmtError;
+use fvm_ipld_bitfield::BitField;
 use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::tuple::*;
@@ -39,16 +41,16 @@ pub type TokenID = u64;
 pub struct TokenData {
     pub owner: ActorID,
     // operators on this token
-    pub operators: Vec<ActorID>, // or maybe as a Cid to an Amt
-    pub metadata: Cid,
+    pub operators: BitField, // or maybe as a Cid to an Amt
+    pub metadata: String,
 }
 
 /// Each owner stores their own balance and other indexed data
-#[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Clone, Debug)]
 pub struct OwnerData {
     pub balance: u64,
     // account-level operators
-    pub operators: Vec<ActorID>, // maybe as a Cid to an Amt
+    pub operators: BitField, // maybe as a Cid to an Amt
 }
 
 /// NFT state IPLD structure
@@ -155,7 +157,7 @@ impl NFTState {
         bs: &BS,
         caller: ActorID,
         owner: ActorID,
-        metadatas: &[Cid],
+        metadatas: Vec<String>,
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<MintIntermediate>> {
@@ -165,10 +167,16 @@ impl NFTState {
 
         let first_token_id = self.next_token;
 
-        for metadata in metadatas {
+        for mut metadata in metadatas {
             let token_id = self.next_token;
-            token_array
-                .set(token_id, TokenData { owner, operators: vec![], metadata: *metadata })?;
+            token_array.set(
+                token_id,
+                TokenData {
+                    owner,
+                    operators: BitField::default(),
+                    metadata: mem::take(&mut metadata),
+                },
+            )?;
             // update owner data map
             let new_owner_data = match owner_map.get(&actor_id_key(owner)) {
                 Ok(entry) => {
@@ -176,7 +184,7 @@ impl NFTState {
                         //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
                         OwnerData { balance: existing_data.balance + 1, ..existing_data.clone() }
                     } else {
-                        OwnerData { balance: 1, operators: vec![] }
+                        OwnerData { balance: 1, operators: BitField::default() }
                     }
                 }
                 Err(e) => return Err(e.into()),
@@ -287,7 +295,7 @@ impl NFTState {
                 operators.add_operator(operator);
                 OwnerData { operators, balance: data.balance }
             }
-            None => OwnerData { balance: 0, operators: vec![] },
+            None => OwnerData { balance: 0, operators: BitField::default() },
         };
         owner_map.set(actor_id_key(owner), new_owner_data)?;
         self.owner_data = owner_map.flush()?;
@@ -511,7 +519,8 @@ impl NFTState {
     ) -> Result<()> {
         let old_token_data =
             token_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?.clone();
-        let new_token_data = TokenData { owner: receiver, operators: vec![], ..old_token_data };
+        let new_token_data =
+            TokenData { owner: receiver, operators: BitField::default(), ..old_token_data };
         token_array.set(token_id, new_token_data)?;
 
         let previous_owner_key = actor_id_key(old_token_data.owner);
@@ -533,7 +542,7 @@ impl NFTState {
         let new_owner_key = actor_id_key(receiver);
         let new_owner_data = match owner_map.get(&new_owner_key)? {
             Some(data) => OwnerData { balance: data.balance + 1, ..data.clone() },
-            None => OwnerData { balance: 1, operators: vec![] },
+            None => OwnerData { balance: 1, operators: BitField::default() },
         };
         owner_map.set(new_owner_key, new_owner_data)?;
 
@@ -584,11 +593,9 @@ impl NFTState {
         Ok(false)
     }
 
-    /**
-     * Converts a MintIntermediate to a MintReturn
-     *
-     * This function should be called on a freshly loaded or known-up-to-date state
-     */
+    /// Converts a MintIntermediate to a MintReturn
+    ///
+    /// This function should be called on a freshly loaded or known-up-to-date state
     pub fn mint_return<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -604,11 +611,9 @@ impl NFTState {
         })
     }
 
-    /**
-     * Converts a TransferIntermediate to a TransferReturn
-     *
-     * This function should be called on a freshly loaded or known-up-to-date state
-     */
+    /// Converts a TransferIntermediate to a TransferReturn
+    ///
+    /// This function should be called on a freshly loaded or known-up-to-date state
     pub fn transfer_return<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -620,11 +625,9 @@ impl NFTState {
         Ok(TransferReturn { from_balance, to_balance, token_ids: intermediate.token_ids })
     }
 
-    /**
-     * Converts a TransferFromIntermediate to a TransferFromReturn
-     *
-     * This function should be called on a freshly loaded or known-up-to-date state
-     */
+    /// Converts a TransferFromIntermediate to a TransferFromReturn
+    ///
+    /// This function should be called on a freshly loaded or known-up-to-date state
     pub fn transfer_from_return<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -634,14 +637,20 @@ impl NFTState {
         Ok(TransferFromReturn { to_balance, token_ids: intermediate.token_ids })
     }
 
-    /**
-     * Get the metadata for a token
-     */
-    pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<Cid> {
+    /// Get the metadata for a token
+    pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<String> {
         let token_data_array = self.get_token_data_amt(bs)?;
         let token =
             token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
-        Ok(token.metadata)
+        Ok(token.metadata.clone())
+    }
+
+    /// Get the owner of a token
+    pub fn get_owner<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<ActorID> {
+        let token_data_array = self.get_token_data_amt(bs)?;
+        let token =
+            token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
+        Ok(token.owner)
     }
 }
 
@@ -664,7 +673,7 @@ pub enum StateInvariantError {
     #[error("invalid serialized owner key {0:?}")]
     InvalidBytesKey(BytesKey),
     #[error("actorids stored in operator array were not strictly increasing {0:?}")]
-    InvalidOperatorArray(Vec<u64>),
+    InvalidOperatorArray(Vec<ActorID>),
     #[error("underlying state error {0}")]
     State(#[from] StateError),
     #[error("entry for {0:?} in owner map had no tokens and no operators")]
@@ -742,11 +751,12 @@ impl NFTState {
                 let count = counted_balances.entry(owner).or_insert(0);
                 *count += 1;
 
+                // BitField maintains operator invariants, re-enable these checks if operators are stored in a vec
                 // assert operator array has no duplicates and is ordered
-                let res = Self::assert_operator_array(&data.operators);
-                if res.is_err() {
-                    errors.push(res.err().unwrap());
-                }
+                // let res = Self::assert_operator_array(&data.operators);
+                // if res.is_err() {
+                //     errors.push(res.err().unwrap());
+                // }
 
                 token_map.insert(id, data.clone());
                 Ok(())
@@ -777,11 +787,11 @@ impl NFTState {
                     errors.push(StateInvariantError::InvalidBytesKey(owner_key.clone()));
                 }
 
-                // assert operator array has no duplicates and is ordered
-                let res = Self::assert_operator_array(&data.operators);
-                if res.is_err() {
-                    errors.push(res.err().unwrap());
-                }
+                // BitField maintains operator invariants, re-enable these checks if operators are stored in a vec
+                // let res = Self::assert_operator_array(&data.operators);
+                // if res.is_err() {
+                //     errors.push(res.err().unwrap());
+                // }
 
                 Ok(())
             })
@@ -797,7 +807,10 @@ impl NFTState {
         )
     }
 
-    fn assert_operator_array(operators: &[u64]) -> std::result::Result<(), StateInvariantError> {
+    #[allow(dead_code)]
+    fn assert_operator_array(
+        operators: &[ActorID],
+    ) -> std::result::Result<(), StateInvariantError> {
         for pair in operators.windows(2) {
             if pair[0] >= pair[1] {
                 // pairs need to be unique and strictly increasing
@@ -831,7 +844,6 @@ pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
 mod test {
     use std::vec;
 
-    use cid::Cid;
     use fvm_actor_utils::messaging::FakeMessenger;
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
@@ -872,7 +884,7 @@ mod test {
                     &self.bs,
                     0,
                     to,
-                    &vec![Cid::default(); num_tokens as usize],
+                    vec![String::default(); num_tokens as usize],
                     RawBytes::default(),
                     RawBytes::default(),
                 )
@@ -965,7 +977,7 @@ mod test {
         // mint 0 tokens (manual empty array should succeed)
         let mut hook = tester
             .state
-            .mint_tokens(&tester.bs, 0, ALICE_ID, &[], RawBytes::default(), RawBytes::default())
+            .mint_tokens(&tester.bs, 0, ALICE_ID, vec![], RawBytes::default(), RawBytes::default())
             .unwrap();
         let res = hook.call(&tester.msg).unwrap();
         assert_eq!(res.token_ids, Vec::<TokenID>::default());

@@ -21,7 +21,7 @@ pub struct MintParams {
 impl Cbor for MintParams {}
 
 /// Helper routines to simplify common token operations
-pub trait TokenHelpers {
+pub trait TokenHelper {
     /// Get balance from token actor for a given address
     /// This is a very common thing to check during tests
     fn token_balance(
@@ -69,7 +69,7 @@ pub trait TokenHelpers {
     );
 }
 
-impl<B: Blockstore, E: Externs> TokenHelpers for Tester<B, E> {
+impl<B: Blockstore, E: Externs> TokenHelper for Tester<B, E> {
     fn token_balance(
         &mut self,
         operator: Address,

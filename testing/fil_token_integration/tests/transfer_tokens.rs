@@ -10,7 +10,7 @@ use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
 
 mod common;
-use common::frc46_token::TokenHelpers;
+use common::frc46_token_helpers::TokenHelper;
 use common::{construct_tester, TestHelpers};
 
 const BASIC_TOKEN_ACTOR_WASM: &str =

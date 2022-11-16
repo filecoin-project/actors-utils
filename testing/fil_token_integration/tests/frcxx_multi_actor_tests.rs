@@ -1,4 +1,3 @@
-use cid::Cid;
 use frc42_dispatch::method_hash;
 use frcxx_nft::state::NFTState;
 use frcxx_nft::types::{MintReturn, TransferReturn};
@@ -8,7 +7,7 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, receipt::Receipt};
 
 mod common;
-use common::frcxx_nft::{MintParams, NFTHelpers};
+use common::frcxx_nft_helpers::{MintParams, NFTHelper};
 use common::{construct_tester, TestHelpers};
 use frcxx_test_actor::{action, ActionParams, TestAction};
 
@@ -32,7 +31,7 @@ fn frcxx_multi_actor_tests() {
     let initial_nft_state = NFTState::new(&blockstore).unwrap();
 
     let token_actor =
-        tester.install_actor_with_state(BASIC_NFT_ACTOR_WASM, 10000, initial_nft_state.clone());
+        tester.install_actor_with_state(BASIC_NFT_ACTOR_WASM, 10000, initial_nft_state);
     // we'll use up to four actors for some of these tests, though most use only two
     let alice = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
     let bob = tester.install_actor_stateless(TEST_ACTOR_WASM, 10011);
@@ -52,7 +51,7 @@ fn frcxx_multi_actor_tests() {
     {
         let mint_params = MintParams {
             initial_owner: token_actor,
-            metadata: vec![Cid::default()],
+            metadata: vec![String::default()],
             operator_data: RawBytes::default(),
         };
 
@@ -62,6 +61,11 @@ fn frcxx_multi_actor_tests() {
         assert!(!ret_val.msg_receipt.exit_code.is_success());
         tester.assert_nft_total_supply_zero(op_addr, token_actor);
         tester.assert_nft_balance_zero(op_addr, token_actor, bob);
+
+        // Total Supply: 0
+        // Alice: 0
+        // Bob: 0
+        // Next ID: 0
     }
 
     // TEST: transfer to token contract itself
@@ -81,13 +85,18 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_total_supply_zero(op_addr, token_actor);
         tester.assert_nft_balance_zero(op_addr, token_actor, alice);
         tester.assert_nft_balance_zero(op_addr, token_actor, token_actor);
+
+        // Total Supply: 0
+        // Alice: 0
+        // Bob: 0
+        // Next ID: 0
     }
 
     // TEST: mint to alice who rejects in receive hook
     {
         let mint_params = MintParams {
             initial_owner: alice,
-            metadata: vec![Cid::default()],
+            metadata: vec![String::default()],
             operator_data: action(TestAction::Reject),
         };
         let params = RawBytes::serialize(mint_params).unwrap();
@@ -98,6 +107,11 @@ fn frcxx_multi_actor_tests() {
         // balances are unchanged
         tester.assert_nft_total_supply_zero(op_addr, token_actor);
         tester.assert_nft_balance_zero(op_addr, token_actor, bob);
+
+        // Total Supply: 0
+        // Alice: 0
+        // Bob: 0
+        // Next ID: 0
     }
 
     // TEST: alice transfers zero-amount to herself, accepting
@@ -121,6 +135,11 @@ fn frcxx_multi_actor_tests() {
         // balances are unchanged
         tester.assert_nft_total_supply_zero(op_addr, token_actor);
         tester.assert_nft_balance_zero(op_addr, token_actor, alice);
+
+        // Total Supply: 0
+        // Alice: 0
+        // Bob: 0
+        // Next ID: 0
     }
 
     // TEST: alice transfers zero-amount to herself, rejecting
@@ -139,6 +158,11 @@ fn frcxx_multi_actor_tests() {
         // balances are unchanged
         tester.assert_nft_total_supply_zero(op_addr, token_actor);
         tester.assert_nft_balance_zero(op_addr, token_actor, alice);
+
+        // Total Supply: 0
+        // Alice: 0
+        // Bob: 0
+        // Next ID: 0
     }
 
     // TEST: mint to alice who burns the token
@@ -156,6 +180,11 @@ fn frcxx_multi_actor_tests() {
         // balances are unchanged
         tester.assert_nft_total_supply_zero(op_addr, token_actor);
         tester.assert_nft_balance_zero(op_addr, token_actor, alice);
+
+        // Total Supply: 0
+        // Alice: 0
+        // Bob: 0
+        // Next ID: 1
     }
 
     // TEST: mint to alice who transfers to bob in hook
@@ -179,6 +208,13 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_total_supply(op_addr, token_actor, 1);
         tester.assert_nft_balance_zero(op_addr, token_actor, alice);
         tester.assert_nft_balance(op_addr, token_actor, bob, 1);
+        // ended up in bob's ownership
+        tester.assert_nft_owner(op_addr, token_actor, 1, bob.id().unwrap());
+
+        // Total Supply: 1
+        // Alice: []
+        // Bob: [1]
+        // Next ID: 2
     }
 
     // TEST: mint to alice who transfers to bob in hook, but bob rejects it
@@ -202,6 +238,13 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_total_supply(op_addr, token_actor, 2);
         tester.assert_nft_balance(op_addr, token_actor, alice, 1);
         tester.assert_nft_balance(op_addr, token_actor, bob, 1);
+        // ownership remained with alice
+        tester.assert_nft_owner(op_addr, token_actor, 2, alice.id().unwrap());
+
+        // Total Supply: 2
+        // Alice: [2]
+        // Bob: [1]
+        // Next ID: 3
     }
 
     // TEST: alice transfers non-zero amount to self
@@ -223,6 +266,11 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_total_supply(op_addr, token_actor, 2);
         tester.assert_nft_balance(op_addr, token_actor, alice, 1);
         tester.assert_nft_balance(op_addr, token_actor, bob, 1);
+
+        // Total Supply: 2
+        // Alice: [2]
+        // Bob: [1]
+        // Next ID: 3
     }
 
     // TEST: alice sends bob a transfer of zero amount, bob rejects
@@ -242,6 +290,11 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_total_supply(op_addr, token_actor, 2);
         tester.assert_nft_balance(op_addr, token_actor, alice, 1);
         tester.assert_nft_balance(op_addr, token_actor, bob, 1);
+
+        // Total Supply: 2
+        // Alice: [2]
+        // Bob: [1]
+        // Next ID: 3
     }
 
     {
@@ -264,6 +317,11 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_total_supply(op_addr, token_actor, 2);
         tester.assert_nft_balance(op_addr, token_actor, alice, 1);
         tester.assert_nft_balance(op_addr, token_actor, bob, 1);
+
+        // Total Supply: 2
+        // Alice: [2]
+        // Bob: [1]
+        // Next ID: 3
     }
 
     {
@@ -279,6 +337,16 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_total_supply(op_addr, token_actor, 5);
         tester.assert_nft_balance(op_addr, token_actor, alice, 4);
         tester.assert_nft_balance(op_addr, token_actor, bob, 1);
+
+        // check ownership
+        tester.assert_nft_owner(op_addr, token_actor, 3, alice.id().unwrap());
+        tester.assert_nft_owner(op_addr, token_actor, 4, alice.id().unwrap());
+        tester.assert_nft_owner(op_addr, token_actor, 5, alice.id().unwrap());
+
+        // Total Supply: 5
+        // Alice: [2, 3, 4, 5]
+        // Bob: [1]
+        // Next ID: 6
     }
 
     // TEST: transfer from alice to bob who will reject them
@@ -297,6 +365,16 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_total_supply(op_addr, token_actor, 5);
         tester.assert_nft_balance(op_addr, token_actor, alice, 4);
         tester.assert_nft_balance(op_addr, token_actor, bob, 1);
+
+        // check ownership was unchanged
+        tester.assert_nft_owner(op_addr, token_actor, 3, alice.id().unwrap());
+        tester.assert_nft_owner(op_addr, token_actor, 4, alice.id().unwrap());
+        tester.assert_nft_owner(op_addr, token_actor, 5, alice.id().unwrap());
+
+        // Total Supply: 5
+        // Alice: [2, 3, 4, 5]
+        // Bob: [1]
+        // Next ID: 6
     }
 
     // TEST: transfer from alice to bob who will accept it
@@ -321,6 +399,14 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_total_supply(op_addr, token_actor, 5);
         tester.assert_nft_balance(op_addr, token_actor, alice, 3);
         tester.assert_nft_balance(op_addr, token_actor, bob, 2);
+
+        // check ownership was unchanged
+        tester.assert_nft_owner(op_addr, token_actor, 2, bob.id().unwrap());
+
+        // Total Supply: 5
+        // Alice: [3, 4, 5]
+        // Bob: [1, 2]
+        // Next ID: 6
     }
 
     // TEST: transfer a batch from alice to bob who will burn some of it
@@ -346,5 +432,13 @@ fn frcxx_multi_actor_tests() {
         tester.assert_nft_total_supply(op_addr, token_actor, 3); // 5 to start - 2 burned
         tester.assert_nft_balance(op_addr, token_actor, alice, 0);
         tester.assert_nft_balance(op_addr, token_actor, bob, 3);
+
+        // check ownership was updated
+        tester.assert_nft_owner(op_addr, token_actor, 5, bob.id().unwrap());
+
+        // Total Supply: 3
+        // Alice: []
+        // Bob: [1, 2, 5]
+        // Next ID: 6
     }
 }
