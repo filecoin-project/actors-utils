@@ -751,13 +751,6 @@ impl NFTState {
                 let count = counted_balances.entry(owner).or_insert(0);
                 *count += 1;
 
-                // BitField maintains operator invariants, re-enable these checks if operators are stored in a vec
-                // assert operator array has no duplicates and is ordered
-                // let res = Self::assert_operator_array(&data.operators);
-                // if res.is_err() {
-                //     errors.push(res.err().unwrap());
-                // }
-
                 token_map.insert(id, data.clone());
                 Ok(())
             })
@@ -787,12 +780,6 @@ impl NFTState {
                     errors.push(StateInvariantError::InvalidBytesKey(owner_key.clone()));
                 }
 
-                // BitField maintains operator invariants, re-enable these checks if operators are stored in a vec
-                // let res = Self::assert_operator_array(&data.operators);
-                // if res.is_err() {
-                //     errors.push(res.err().unwrap());
-                // }
-
                 Ok(())
             })
             .unwrap();
@@ -805,19 +792,6 @@ impl NFTState {
             },
             errors,
         )
-    }
-
-    #[allow(dead_code)]
-    fn assert_operator_array(
-        operators: &[ActorID],
-    ) -> std::result::Result<(), StateInvariantError> {
-        for pair in operators.windows(2) {
-            if pair[0] >= pair[1] {
-                // pairs need to be unique and strictly increasing
-                return Err(StateInvariantError::InvalidOperatorArray(operators.to_vec()));
-            }
-        }
-        Ok(())
     }
 
     /// Helper to decode keys from bytes, recording errors if they fail
