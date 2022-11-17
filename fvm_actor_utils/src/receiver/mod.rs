@@ -1,7 +1,7 @@
 use std::mem;
 
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
-use fvm_ipld_encoding::{Cbor, RawBytes};
+use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode};
 use num_traits::Zero;
 use thiserror::Error;
@@ -19,8 +19,6 @@ pub struct UniversalReceiverParams {
     /// Payload corresponding to asset type
     pub payload: RawBytes,
 }
-
-impl Cbor for UniversalReceiverParams {}
 
 /// Standard interface for an actor that wishes to receive FRC-0046 tokens or other assets
 pub trait UniversalReceiver {

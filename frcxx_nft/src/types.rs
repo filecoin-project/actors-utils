@@ -2,7 +2,7 @@
 use cid::Cid;
 use fvm_actor_utils::receiver::RecipientData;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
-use fvm_ipld_encoding::{Cbor, RawBytes};
+use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::ActorID;
 
@@ -71,8 +71,6 @@ pub struct MintReturn {
     pub recipient_data: RawBytes,
 }
 
-impl Cbor for MintReturn {}
-
 /// Intermediate data used by mint_return to construct the return data
 #[derive(Clone, Debug)]
 pub struct MintIntermediate {
@@ -113,16 +111,12 @@ pub struct TransferParams {
     pub operator_data: RawBytes,
 }
 
-impl Cbor for TransferParams {}
-
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct TransferReturn {
     pub from_balance: u64,
     pub to_balance: u64,
     pub token_ids: Vec<TokenID>,
 }
-
-impl Cbor for TransferReturn {}
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct TransferFromParams {
@@ -131,8 +125,6 @@ pub struct TransferFromParams {
     pub token_ids: Vec<TokenID>,
     pub operator_data: RawBytes,
 }
-
-impl Cbor for TransferFromParams {}
 
 /// Intermediate data used by transfer_return to construct the return data
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
@@ -161,14 +153,10 @@ pub struct ApproveParams {
     pub token_ids: Vec<TokenID>,
 }
 
-impl Cbor for ApproveParams {}
-
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ApproveForAllParams {
     pub operator: Address,
 }
-
-impl Cbor for ApproveForAllParams {}
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct IsApprovedForAllParams {
@@ -176,19 +164,13 @@ pub struct IsApprovedForAllParams {
     pub operator: Address,
 }
 
-impl Cbor for IsApprovedForAllParams {}
-
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct RevokeParams {
     pub operator: Address,
     pub token_ids: Vec<TokenID>,
 }
 
-impl Cbor for RevokeParams {}
-
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct RevokeForAllParams {
     pub operator: Address,
 }
-
-impl Cbor for RevokeForAllParams {}

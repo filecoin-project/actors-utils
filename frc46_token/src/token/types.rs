@@ -1,6 +1,6 @@
 use fvm_actor_utils::receiver::RecipientData;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
-use fvm_ipld_encoding::{Cbor, RawBytes};
+use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
 
@@ -115,8 +115,6 @@ pub struct MintReturn {
     pub recipient_data: RawBytes,
 }
 
-impl Cbor for MintReturn {}
-
 /// Intermediate data used by mint_return to construct the return data
 #[derive(Clone, Debug)]
 pub struct MintIntermediate {
@@ -152,9 +150,6 @@ pub struct TransferReturn {
     /// (Optional) data returned from receiver hook
     pub recipient_data: RawBytes,
 }
-
-impl Cbor for TransferParams {}
-impl Cbor for TransferReturn {}
 
 /// Intermediate data used by transfer_return to construct the return data
 #[derive(Debug)]
@@ -194,9 +189,6 @@ pub struct TransferFromReturn {
     /// (Optional) data returned from receiver hook
     pub recipient_data: RawBytes,
 }
-
-impl Cbor for TransferFromParams {}
-impl Cbor for TransferFromReturn {}
 
 /// Intermediate data used by transfer_from_return to construct the return data
 #[derive(Clone, Debug)]
@@ -243,11 +235,6 @@ pub struct GetAllowanceParams {
     pub operator: Address,
 }
 
-impl Cbor for IncreaseAllowanceParams {}
-impl Cbor for DecreaseAllowanceParams {}
-impl Cbor for RevokeAllowanceParams {}
-impl Cbor for GetAllowanceParams {}
-
 /// Instruction to burn an amount of tokens
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct BurnParams {
@@ -261,9 +248,6 @@ pub struct BurnReturn {
     /// New balance in the account after the successful burn
     pub balance: TokenAmount,
 }
-
-impl Cbor for BurnParams {}
-impl Cbor for BurnReturn {}
 
 /// Instruction to burn an amount of tokens from another address
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
@@ -281,6 +265,3 @@ pub struct BurnFromReturn {
     /// New remaining allowance between the owner and operator (caller)
     pub allowance: TokenAmount,
 }
-
-impl Cbor for BurnFromParams {}
-impl Cbor for BurnFromReturn {}
