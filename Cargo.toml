@@ -18,3 +18,7 @@ members = [
     "testing/fil_token_integration/actors/frc46_test_actor",
     "testing/fil_token_integration/actors/frcxx_test_actor"
 ]
+
+[patch.crates-io]
+# tracking issue: https://github.com/bitvecto-rs/funty/issues/7
+funty = { git = "https://github.com/bitvecto-rs/funty/", rev = "7ef0d890fbcd8b3def1635ac1a877fc298488446" }
