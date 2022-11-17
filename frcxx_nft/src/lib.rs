@@ -118,17 +118,17 @@ where
     /// Returns a MintIntermediate that can be used to construct return data
     pub fn mint(
         &mut self,
-        caller: &Address,
+        operator: &Address,
         initial_owner: &Address,
         metadata_array: Vec<String>,
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<MintIntermediate>> {
-        let caller = self.msg.resolve_or_init(caller)?;
+        let operator = self.msg.resolve_id(operator)?;
         let initial_owner = self.msg.resolve_or_init(initial_owner)?;
         Ok(self.state.mint_tokens(
             &self.bs,
-            caller,
+            operator,
             initial_owner,
             metadata_array,
             operator_data,
@@ -139,28 +139,36 @@ where
     /// Constructs MintReturn data from a MintIntermediate handle
     ///
     /// Creates an up-to-date view of the actor state where necessary to generate the values
-    pub fn mint_return(&mut self, intermediate: MintIntermediate, cid: Cid) -> Result<MintReturn> {
-        self.reload_if_changed(cid)?;
+    /// `prior_state_cid` is the CID of the state prior to hook call
+    pub fn mint_return(
+        &mut self,
+        intermediate: MintIntermediate,
+        prior_state_cid: Cid,
+    ) -> Result<MintReturn> {
+        self.reload_if_changed(prior_state_cid)?;
         Ok(self.state.mint_return(&self.bs, intermediate)?)
     }
 
     /// Burn a set of NFTs as the owner
     ///
     /// A burnt TokenID can never be minted again
-    pub fn burn(&mut self, caller: ActorID, token_ids: &[TokenID]) -> Result<u64> {
-        let balance = self.state.burn_tokens(&self.bs, caller, token_ids)?;
+    pub fn burn(&mut self, owner: ActorID, token_ids: &[TokenID]) -> Result<u64> {
+        let balance = self.state.burn_tokens(&self.bs, owner, token_ids)?;
         Ok(balance)
     }
 
     /// Burn a set of NFTs as an operator
     ///
     /// A burnt TokenID can never be minted again
-    pub fn burn_for(&mut self, caller: ActorID, token_ids: &[TokenID]) -> Result<()> {
-        self.state.operator_burn_tokens(&self.bs, caller, token_ids)?;
+    pub fn burn_for(&mut self, operator: ActorID, token_ids: &[TokenID]) -> Result<()> {
+        self.state.operator_burn_tokens(&self.bs, operator, token_ids)?;
         Ok(())
     }
 
     /// Approve an operator to transfer or burn a single NFT
+    ///
+    /// `caller` may be an account-level operator or owner of the NFT
+    /// `operator` is the new address to become an approved operator
     pub fn approve(
         &mut self,
         caller: &Address,
@@ -168,7 +176,7 @@ where
         token_ids: &[TokenID],
     ) -> Result<()> {
         // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
+        let caller = self.msg.resolve_id(caller)?;
         let operator = self.msg.resolve_or_init(operator)?;
 
         self.state.approve_for_tokens(&self.bs, caller, operator, token_ids)?;
@@ -176,6 +184,9 @@ where
     }
 
     /// Revoke the approval of an operator to transfer a particular NFT
+    ///
+    /// `caller` may be an account-level operator or owner of the NFT
+    /// `operator` is the address whose approval is being revoked
     pub fn revoke(
         &mut self,
         caller: &Address,
@@ -183,7 +194,7 @@ where
         token_ids: &[TokenID],
     ) -> Result<()> {
         // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
+        let caller = self.msg.resolve_id(caller)?;
         let operator = match self.msg.resolve_id(operator) {
             Ok(id) => id,
             Err(_) => return Ok(()), // if operator didn't exist this is a no-op
@@ -194,43 +205,48 @@ where
     }
 
     /// Approve an operator to transfer or burn on behalf of the account
-    pub fn approve_for_owner(&mut self, caller: &Address, operator: &Address) -> Result<()> {
+    ///
+    /// `owner` must be the address that called this method
+    /// `operator` is the new address to become an approved operator
+    pub fn approve_for_owner(&mut self, owner: &Address, operator: &Address) -> Result<()> {
+        let owner = self.msg.resolve_id(owner)?;
         // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
         let operator = self.msg.resolve_or_init(operator)?;
-        self.state.approve_for_owner(&self.bs, caller, operator)?;
+        self.state.approve_for_owner(&self.bs, owner, operator)?;
         Ok(())
     }
 
     /// Revoke the approval of an operator to transfer on behalf of the caller
-    pub fn revoke_for_all(&mut self, caller: &Address, operator: &Address) -> Result<()> {
-        // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
+    ///
+    /// `owner` must be the address that called this method
+    /// `operator` is the address whose approval is being revoked
+    pub fn revoke_for_all(&mut self, owner: &Address, operator: &Address) -> Result<()> {
+        let owner = self.msg.resolve_id(owner)?;
         let operator = match self.msg.resolve_id(operator) {
             Ok(id) => id,
             Err(_) => return Ok(()), // if operator didn't exist this is a no-op
         };
 
-        self.state.revoke_for_all(&self.bs, caller, operator)?;
+        self.state.revoke_for_all(&self.bs, owner, operator)?;
         Ok(())
     }
 
     /// Transfers a token owned by the caller
     pub fn transfer(
         &mut self,
-        caller: &Address,
+        owner: &Address,
         recipient: &Address,
         token_ids: &[TokenID],
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<TransferIntermediate>> {
         // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
+        let owner = self.msg.resolve_or_init(owner)?;
         let recipient = self.msg.resolve_or_init(recipient)?;
 
         let hook = self.state.transfer_tokens(
             &self.bs,
-            caller,
+            owner,
             recipient,
             token_ids,
             operator_data,
@@ -243,31 +259,32 @@ where
     /// Constructs TransferReturn data from a TransferIntermediate
     ///
     /// Creates an up-to-date view of the actor state where necessary to generate the values
+    /// `prior_state_cid` is the CID of the state prior to hook call
     pub fn transfer_return(
         &mut self,
         intermediate: TransferIntermediate,
-        cid: Cid,
+        prior_state_cid: Cid,
     ) -> Result<TransferReturn> {
-        self.reload_if_changed(cid)?;
+        self.reload_if_changed(prior_state_cid)?;
         Ok(self.state.transfer_return(&self.bs, intermediate)?)
     }
 
     /// Transfers a token that the caller is an operator for
     pub fn transfer_from(
         &mut self,
-        caller: &Address,
+        operator: &Address,
         recipient: &Address,
         token_ids: &[TokenID],
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<TransferFromIntermediate>> {
         // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
+        let operator = self.msg.resolve_or_init(operator)?;
         let recipient = self.msg.resolve_or_init(recipient)?;
 
         let hook = self.state.operator_transfer_tokens(
             &self.bs,
-            caller,
+            operator,
             recipient,
             token_ids,
             operator_data,
@@ -280,23 +297,24 @@ where
     /// Constructs TransferReturn data from a TransferIntermediate
     ///
     /// Creates an up-to-date view of the actor state where necessary to generate the values
+    /// `prior_state_cid` is the CID of the state prior to hook call
     pub fn transfer_from_return(
         &mut self,
         intermediate: TransferFromIntermediate,
-        cid: Cid,
+        prior_state_cid: Cid,
     ) -> Result<TransferFromReturn> {
-        self.reload_if_changed(cid)?;
+        self.reload_if_changed(prior_state_cid)?;
         Ok(self.state.transfer_from_return(&self.bs, intermediate)?)
     }
 
-    /// Reloads the state if the root cid has diverged (i.e. during re-entrant receiver hooks)
-    /// from the passed in cid
+    /// Reloads the state if the current root cid has diverged (i.e. during re-entrant receiver hooks)
+    /// from the last known expected cid
     ///
-    /// Returns the current in-memory state if the root cid has changed else None
-    pub fn reload_if_changed(&mut self, cid: Cid) -> Result<Option<NFTState>> {
-        let new_cid = self.actor.root_cid()?;
-        if new_cid != cid {
-            let old_state = self.load_replace(&new_cid)?;
+    /// Returns the current in-blockstore state if the root cid has changed else None
+    pub fn reload_if_changed(&mut self, expected_cid: Cid) -> Result<Option<NFTState>> {
+        let current_cid = self.actor.root_cid()?;
+        if current_cid != expected_cid {
+            let old_state = self.load_replace(&current_cid)?;
             Ok(Some(old_state))
         } else {
             Ok(None)

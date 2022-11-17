@@ -155,41 +155,44 @@ impl NFTState {
     pub fn mint_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        caller: ActorID,
-        owner: ActorID,
+        operator: ActorID,
+        initial_owner: ActorID,
         metadatas: Vec<String>,
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<MintIntermediate>> {
-        // update token data array
-        let mut token_array = self.get_token_data_amt(bs)?;
-        let mut owner_map = self.get_owner_data_hamt(bs)?;
-
         let first_token_id = self.next_token;
 
+        // update owner data map
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
+        let new_owner_data = match owner_map.get(&actor_id_key(initial_owner)) {
+            Ok(entry) => {
+                if let Some(existing_data) = entry {
+                    //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
+                    OwnerData {
+                        balance: existing_data.balance + metadatas.len() as u64,
+                        ..existing_data.clone()
+                    }
+                } else {
+                    OwnerData { balance: metadatas.len() as u64, operators: BitField::default() }
+                }
+            }
+            Err(e) => return Err(e.into()),
+        };
+        owner_map.set(actor_id_key(initial_owner), new_owner_data)?;
+
+        // update token data array
+        let mut token_array = self.get_token_data_amt(bs)?;
         for mut metadata in metadatas {
             let token_id = self.next_token;
             token_array.set(
                 token_id,
                 TokenData {
-                    owner,
+                    owner: initial_owner,
                     operators: BitField::default(),
                     metadata: mem::take(&mut metadata),
                 },
             )?;
-            // update owner data map
-            let new_owner_data = match owner_map.get(&actor_id_key(owner)) {
-                Ok(entry) => {
-                    if let Some(existing_data) = entry {
-                        //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
-                        OwnerData { balance: existing_data.balance + 1, ..existing_data.clone() }
-                    } else {
-                        OwnerData { balance: 1, operators: BitField::default() }
-                    }
-                }
-                Err(e) => return Err(e.into()),
-            };
-            owner_map.set(actor_id_key(owner), new_owner_data)?;
 
             // update global trackers
             self.next_token += 1;
@@ -201,21 +204,21 @@ impl NFTState {
 
         // params for constructing our return value
         let mint_intermediate = MintIntermediate {
-            to: owner,
+            to: initial_owner,
             recipient_data: RawBytes::default(),
             token_ids: (first_token_id..self.next_token).collect(),
         };
 
         // params we'll send to the receiver hook
         let params = FRCXXTokenReceived {
-            operator: caller,
-            to: owner,
+            operator,
+            to: initial_owner,
             operator_data,
             token_data,
             token_ids: mint_intermediate.token_ids.clone(),
         };
 
-        Ok(ReceiverHook::new_frcxx(Address::new_id(owner), params, mint_intermediate)?)
+        Ok(ReceiverHook::new_frcxx(Address::new_id(initial_owner), params, mint_intermediate)?)
     }
 
     /// Get the number of tokens owned by a particular address
@@ -244,6 +247,7 @@ impl NFTState {
         let mut token_array = self.get_token_data_amt(bs)?;
 
         for token_id in token_ids {
+            // FIXME: have this check injected from or done at library-level; allow account-level operators to call this method successfully
             let mut token_data = Self::owns_token(&token_array, caller, *token_id)?;
             token_data.operators.add_operator(operator);
             token_array.set(*token_id, token_data)?;
@@ -339,14 +343,14 @@ impl NFTState {
     pub fn burn_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        caller: ActorID,
+        owner: ActorID,
         token_ids: &[TokenID],
     ) -> Result<u64> {
         let mut token_array = self.get_token_data_amt(bs)?;
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         for token_id in token_ids {
-            Self::owns_token(&token_array, caller, *token_id)?;
+            Self::owns_token(&token_array, owner, *token_id)?;
 
             let _token_data = token_array
                 .delete(*token_id)?
@@ -354,7 +358,7 @@ impl NFTState {
         }
 
         // we only reach here if all tokens were burned successfully so assume the caller is valid
-        let owner_key = actor_id_key(caller);
+        let owner_key = actor_id_key(owner);
         let mut new_owner_data = owner_map
             .get(&owner_key)?
             .ok_or_else(|| StateError::InvariantFailed("owner of tokens not found".into()))?
@@ -383,15 +387,15 @@ impl NFTState {
     pub fn operator_burn_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        caller: u64,
+        operator: u64,
         token_ids: &[u64],
     ) -> Result<()> {
         let mut token_array = self.get_token_data_amt(bs)?;
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         for token_id in token_ids {
-            if !Self::approved_for_token(&token_array, &owner_map, caller, *token_id)? {
-                return Err(StateError::NotAuthorized { actor: caller, token_id: *token_id });
+            if !Self::approved_for_token(&token_array, &owner_map, operator, *token_id)? {
+                return Err(StateError::NotAuthorized { actor: operator, token_id: *token_id });
             }
 
             let token_data = token_array
@@ -426,7 +430,7 @@ impl NFTState {
     pub fn transfer_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        caller: ActorID,
+        owner: ActorID,
         to: ActorID,
         token_ids: &[TokenID],
         operator_data: RawBytes,
@@ -436,7 +440,7 @@ impl NFTState {
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         for token_id in token_ids {
-            let _token_data = Self::owns_token(&token_array, caller, *token_id)?;
+            let _token_data = Self::owns_token(&token_array, owner, *token_id)?;
             // update the token_data to reflect the new owner and clear approved operators
             self.make_transfer(&mut token_array, &mut owner_map, *token_id, to)?;
         }
@@ -446,7 +450,7 @@ impl NFTState {
 
         let params = FRCXXTokenReceived {
             to,
-            operator: caller,
+            operator: owner,
             token_ids: token_ids.into(),
             operator_data,
             token_data,
@@ -454,7 +458,7 @@ impl NFTState {
 
         let res = TransferIntermediate {
             to,
-            from: caller,
+            from: owner,
             token_ids: token_ids.into(),
             recipient_data: RawBytes::default(),
         };
@@ -469,7 +473,7 @@ impl NFTState {
     pub fn operator_transfer_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        caller: ActorID,
+        operator: ActorID,
         to: ActorID,
         token_ids: &[TokenID],
         operator_data: RawBytes,
@@ -479,8 +483,8 @@ impl NFTState {
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         for token_id in token_ids {
-            if !Self::approved_for_token(&token_array, &owner_map, caller, *token_id)? {
-                return Err(StateError::NotAuthorized { actor: caller, token_id: *token_id });
+            if !Self::approved_for_token(&token_array, &owner_map, operator, *token_id)? {
+                return Err(StateError::NotAuthorized { actor: operator, token_id: *token_id });
             }
 
             // update the token_data to reflect the new owner and clear approved operators
@@ -492,7 +496,7 @@ impl NFTState {
 
         let params = FRCXXTokenReceived {
             to,
-            operator: caller,
+            operator,
             token_ids: token_ids.into(),
             operator_data,
             token_data,
@@ -751,13 +755,6 @@ impl NFTState {
                 let count = counted_balances.entry(owner).or_insert(0);
                 *count += 1;
 
-                // BitField maintains operator invariants, re-enable these checks if operators are stored in a vec
-                // assert operator array has no duplicates and is ordered
-                // let res = Self::assert_operator_array(&data.operators);
-                // if res.is_err() {
-                //     errors.push(res.err().unwrap());
-                // }
-
                 token_map.insert(id, data.clone());
                 Ok(())
             })
@@ -787,12 +784,6 @@ impl NFTState {
                     errors.push(StateInvariantError::InvalidBytesKey(owner_key.clone()));
                 }
 
-                // BitField maintains operator invariants, re-enable these checks if operators are stored in a vec
-                // let res = Self::assert_operator_array(&data.operators);
-                // if res.is_err() {
-                //     errors.push(res.err().unwrap());
-                // }
-
                 Ok(())
             })
             .unwrap();
@@ -805,19 +796,6 @@ impl NFTState {
             },
             errors,
         )
-    }
-
-    #[allow(dead_code)]
-    fn assert_operator_array(
-        operators: &[ActorID],
-    ) -> std::result::Result<(), StateInvariantError> {
-        for pair in operators.windows(2) {
-            if pair[0] >= pair[1] {
-                // pairs need to be unique and strictly increasing
-                return Err(StateInvariantError::InvalidOperatorArray(operators.to_vec()));
-            }
-        }
-        Ok(())
     }
 
     /// Helper to decode keys from bytes, recording errors if they fail
