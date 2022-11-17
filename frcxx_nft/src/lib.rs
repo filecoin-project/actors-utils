@@ -139,8 +139,13 @@ where
     /// Constructs MintReturn data from a MintIntermediate handle
     ///
     /// Creates an up-to-date view of the actor state where necessary to generate the values
-    pub fn mint_return(&mut self, intermediate: MintIntermediate, cid: Cid) -> Result<MintReturn> {
-        self.reload_if_changed(cid)?;
+    /// `prior_state_cid` is the CID of the state prior to hook call
+    pub fn mint_return(
+        &mut self,
+        intermediate: MintIntermediate,
+        prior_state_cid: Cid,
+    ) -> Result<MintReturn> {
+        self.reload_if_changed(prior_state_cid)?;
         Ok(self.state.mint_return(&self.bs, intermediate)?)
     }
 
@@ -243,12 +248,13 @@ where
     /// Constructs TransferReturn data from a TransferIntermediate
     ///
     /// Creates an up-to-date view of the actor state where necessary to generate the values
+    /// `prior_state_cid` is the CID of the state prior to hook call
     pub fn transfer_return(
         &mut self,
         intermediate: TransferIntermediate,
-        cid: Cid,
+        prior_state_cid: Cid,
     ) -> Result<TransferReturn> {
-        self.reload_if_changed(cid)?;
+        self.reload_if_changed(prior_state_cid)?;
         Ok(self.state.transfer_return(&self.bs, intermediate)?)
     }
 
@@ -280,23 +286,24 @@ where
     /// Constructs TransferReturn data from a TransferIntermediate
     ///
     /// Creates an up-to-date view of the actor state where necessary to generate the values
+    /// `prior_state_cid` is the CID of the state prior to hook call
     pub fn transfer_from_return(
         &mut self,
         intermediate: TransferFromIntermediate,
-        cid: Cid,
+        prior_state_cid: Cid,
     ) -> Result<TransferFromReturn> {
-        self.reload_if_changed(cid)?;
+        self.reload_if_changed(prior_state_cid)?;
         Ok(self.state.transfer_from_return(&self.bs, intermediate)?)
     }
 
-    /// Reloads the state if the root cid has diverged (i.e. during re-entrant receiver hooks)
-    /// from the passed in cid
+    /// Reloads the state if the current root cid has diverged (i.e. during re-entrant receiver hooks)
+    /// from the last known expected cid
     ///
-    /// Returns the current in-memory state if the root cid has changed else None
-    pub fn reload_if_changed(&mut self, cid: Cid) -> Result<Option<NFTState>> {
-        let new_cid = self.actor.root_cid()?;
-        if new_cid != cid {
-            let old_state = self.load_replace(&new_cid)?;
+    /// Returns the current in-blockstore state if the root cid has changed else None
+    pub fn reload_if_changed(&mut self, expected_cid: Cid) -> Result<Option<NFTState>> {
+        let current_cid = self.actor.root_cid()?;
+        if current_cid != expected_cid {
+            let old_state = self.load_replace(&current_cid)?;
             Ok(Some(old_state))
         } else {
             Ok(None)
