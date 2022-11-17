@@ -6,12 +6,14 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, receipt::Receipt};
 
 mod common;
-use common::{construct_tester, TestHelpers, TokenHelpers};
-use test_actor::{action, ActionParams, TestAction};
+use common::frc46_token_helpers::TokenHelper;
+use common::{construct_tester, TestHelpers};
+use frc46_test_actor::{action, ActionParams, TestAction};
 
 const BASIC_TOKEN_ACTOR_WASM: &str =
     "../../target/debug/wbuild/basic_token_actor/basic_token_actor.compact.wasm";
-const TEST_ACTOR_WASM: &str = "../../target/debug/wbuild/test_actor/test_actor.compact.wasm";
+const TEST_ACTOR_WASM: &str =
+    "../../target/debug/wbuild/frc46_test_actor/frc46_test_actor.compact.wasm";
 
 fn action_params(token_address: Address, action: TestAction) -> RawBytes {
     RawBytes::serialize(ActionParams { token_address, action }).unwrap()

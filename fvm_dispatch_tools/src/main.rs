@@ -44,7 +44,7 @@ fn main() {
             }
             let method_name = line.trim().to_string();
             let method_number = resolver.method_number(&method_name).unwrap();
-            println!("{}", method_number);
+            println!("{method_number}");
             line.clear();
         }
 
@@ -53,10 +53,10 @@ fn main() {
 
     match resolver.method_number(method_name.unwrap().as_str()) {
         Ok(method_number) => {
-            println!("{}", method_number);
+            println!("{method_number}");
         }
         Err(e) => {
-            println!("Error computing method name: {:?}", e)
+            println!("Error computing method name: {e:?}")
         }
     }
 }

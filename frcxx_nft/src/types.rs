@@ -1,5 +1,6 @@
 //! Interfaces and types for the FRCXX NFT standard
 use cid::Cid;
+use fvm_actor_utils::receiver::RecipientData;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{Cbor, RawBytes};
 use fvm_shared::address::Address;
@@ -16,7 +17,7 @@ pub trait FRCXXXNFT {
     fn symbol(&self) -> String;
 
     /// Gets a link to associated metadata for a given NFT
-    fn metadata_id(&self, params: TokenID) -> Cid;
+    fn metadata(&self, params: TokenID) -> Cid;
 
     /// Gets the total number of NFTs in this actor
     fn total_supply(&self) -> u64;
@@ -55,7 +56,57 @@ pub trait FRCXXXNFT {
     fn is_approved_for_all(&self, params: IsApprovedForAllParams) -> bool;
 }
 
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+/// Return value after a successful mint
+/// The mint method is not standardised, so this is merely a useful library-level type, and
+/// recommendation for token implementations
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct MintReturn {
+    /// The new balance of the owner address
+    pub balance: u64,
+    /// The new total supply
+    pub supply: u64,
+    /// List of the tokens that were minted successfully (some may have been burned during hook execution)
+    pub token_ids: Vec<TokenID>,
+    /// (Optional) data returned from the receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl Cbor for MintReturn {}
+
+/// Intermediate data used by mint_return to construct the return data
+#[derive(Clone, Debug)]
+pub struct MintIntermediate {
+    /// Receiving address used for querying balance
+    pub to: ActorID,
+    /// List of the newly minted tokens
+    pub token_ids: Vec<TokenID>,
+    /// (Optional) data returned from the receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl RecipientData for MintIntermediate {
+    fn set_recipient_data(&mut self, data: RawBytes) {
+        self.recipient_data = data;
+    }
+}
+
+/// Intermediate data used by transfer_return to construct the return data
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct TransferIntermediate {
+    pub token_ids: Vec<TokenID>,
+    pub from: ActorID,
+    pub to: ActorID,
+    /// (Optional) data returned from the receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl RecipientData for TransferIntermediate {
+    fn set_recipient_data(&mut self, data: RawBytes) {
+        self.recipient_data = data;
+    }
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct TransferParams {
     pub to: Address,
     pub token_ids: Vec<TokenID>,
@@ -64,7 +115,16 @@ pub struct TransferParams {
 
 impl Cbor for TransferParams {}
 
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct TransferReturn {
+    pub from_balance: u64,
+    pub to_balance: u64,
+    pub token_ids: Vec<TokenID>,
+}
+
+impl Cbor for TransferReturn {}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct TransferFromParams {
     pub from: Address,
     pub to: Address,
@@ -74,7 +134,28 @@ pub struct TransferFromParams {
 
 impl Cbor for TransferFromParams {}
 
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+/// Intermediate data used by transfer_return to construct the return data
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct TransferFromIntermediate {
+    pub token_ids: Vec<TokenID>,
+    pub to: ActorID,
+    /// (Optional) data returned from the receiver hook
+    pub recipient_data: RawBytes,
+}
+
+impl RecipientData for TransferFromIntermediate {
+    fn set_recipient_data(&mut self, data: RawBytes) {
+        self.recipient_data = data;
+    }
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct TransferFromReturn {
+    pub to_balance: u64,
+    pub token_ids: Vec<TokenID>,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ApproveParams {
     pub operator: Address,
     pub token_ids: Vec<TokenID>,
@@ -82,17 +163,32 @@ pub struct ApproveParams {
 
 impl Cbor for ApproveParams {}
 
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ApproveForAllParams {
     pub operator: Address,
 }
 
 impl Cbor for ApproveForAllParams {}
 
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct IsApprovedForAllParams {
     pub owner: Address,
     pub operator: Address,
 }
 
 impl Cbor for IsApprovedForAllParams {}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct RevokeParams {
+    pub operator: Address,
+    pub token_ids: Vec<TokenID>,
+}
+
+impl Cbor for RevokeParams {}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct RevokeForAllParams {
+    pub operator: Address,
+}
+
+impl Cbor for RevokeForAllParams {}

@@ -6,12 +6,14 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{econ::TokenAmount, receipt::Receipt};
 
 mod common;
-use common::{construct_tester, TestHelpers, TokenHelpers};
-use test_actor::{action, ActionParams, TestAction};
+use common::frc46_token_helpers::TokenHelper;
+use common::{construct_tester, TestHelpers};
+use frc46_test_actor::{action, ActionParams, TestAction};
 
 const BASIC_TOKEN_ACTOR_WASM: &str =
     "../../target/debug/wbuild/basic_token_actor/basic_token_actor.compact.wasm";
-const TEST_ACTOR_WASM: &str = "../../target/debug/wbuild/test_actor/test_actor.compact.wasm";
+const TEST_ACTOR_WASM: &str =
+    "../../target/debug/wbuild/frc46_test_actor/frc46_test_actor.compact.wasm";
 
 /// This covers several simpler tests, which all involve a single receiving actor
 /// They're combined because these integration tests take a long time to build and run
@@ -35,13 +37,13 @@ fn frc46_single_actor_tests() {
     // install actors required for our test: a token actor and one instance of the test actor
     let token_actor =
         tester.install_actor_with_state(BASIC_TOKEN_ACTOR_WASM, 10000, initial_token_state);
-    let test_actor = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
+    let frc46_test_actor = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
 
     // Instantiate machine
     tester.instantiate_machine(DummyExterns).unwrap();
 
     // construct actors
-    for actor in [token_actor, test_actor] {
+    for actor in [token_actor, frc46_test_actor] {
         let ret_val = tester.call_method(operator[0].1, actor, method_hash!("Constructor"), None);
         assert!(ret_val.msg_receipt.exit_code.is_success());
     }
@@ -51,14 +53,14 @@ fn frc46_single_actor_tests() {
         let ret_val = tester.mint_tokens(
             operator[0].1,
             token_actor,
-            test_actor,
+            frc46_test_actor,
             TokenAmount::from_atto(100),
             action(TestAction::Reject),
         );
         assert!(!ret_val.msg_receipt.exit_code.is_success());
 
         // check balance of test actor, should be zero
-        tester.assert_token_balance_zero(operator[0].1, token_actor, test_actor);
+        tester.assert_token_balance_zero(operator[0].1, token_actor, frc46_test_actor);
     }
 
     // TEST: mint to self (token actor), should be rejected
@@ -79,7 +81,7 @@ fn frc46_single_actor_tests() {
         let ret_val = tester.mint_tokens_ok(
             operator[0].1,
             token_actor,
-            test_actor,
+            frc46_test_actor,
             TokenAmount::from_atto(100),
             action(TestAction::Burn),
         );
@@ -88,20 +90,25 @@ fn frc46_single_actor_tests() {
         assert_eq!(mint_result.supply, TokenAmount::from_atto(0));
 
         // check balance of test actor, should also be zero
-        tester.assert_token_balance_zero(operator[0].1, token_actor, test_actor);
+        tester.assert_token_balance_zero(operator[0].1, token_actor, frc46_test_actor);
     }
 
     // TEST: test actor transfers to self (zero amount)
     {
         let test_action = ActionParams {
             token_address: token_actor,
-            action: TestAction::Transfer(test_actor, action(TestAction::Accept)),
+            action: TestAction::Transfer(frc46_test_actor, action(TestAction::Accept)),
         };
         let params = RawBytes::serialize(test_action).unwrap();
-        tester.call_method_ok(operator[0].1, test_actor, method_hash!("Action"), Some(params));
+        tester.call_method_ok(
+            operator[0].1,
+            frc46_test_actor,
+            method_hash!("Action"),
+            Some(params),
+        );
 
         // balance should remain zero
-        tester.assert_token_balance_zero(operator[0].1, token_actor, test_actor);
+        tester.assert_token_balance_zero(operator[0].1, token_actor, frc46_test_actor);
     }
 
     // SETUP: we need a balance on the test actor for the next few tests
@@ -109,7 +116,7 @@ fn frc46_single_actor_tests() {
         let ret_val = tester.mint_tokens_ok(
             operator[0].1,
             token_actor,
-            test_actor,
+            frc46_test_actor,
             TokenAmount::from_atto(100),
             action(TestAction::Accept),
         );
@@ -118,7 +125,7 @@ fn frc46_single_actor_tests() {
         tester.assert_token_balance(
             operator[0].1,
             token_actor,
-            test_actor,
+            frc46_test_actor,
             TokenAmount::from_atto(100),
         );
     }
@@ -130,8 +137,12 @@ fn frc46_single_actor_tests() {
             action: TestAction::Transfer(token_actor, RawBytes::default()),
         };
         let params = RawBytes::serialize(test_action).unwrap();
-        let ret_val =
-            tester.call_method_ok(operator[0].1, test_actor, method_hash!("Action"), Some(params));
+        let ret_val = tester.call_method_ok(
+            operator[0].1,
+            frc46_test_actor,
+            method_hash!("Action"),
+            Some(params),
+        );
         // action call should succeed, we'll dig into the return data to see the transfer call failure
 
         // return data is the Receipt from calling Transfer, which should show failure
@@ -141,7 +152,7 @@ fn frc46_single_actor_tests() {
         tester.assert_token_balance(
             operator[0].1,
             token_actor,
-            test_actor,
+            frc46_test_actor,
             TokenAmount::from_atto(100),
         );
     }
@@ -150,16 +161,21 @@ fn frc46_single_actor_tests() {
     {
         let test_action = ActionParams {
             token_address: token_actor,
-            action: TestAction::Transfer(test_actor, action(TestAction::Accept)),
+            action: TestAction::Transfer(frc46_test_actor, action(TestAction::Accept)),
         };
         let params = RawBytes::serialize(test_action).unwrap();
-        tester.call_method_ok(operator[0].1, test_actor, method_hash!("Action"), Some(params));
+        tester.call_method_ok(
+            operator[0].1,
+            frc46_test_actor,
+            method_hash!("Action"),
+            Some(params),
+        );
 
         // check that our test actor balance hasn't changed
         tester.assert_token_balance(
             operator[0].1,
             token_actor,
-            test_actor,
+            frc46_test_actor,
             TokenAmount::from_atto(100),
         );
     }

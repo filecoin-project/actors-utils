@@ -64,7 +64,7 @@ mod test {
         let msg = error.to_string();
         let exit_code = ExitCode::from(&error);
         // taking the exit code doesn't consume the error
-        println!("{}: {:?}", msg, exit_code);
+        println!("{msg}: {exit_code:?}");
         assert_eq!(exit_code, ExitCode::USR_ILLEGAL_STATE);
     }
 }
