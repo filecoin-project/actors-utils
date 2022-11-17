@@ -118,17 +118,17 @@ where
     /// Returns a MintIntermediate that can be used to construct return data
     pub fn mint(
         &mut self,
-        caller: &Address,
+        operator: &Address,
         initial_owner: &Address,
         metadata_array: Vec<String>,
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<MintIntermediate>> {
-        let caller = self.msg.resolve_or_init(caller)?;
+        let operator = self.msg.resolve_id(operator)?;
         let initial_owner = self.msg.resolve_or_init(initial_owner)?;
         Ok(self.state.mint_tokens(
             &self.bs,
-            caller,
+            operator,
             initial_owner,
             metadata_array,
             operator_data,
@@ -152,20 +152,23 @@ where
     /// Burn a set of NFTs as the owner
     ///
     /// A burnt TokenID can never be minted again
-    pub fn burn(&mut self, caller: ActorID, token_ids: &[TokenID]) -> Result<u64> {
-        let balance = self.state.burn_tokens(&self.bs, caller, token_ids)?;
+    pub fn burn(&mut self, owner: ActorID, token_ids: &[TokenID]) -> Result<u64> {
+        let balance = self.state.burn_tokens(&self.bs, owner, token_ids)?;
         Ok(balance)
     }
 
     /// Burn a set of NFTs as an operator
     ///
     /// A burnt TokenID can never be minted again
-    pub fn burn_for(&mut self, caller: ActorID, token_ids: &[TokenID]) -> Result<()> {
-        self.state.operator_burn_tokens(&self.bs, caller, token_ids)?;
+    pub fn burn_for(&mut self, operator: ActorID, token_ids: &[TokenID]) -> Result<()> {
+        self.state.operator_burn_tokens(&self.bs, operator, token_ids)?;
         Ok(())
     }
 
     /// Approve an operator to transfer or burn a single NFT
+    ///
+    /// `caller` may be an account-level operator or owner of the NFT
+    /// `operator` is the new address to become an approved operator
     pub fn approve(
         &mut self,
         caller: &Address,
@@ -173,7 +176,7 @@ where
         token_ids: &[TokenID],
     ) -> Result<()> {
         // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
+        let caller = self.msg.resolve_id(caller)?;
         let operator = self.msg.resolve_or_init(operator)?;
 
         self.state.approve_for_tokens(&self.bs, caller, operator, token_ids)?;
@@ -181,6 +184,9 @@ where
     }
 
     /// Revoke the approval of an operator to transfer a particular NFT
+    ///
+    /// `caller` may be an account-level operator or owner of the NFT
+    /// `operator` is the address whose approval is being revoked
     pub fn revoke(
         &mut self,
         caller: &Address,
@@ -188,7 +194,7 @@ where
         token_ids: &[TokenID],
     ) -> Result<()> {
         // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
+        let caller = self.msg.resolve_id(caller)?;
         let operator = match self.msg.resolve_id(operator) {
             Ok(id) => id,
             Err(_) => return Ok(()), // if operator didn't exist this is a no-op
@@ -199,43 +205,48 @@ where
     }
 
     /// Approve an operator to transfer or burn on behalf of the account
-    pub fn approve_for_owner(&mut self, caller: &Address, operator: &Address) -> Result<()> {
+    ///
+    /// `owner` must be the address that called this method
+    /// `operator` is the new address to become an approved operator
+    pub fn approve_for_owner(&mut self, owner: &Address, operator: &Address) -> Result<()> {
+        let owner = self.msg.resolve_id(owner)?;
         // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
         let operator = self.msg.resolve_or_init(operator)?;
-        self.state.approve_for_owner(&self.bs, caller, operator)?;
+        self.state.approve_for_owner(&self.bs, owner, operator)?;
         Ok(())
     }
 
     /// Revoke the approval of an operator to transfer on behalf of the caller
-    pub fn revoke_for_all(&mut self, caller: &Address, operator: &Address) -> Result<()> {
-        // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
+    ///
+    /// `owner` must be the address that called this method
+    /// `operator` is the address whose approval is being revoked
+    pub fn revoke_for_all(&mut self, owner: &Address, operator: &Address) -> Result<()> {
+        let owner = self.msg.resolve_id(owner)?;
         let operator = match self.msg.resolve_id(operator) {
             Ok(id) => id,
             Err(_) => return Ok(()), // if operator didn't exist this is a no-op
         };
 
-        self.state.revoke_for_all(&self.bs, caller, operator)?;
+        self.state.revoke_for_all(&self.bs, owner, operator)?;
         Ok(())
     }
 
     /// Transfers a token owned by the caller
     pub fn transfer(
         &mut self,
-        caller: &Address,
+        owner: &Address,
         recipient: &Address,
         token_ids: &[TokenID],
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<TransferIntermediate>> {
         // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
+        let owner = self.msg.resolve_or_init(owner)?;
         let recipient = self.msg.resolve_or_init(recipient)?;
 
         let hook = self.state.transfer_tokens(
             &self.bs,
-            caller,
+            owner,
             recipient,
             token_ids,
             operator_data,
@@ -261,19 +272,19 @@ where
     /// Transfers a token that the caller is an operator for
     pub fn transfer_from(
         &mut self,
-        caller: &Address,
+        operator: &Address,
         recipient: &Address,
         token_ids: &[TokenID],
         operator_data: RawBytes,
         token_data: RawBytes,
     ) -> Result<ReceiverHook<TransferFromIntermediate>> {
         // Attempt to instantiate the accounts if they don't exist
-        let caller = self.msg.resolve_or_init(caller)?;
+        let operator = self.msg.resolve_or_init(operator)?;
         let recipient = self.msg.resolve_or_init(recipient)?;
 
         let hook = self.state.operator_transfer_tokens(
             &self.bs,
-            caller,
+            operator,
             recipient,
             token_ids,
             operator_data,

@@ -155,8 +155,8 @@ impl NFTState {
     pub fn mint_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        caller: ActorID,
-        owner: ActorID,
+        operator: ActorID,
+        initial_owner: ActorID,
         metadatas: Vec<String>,
         operator_data: RawBytes,
         token_data: RawBytes,
@@ -165,7 +165,7 @@ impl NFTState {
 
         // update owner data map
         let mut owner_map = self.get_owner_data_hamt(bs)?;
-        let new_owner_data = match owner_map.get(&actor_id_key(owner)) {
+        let new_owner_data = match owner_map.get(&actor_id_key(initial_owner)) {
             Ok(entry) => {
                 if let Some(existing_data) = entry {
                     //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
@@ -179,7 +179,7 @@ impl NFTState {
             }
             Err(e) => return Err(e.into()),
         };
-        owner_map.set(actor_id_key(owner), new_owner_data)?;
+        owner_map.set(actor_id_key(initial_owner), new_owner_data)?;
 
         // update token data array
         let mut token_array = self.get_token_data_amt(bs)?;
@@ -188,7 +188,7 @@ impl NFTState {
             token_array.set(
                 token_id,
                 TokenData {
-                    owner,
+                    owner: initial_owner,
                     operators: BitField::default(),
                     metadata: mem::take(&mut metadata),
                 },
@@ -204,21 +204,21 @@ impl NFTState {
 
         // params for constructing our return value
         let mint_intermediate = MintIntermediate {
-            to: owner,
+            to: initial_owner,
             recipient_data: RawBytes::default(),
             token_ids: (first_token_id..self.next_token).collect(),
         };
 
         // params we'll send to the receiver hook
         let params = FRCXXTokenReceived {
-            operator: caller,
-            to: owner,
+            operator,
+            to: initial_owner,
             operator_data,
             token_data,
             token_ids: mint_intermediate.token_ids.clone(),
         };
 
-        Ok(ReceiverHook::new_frcxx(Address::new_id(owner), params, mint_intermediate)?)
+        Ok(ReceiverHook::new_frcxx(Address::new_id(initial_owner), params, mint_intermediate)?)
     }
 
     /// Get the number of tokens owned by a particular address
@@ -247,6 +247,7 @@ impl NFTState {
         let mut token_array = self.get_token_data_amt(bs)?;
 
         for token_id in token_ids {
+            // FIXME: have this check injected from or done at library-level; allow account-level operators to call this method successfully
             let mut token_data = Self::owns_token(&token_array, caller, *token_id)?;
             token_data.operators.add_operator(operator);
             token_array.set(*token_id, token_data)?;
@@ -342,14 +343,14 @@ impl NFTState {
     pub fn burn_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        caller: ActorID,
+        owner: ActorID,
         token_ids: &[TokenID],
     ) -> Result<u64> {
         let mut token_array = self.get_token_data_amt(bs)?;
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         for token_id in token_ids {
-            Self::owns_token(&token_array, caller, *token_id)?;
+            Self::owns_token(&token_array, owner, *token_id)?;
 
             let _token_data = token_array
                 .delete(*token_id)?
@@ -357,7 +358,7 @@ impl NFTState {
         }
 
         // we only reach here if all tokens were burned successfully so assume the caller is valid
-        let owner_key = actor_id_key(caller);
+        let owner_key = actor_id_key(owner);
         let mut new_owner_data = owner_map
             .get(&owner_key)?
             .ok_or_else(|| StateError::InvariantFailed("owner of tokens not found".into()))?
@@ -386,15 +387,15 @@ impl NFTState {
     pub fn operator_burn_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        caller: u64,
+        operator: u64,
         token_ids: &[u64],
     ) -> Result<()> {
         let mut token_array = self.get_token_data_amt(bs)?;
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         for token_id in token_ids {
-            if !Self::approved_for_token(&token_array, &owner_map, caller, *token_id)? {
-                return Err(StateError::NotAuthorized { actor: caller, token_id: *token_id });
+            if !Self::approved_for_token(&token_array, &owner_map, operator, *token_id)? {
+                return Err(StateError::NotAuthorized { actor: operator, token_id: *token_id });
             }
 
             let token_data = token_array
@@ -429,7 +430,7 @@ impl NFTState {
     pub fn transfer_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        caller: ActorID,
+        owner: ActorID,
         to: ActorID,
         token_ids: &[TokenID],
         operator_data: RawBytes,
@@ -439,7 +440,7 @@ impl NFTState {
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         for token_id in token_ids {
-            let _token_data = Self::owns_token(&token_array, caller, *token_id)?;
+            let _token_data = Self::owns_token(&token_array, owner, *token_id)?;
             // update the token_data to reflect the new owner and clear approved operators
             self.make_transfer(&mut token_array, &mut owner_map, *token_id, to)?;
         }
@@ -449,7 +450,7 @@ impl NFTState {
 
         let params = FRCXXTokenReceived {
             to,
-            operator: caller,
+            operator: owner,
             token_ids: token_ids.into(),
             operator_data,
             token_data,
@@ -457,7 +458,7 @@ impl NFTState {
 
         let res = TransferIntermediate {
             to,
-            from: caller,
+            from: owner,
             token_ids: token_ids.into(),
             recipient_data: RawBytes::default(),
         };
@@ -472,7 +473,7 @@ impl NFTState {
     pub fn operator_transfer_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        caller: ActorID,
+        operator: ActorID,
         to: ActorID,
         token_ids: &[TokenID],
         operator_data: RawBytes,
@@ -482,8 +483,8 @@ impl NFTState {
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         for token_id in token_ids {
-            if !Self::approved_for_token(&token_array, &owner_map, caller, *token_id)? {
-                return Err(StateError::NotAuthorized { actor: caller, token_id: *token_id });
+            if !Self::approved_for_token(&token_array, &owner_map, operator, *token_id)? {
+                return Err(StateError::NotAuthorized { actor: operator, token_id: *token_id });
             }
 
             // update the token_data to reflect the new owner and clear approved operators
@@ -495,7 +496,7 @@ impl NFTState {
 
         let params = FRCXXTokenReceived {
             to,
-            operator: caller,
+            operator,
             token_ids: token_ids.into(),
             operator_data,
             token_data,
