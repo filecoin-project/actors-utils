@@ -76,6 +76,22 @@ where
         let new_state = NFTState::load(&self.bs, cid)?;
         Ok(std::mem::replace(self.state, new_state))
     }
+
+    /// Opens an atomic transaction on TokenState which allows a closure to make multiple
+    /// modifications to the state tree.
+    ///
+    /// If the closure returns an error, the transaction is dropped atomically and no change is
+    /// observed on token state.
+    pub fn transaction<F, Res>(&mut self, f: F) -> Result<Res>
+    where
+        F: FnOnce(&mut NFTState, &BS) -> Result<Res>,
+    {
+        let mut mutable_state = self.state.clone();
+        let res = f(&mut mutable_state, &self.bs)?;
+        // if closure didn't error save state
+        *self.state = mutable_state;
+        Ok(res)
+    }
 }
 
 impl<'st, BS, MSG, A> NFT<'st, BS, MSG, A>
