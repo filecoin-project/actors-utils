@@ -77,7 +77,8 @@ pub struct FactoryToken {
 /// Implementation of the token API in a FVM actor
 ///
 /// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
-impl FRC46Token<RuntimeError> for FactoryToken {
+impl FRC46Token for FactoryToken {
+    type TokenError = RuntimeError;
     fn name(&self) -> String {
         self.name.clone()
     }
