@@ -21,7 +21,7 @@ use fvm_ipld_encoding::{
     Cbor, CborStore, RawBytes, DAG_CBOR,
 };
 use fvm_sdk::{self as sdk, error::NoStateError, sys::ErrorNumber, NO_DATA_BLOCK_ID};
-use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount};
+use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode};
 use serde::{de::DeserializeOwned, ser::Serialize};
 use thiserror::Error;
 
@@ -335,77 +335,122 @@ where
 /// - Ok(Some(u32)) - block id of results saved to blockstore (or NO_DATA_BLOCK_ID if there is no result to return)
 /// - Err(error) - any error encountered during operation
 ///
-/// TODO: improve the error type/handling so this can be moved into a library and work with any token code
-///
-pub fn frc46_invoke<T, F>(
+pub fn frc46_invoke<T, F, E>(
     method_num: u64,
     params: u32,
     token: &mut T,
     flush_state: F,
-) -> Result<Option<u32>, RuntimeError>
+) -> Result<Option<u32>, E>
 where
-    T: FRC46Token<RuntimeError>,
-    F: FnOnce(&mut T) -> Result<(), RuntimeError>,
+    T: FRC46Token<TokenError = E>,
+    F: FnOnce(&mut T) -> Result<(), E>,
 {
     match_method!(method_num, {
         "Name" => {
-            return_ipld(&token.name()).map(Option::Some)
+            Ok(frc46_return_block(&token.name()))
         }
         "Symbol" => {
-            return_ipld(&token.symbol()).map(Option::Some)
+            Ok(frc46_return_block(&token.symbol()))
         }
         "TotalSupply" => {
-            return_ipld(&token.total_supply()).map(Option::Some)
+            Ok(frc46_return_block(&token.total_supply()))
         }
         "BalanceOf" => {
-            let params = deserialize_params(params);
+            let params = frc46_unpack_params(params);
             let res = token.balance_of(params)?;
-            return_ipld(&res).map(Option::Some)
+            Ok(frc46_return_block(&res))
         }
         "Allowance" => {
-            let params = deserialize_params(params);
+            let params = frc46_unpack_params(params);
             let res = token.allowance(params)?;
-            return_ipld(&res).map(Option::Some)
+            Ok(frc46_return_block(&res))
         }
         "IncreaseAllowance" => {
-            let params = deserialize_params(params);
+            let params = frc46_unpack_params(params);
             let res = token.increase_allowance(params)?;
             flush_state(token)?;
-            return_ipld(&res).map(Option::Some)
+            Ok(frc46_return_block(&res))
         }
         "DecreaseAllowance" => {
-            let params = deserialize_params(params);
+            let params = frc46_unpack_params(params);
             let res = token.decrease_allowance(params)?;
             flush_state(token)?;
-            return_ipld(&res).map(Option::Some)
+            Ok(frc46_return_block(&res))
         }
         "RevokeAllowance" => {
-            let params = deserialize_params(params);
+            let params = frc46_unpack_params(params);
             token.revoke_allowance(params)?;
             flush_state(token)?;
             Ok(Some(NO_DATA_BLOCK_ID))
         }
         "Burn" => {
-            let params = deserialize_params(params);
+            let params = frc46_unpack_params(params);
             let res = token.burn(params)?;
             flush_state(token)?;
-            return_ipld(&res).map(Option::Some)
+            Ok(frc46_return_block(&res))
 
         }
         "TransferFrom" => {
-            let params = deserialize_params(params);
+            let params = frc46_unpack_params(params);
             let res = token.transfer_from(params)?;
-            return_ipld(&res).map(Option::Some)
+            Ok(frc46_return_block(&res))
         }
         "Transfer" => {
-            let params = deserialize_params(params);
+            let params = frc46_unpack_params(params);
             let res = token.transfer(params)?;
-            return_ipld(&res).map(Option::Some)
+            Ok(frc46_return_block(&res))
         }
         _ => {
             // no method found - it's not considered an error here, but an upstream caller may choose to treat it as one
             Ok(None)
         }
     })
-    .map_err(RuntimeError::from)
+}
+
+// deserialise params for passing to token methods
+// this aborts on errors and is intended for frc46_invoke to use
+pub fn frc46_unpack_params<O: DeserializeOwned>(params: u32) -> O {
+    let params = match sdk::message::params_raw(params) {
+        Ok((_, params)) => params,
+        Err(e) => {
+            fvm_sdk::vm::abort(
+                ExitCode::USR_SERIALIZATION.value(),
+                Some(format!("failed to get raw params {e}").as_str()),
+            );
+        }
+    };
+
+    match RawBytes::new(params).deserialize() {
+        Ok(p) => p,
+        Err(e) => {
+            fvm_sdk::vm::abort(
+                ExitCode::USR_SERIALIZATION.value(),
+                Some(format!("failed to deserialize params {e}").as_str()),
+            );
+        }
+    }
+}
+
+// serialise and save return data to the blockstore
+// this also aborts on error and is intended for frc46_invoke to use
+pub fn frc46_return_block<T>(value: &T) -> Option<u32>
+where
+    T: Serialize + ?Sized,
+{
+    let bytes = match fvm_ipld_encoding::to_vec(value) {
+        Ok(b) => b,
+        Err(e) => {
+            fvm_sdk::vm::abort(
+                ExitCode::USR_SERIALIZATION.value(),
+                Some(format!("failed to serialise return data {e}").as_str()),
+            );
+        }
+    };
+
+    Some(sdk::ipld::put_block(DAG_CBOR, bytes.as_slice()).unwrap_or_else(|e| {
+        fvm_sdk::vm::abort(
+            ExitCode::USR_SERIALIZATION.value(),
+            Some(format!("failed to serialise return data {e}").as_str()),
+        )
+    }))
 }
