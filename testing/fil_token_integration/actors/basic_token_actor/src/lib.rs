@@ -30,7 +30,8 @@ struct BasicToken<'state> {
 /// Implementation of the token API in a FVM actor
 ///
 /// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
-impl FRC46Token<RuntimeError> for BasicToken<'_> {
+impl FRC46Token for BasicToken<'_> {
+    type TokenError = RuntimeError;
     fn name(&self) -> String {
         String::from("FRC-0046 Token")
     }
