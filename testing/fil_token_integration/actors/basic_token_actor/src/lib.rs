@@ -44,11 +44,11 @@ impl FRC46Token for BasicToken<'_> {
         1
     }
 
-    fn total_supply(&self) -> TotalSupplyReturn {
+    fn total_supply(&mut self) -> TotalSupplyReturn {
         self.util.total_supply()
     }
 
-    fn balance_of(&self, params: Address) -> Result<BalanceReturn, RuntimeError> {
+    fn balance_of(&mut self, params: Address) -> Result<BalanceReturn, RuntimeError> {
         Ok(self.util.balance_of(&params)?)
     }
 

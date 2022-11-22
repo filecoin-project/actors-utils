@@ -34,12 +34,12 @@ pub trait FRC46Token {
     ///
     /// Must be non-negative. The total supply must equal the balances of all addresses. The total
     /// supply should equal the sum of all minted tokens less the sum of all burnt tokens.
-    fn total_supply(&self) -> TotalSupplyReturn;
+    fn total_supply(&mut self) -> TotalSupplyReturn;
 
     /// Returns the balance of an address
     ///
     /// Balance is always non-negative. Uninitialised addresses have an implicit zero balance.
-    fn balance_of(&self, params: Address) -> Result<BalanceReturn, Self::TokenError>;
+    fn balance_of(&mut self, params: Address) -> Result<BalanceReturn, Self::TokenError>;
 
     /// Returns the allowance approved for an operator on a spender's balance
     ///

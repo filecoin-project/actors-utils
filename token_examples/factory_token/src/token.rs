@@ -12,7 +12,7 @@ use frc46_token::token::{
 };
 use fvm_actor_utils::{
     blockstore::Blockstore,
-    messaging::{FvmMessenger, Messaging, MessagingError},
+    messaging::{FvmMessenger, MessagingError},
     receiver::ReceiverHookError,
 };
 use fvm_ipld_blockstore::{Block, Blockstore as _BS};
@@ -21,7 +21,7 @@ use fvm_ipld_encoding::{
     CborStore, RawBytes, DAG_CBOR,
 };
 use fvm_sdk::{self as sdk, error::NoStateError, sys::ErrorNumber, NO_DATA_BLOCK_ID};
-use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode, ActorID};
+use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode, ActorID};
 use serde::{de::DeserializeOwned, ser::Serialize};
 use thiserror::Error;
 
@@ -88,31 +88,15 @@ impl FRC46Token for FactoryToken {
     }
 
     fn granularity(&self) -> GranularityReturn {
-        //1
         self.granularity
     }
 
-    fn total_supply(&self) -> TotalSupplyReturn {
-        // TODO: token() wants mutable ref, we don't have one here and can't change the interface
-        // so need an immutable wrapper to call these things?
-        // or just bypass it and go to the state directly
-        //self.token().total_supply()
-        self.token.supply.clone()
+    fn total_supply(&mut self) -> TotalSupplyReturn {
+        self.token().total_supply()
     }
 
-    fn balance_of(&self, params: Address) -> Result<BalanceReturn, RuntimeError> {
-        // TODO: same situation as total_supply
-        //Ok(self.token().balance_of(&params)?)
-        let bs = Blockstore::default();
-        let msg = FvmMessenger::default();
-        match msg.resolve_id(&params) {
-            Ok(owner) => Ok(self.token.get_balance(&bs, owner)?),
-            Err(MessagingError::AddressNotResolved(_)) => {
-                // uninitialized address has implicit zero balance
-                Ok(TokenAmount::zero())
-            }
-            Err(e) => Err(e.into()),
-        }
+    fn balance_of(&mut self, params: Address) -> Result<BalanceReturn, RuntimeError> {
+        Ok(self.token().balance_of(&params)?)
     }
 
     fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
