@@ -1,5 +1,8 @@
 use frc42_dispatch::match_method;
-use fvm_actor_utils::blockstore::Blockstore;
+use fvm_actor_utils::{
+    blockstore::Blockstore,
+    messaging::{FvmMessenger, Messaging},
+};
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_sdk::NO_DATA_BLOCK_ID;
 use fvm_shared::{address::Address, error::ExitCode};
@@ -21,8 +24,10 @@ pub struct ConstructorParams {
 
 fn construct_token(params: ConstructorParams) -> Result<u32, RuntimeError> {
     let bs = Blockstore::default();
+    let msg = FvmMessenger::default();
+    let actor_id = msg.resolve_id(&params.minter)?;
     let token =
-        FactoryToken::new(&bs, params.name, params.symbol, params.granularity, Some(params.minter));
+        FactoryToken::new(&bs, params.name, params.symbol, params.granularity, Some(actor_id));
 
     let cid = token.save()?;
     fvm_sdk::sself::set_root(&cid)?;

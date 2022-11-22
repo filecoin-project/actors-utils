@@ -21,7 +21,7 @@ use fvm_ipld_encoding::{
     CborStore, RawBytes, DAG_CBOR,
 };
 use fvm_sdk::{self as sdk, error::NoStateError, sys::ErrorNumber, NO_DATA_BLOCK_ID};
-use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode};
+use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode, ActorID};
 use serde::{de::DeserializeOwned, ser::Serialize};
 use thiserror::Error;
 
@@ -71,7 +71,7 @@ pub struct FactoryToken {
     pub symbol: String,
     pub granularity: u64,
     /// address of authorised minting operator
-    pub minter: Option<Address>,
+    pub minter: Option<ActorID>,
 }
 
 /// Implementation of the token API in a FVM actor
@@ -221,7 +221,7 @@ impl FactoryToken {
         name: String,
         symbol: String,
         granularity: u64,
-        minter: Option<Address>,
+        minter: Option<ActorID>,
     ) -> Self {
         FactoryToken { token: TokenState::new(&bs).unwrap(), name, symbol, granularity, minter }
     }
@@ -260,17 +260,16 @@ impl FactoryToken {
     }
 
     pub fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
-        let caller = caller_address();
         // check if the caller matches our authorise mint operator
         // no minter address means minting has been permanently disabled
         let minter = self.minter.ok_or(RuntimeError::MintingDisabled)?;
-        let msg = FvmMessenger::default();
-        if !msg.same_address(&caller, &minter) {
+        let caller_id = sdk::message::caller();
+        if caller_id != minter {
             return Err(RuntimeError::AddressNotAuthorized);
         }
 
         let mut hook = self.token().mint(
-            &caller,
+            &Address::new_id(caller_id),
             &params.initial_owner,
             &params.amount,
             params.operator_data,
@@ -291,12 +290,11 @@ impl FactoryToken {
     /// Permanently disable minting
     /// Only the authorised mint operator can do this
     pub fn disable_mint(&mut self) -> Result<(), RuntimeError> {
-        let caller = caller_address();
         // no minter means minting has already been permanently disabled
         // we return this if already disabled because it will make more sense than failing the address check below
         let minter = self.minter.ok_or(RuntimeError::MintingDisabled)?;
-        let msg = FvmMessenger::default();
-        if !msg.same_address(&caller, &minter) {
+        let caller_id = sdk::message::caller();
+        if caller_id != minter {
             return Err(RuntimeError::AddressNotAuthorized);
         }
 
