@@ -15,6 +15,7 @@ use fvm_actor_utils::{
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, ActorID};
+use receiver::{FRCXXReceiverHook, FRCXXTokenReceived};
 use state::StateError;
 use thiserror::Error;
 use types::{
@@ -257,19 +258,41 @@ where
         token_data: RawBytes,
     ) -> Result<ReceiverHook<TransferIntermediate>> {
         // Attempt to instantiate the accounts if they don't exist
-        let owner = self.msg.resolve_or_init(owner)?;
-        let recipient = self.msg.resolve_or_init(recipient)?;
+        let owner_id = self.msg.resolve_or_init(owner)?;
+        let recipient_id = self.msg.resolve_or_init(recipient)?;
 
-        let hook = self.state.transfer_tokens(
-            &self.bs,
-            owner,
-            recipient,
-            token_ids,
+        self.transaction(|state, store| {
+            let mut token_array = state.get_token_data_amt(store)?;
+            let mut owner_map = state.get_owner_data_hamt(store)?;
+
+            for token_id in token_ids {
+                let _token_data = NFTState::owns_token(&token_array, owner_id, *token_id)?;
+                // update the token_data to reflect the new owner and clear approved operators
+                state.make_transfer(&mut token_array, &mut owner_map, *token_id, recipient_id)?;
+            }
+
+            state.token_data = token_array.flush().map_err(StateError::from)?;
+            state.owner_data = owner_map.flush().map_err(StateError::from)?;
+
+            Ok(())
+        })?;
+
+        let params = FRCXXTokenReceived {
+            to: recipient_id,
+            operator: owner_id,
+            token_ids: token_ids.into(),
             operator_data,
             token_data,
-        )?;
+        };
 
-        Ok(hook)
+        let intermediate = TransferIntermediate {
+            to: recipient_id,
+            from: owner_id,
+            token_ids: token_ids.into(),
+            recipient_data: RawBytes::default(),
+        };
+
+        Ok(ReceiverHook::new_frcxx(*recipient, params, intermediate).map_err(StateError::from)?)
     }
 
     /// Constructs TransferReturn data from a TransferIntermediate
@@ -334,6 +357,134 @@ where
             Ok(Some(old_state))
         } else {
             Ok(None)
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use fvm_actor_utils::{actor::FakeActor, messaging::FakeMessenger};
+    use fvm_ipld_blockstore::MemoryBlockstore;
+    use fvm_ipld_encoding::RawBytes;
+    use fvm_shared::{address::Address, ActorID};
+
+    use crate::{state::StateError, NFTError, NFTState, NFT};
+
+    const ALICE_ID: ActorID = 1;
+    const ALICE: Address = Address::new_id(ALICE_ID);
+    const BOB_ID: ActorID = 2;
+    const BOB: Address = Address::new_id(BOB_ID);
+
+    #[test]
+    fn it_transfers_tokens() {
+        let bs = MemoryBlockstore::default();
+        let mut state = NFTState::new(&bs).unwrap();
+        let msg = FakeMessenger::new(4, 5);
+        let mut nft =
+            NFT::wrap(bs.clone(), msg, FakeActor { root: state.save(&bs).unwrap() }, &mut state);
+
+        {
+            // mint tokens to alice
+            let mut hook = nft
+                .mint(
+                    &ALICE,
+                    &ALICE,
+                    vec![String::new(); 3],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            hook.call(&nft.msg).unwrap();
+            // alice: [0, 1, 2]
+            // bob: []
+        }
+
+        {
+            // transfer tokens from alice to bob
+            let mut hook = nft
+                .transfer(&ALICE, &BOB, &[0, 1, 2], RawBytes::default(), RawBytes::default())
+                .unwrap();
+            hook.call(&nft.msg).unwrap();
+            // alice: []
+            // bob: [0, 1, 2]
+        }
+
+        {
+            // alice's tokens go to bob
+            let alice_balance = nft.balance_of(&ALICE).unwrap();
+            assert_eq!(alice_balance, 0);
+            let bob_balance = nft.balance_of(&BOB).unwrap();
+            assert_eq!(bob_balance, 3);
+        }
+
+        {
+            // alice is denied permission to transfer them back
+            // transfer tokens from alice to bob
+            let err = nft
+                .transfer(&ALICE, &ALICE, &[0, 1, 2], RawBytes::default(), RawBytes::default())
+                .unwrap_err();
+            if let NFTError::NFTState(StateError::NotOwner { actor, token_id }) = err {
+                assert_eq!(actor, ALICE_ID);
+                assert_eq!(token_id, 0);
+            } else {
+                panic!("Unexpected error: {:?}", err);
+            }
+            // alice: []
+            // bob: [0, 1, 2]
+        }
+
+        {
+            // state didn't change
+            let alice_balance = nft.balance_of(&ALICE).unwrap();
+            assert_eq!(alice_balance, 0);
+            let bob_balance = nft.balance_of(&BOB).unwrap();
+            assert_eq!(bob_balance, 3);
+        }
+
+        {
+            // doesn't transfer if any of the token ids are invalid
+            let err = nft
+                .transfer(&BOB, &ALICE, &[0, 1, 2, 3], RawBytes::default(), RawBytes::default())
+                .unwrap_err();
+            if let NFTError::NFTState(StateError::TokenNotFound(token_id)) = err {
+                assert_eq!(token_id, 3);
+            } else {
+                panic!("Unexpected error: {:?}", err);
+            }
+            // alice: []
+            // bob: [0, 1, 2]
+        }
+
+        {
+            // state didn't change
+            let alice_balance = nft.balance_of(&ALICE).unwrap();
+            assert_eq!(alice_balance, 0);
+            let bob_balance = nft.balance_of(&BOB).unwrap();
+            assert_eq!(bob_balance, 3);
+        }
+
+        {
+            // doesn't transfer if there are duplicates
+            let err = nft
+                .transfer(&BOB, &ALICE, &[0, 1, 0], RawBytes::default(), RawBytes::default())
+                .unwrap_err();
+            if let NFTError::NFTState(StateError::NotOwner { actor, token_id }) = err {
+                assert_eq!(actor, BOB_ID);
+                assert_eq!(token_id, 0);
+            } else {
+                panic!("Unexpected error: {:?}", err);
+            }
+            // alice: []
+            // bob: [0, 1, 2]
+        }
+
+        {
+            // state didn't change
+            let alice_balance = nft.balance_of(&ALICE).unwrap();
+            assert_eq!(alice_balance, 0);
+            let bob_balance = nft.balance_of(&BOB).unwrap();
+            assert_eq!(bob_balance, 3);
         }
     }
 }
