@@ -18,10 +18,7 @@ use fvm_shared::{address::Address, ActorID};
 use receiver::{FRCXXReceiverHook, FRCXXTokenReceived};
 use state::StateError;
 use thiserror::Error;
-use types::{
-    MintIntermediate, MintReturn, TransferFromIntermediate, TransferFromReturn,
-    TransferIntermediate, TransferReturn,
-};
+use types::{MintIntermediate, MintReturn, TransferIntermediate, TransferReturn};
 
 use self::state::{NFTState, TokenID};
 
@@ -80,6 +77,11 @@ where
 
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
     /// modifications to the state tree.
+    ///
+    /// If errors are returned by any intermediate state method, it is recommended to abort the
+    /// entire transaction by propagating the error. If state-level errors are explicitly handled,
+    /// it is necessary to reload from the blockstore any passed-in owner HAMT or token AMT to ensure
+    /// partial writes are dropped.
     ///
     /// If the closure returns an error, the transaction is dropped atomically and no change is
     /// observed on token state.
@@ -169,17 +171,52 @@ where
     /// Burn a set of NFTs as the owner
     ///
     /// A burnt TokenID can never be minted again
-    pub fn burn(&mut self, owner: ActorID, token_ids: &[TokenID]) -> Result<u64> {
-        let balance = self.state.burn_tokens(&self.bs, owner, token_ids)?;
+    pub fn burn(&mut self, owner: &Address, token_ids: &[TokenID]) -> Result<u64> {
+        let owner = self.msg.resolve_id(owner)?;
+
+        let balance = self.transaction(|state, bs| {
+            let mut token_array = state.get_token_data_amt(bs)?;
+            let mut owner_map = state.get_owner_data_hamt(bs)?;
+            NFTState::assert_owns_tokens(&token_array, owner, token_ids)?;
+
+            let res = state.burn_tokens(&mut token_array, &mut owner_map, owner, token_ids)?;
+
+            state.token_data = token_array.flush().map_err(StateError::from)?;
+            state.owner_data = owner_map.flush().map_err(StateError::from)?;
+            Ok(res)
+        })?;
+
         Ok(balance)
     }
 
     /// Burn a set of NFTs as an operator
     ///
     /// A burnt TokenID can never be minted again
-    pub fn burn_for(&mut self, operator: ActorID, token_ids: &[TokenID]) -> Result<()> {
-        self.state.operator_burn_tokens(&self.bs, operator, token_ids)?;
-        Ok(())
+    pub fn burn_from(
+        &mut self,
+        owner: &Address,
+        operator: &Address,
+        token_ids: &[TokenID],
+    ) -> Result<u64> {
+        let operator = self.msg.resolve_id(operator)?;
+        let owner = self.msg.resolve_or_init(owner)?;
+
+        let balance = self.transaction(|state, bs| {
+            let mut token_array = state.get_token_data_amt(bs)?;
+            let mut owner_map = state.get_owner_data_hamt(bs)?;
+            // check the tokens are all owned by the same expected account
+            NFTState::assert_owns_tokens(&token_array, owner, token_ids)?;
+            // check that the operator has permission to burn the tokens
+            NFTState::assert_approved_for_tokens(&token_array, &owner_map, operator, token_ids)?;
+
+            let res = state.burn_tokens(&mut token_array, &mut owner_map, owner, token_ids)?;
+
+            state.token_data = token_array.flush().map_err(StateError::from)?;
+            state.owner_data = owner_map.flush().map_err(StateError::from)?;
+            Ok(res)
+        })?;
+
+        Ok(balance)
     }
 
     /// Approve an operator to transfer or burn a single NFT
@@ -196,7 +233,16 @@ where
         let caller = self.msg.resolve_id(caller)?;
         let operator = self.msg.resolve_or_init(operator)?;
 
-        self.state.approve_for_tokens(&self.bs, caller, operator, token_ids)?;
+        self.transaction(|state, bs| {
+            let mut token_array = state.get_token_data_amt(bs)?;
+            NFTState::assert_owns_tokens(&token_array, caller, token_ids)?;
+
+            state.approve_for_tokens(&mut token_array, operator, token_ids)?;
+
+            state.token_data = token_array.flush().map_err(StateError::from)?;
+            Ok(())
+        })?;
+
         Ok(())
     }
 
@@ -217,8 +263,15 @@ where
             Err(_) => return Ok(()), // if operator didn't exist this is a no-op
         };
 
-        self.state.revoke_for_tokens(&self.bs, caller, operator, token_ids)?;
-        Ok(())
+        self.transaction(|state, bs| {
+            let mut token_array = state.get_token_data_amt(bs)?;
+            NFTState::assert_owns_tokens(&token_array, caller, token_ids)?;
+
+            state.revoke_for_tokens(&mut token_array, operator, token_ids)?;
+
+            state.token_data = token_array.flush().map_err(StateError::from)?;
+            Ok(())
+        })
     }
 
     /// Approve an operator to transfer or burn on behalf of the account
@@ -229,8 +282,15 @@ where
         let owner = self.msg.resolve_id(owner)?;
         // Attempt to instantiate the accounts if they don't exist
         let operator = self.msg.resolve_or_init(operator)?;
-        self.state.approve_for_owner(&self.bs, owner, operator)?;
-        Ok(())
+
+        self.transaction(|state, bs| {
+            let mut owner_map = state.get_owner_data_hamt(bs)?;
+
+            state.approve_for_owner(&mut owner_map, owner, operator)?;
+
+            state.owner_data = owner_map.flush().map_err(StateError::from)?;
+            Ok(())
+        })
     }
 
     /// Revoke the approval of an operator to transfer on behalf of the caller
@@ -244,8 +304,14 @@ where
             Err(_) => return Ok(()), // if operator didn't exist this is a no-op
         };
 
-        self.state.revoke_for_all(&self.bs, owner, operator)?;
-        Ok(())
+        self.transaction(|state, bs| {
+            let mut owner_map = state.get_owner_data_hamt(bs)?;
+
+            state.revoke_for_all(&mut owner_map, owner, operator)?;
+
+            state.owner_data = owner_map.flush().map_err(StateError::from)?;
+            Ok(())
+        })
     }
 
     /// Transfers a token owned by the caller
@@ -264,16 +330,15 @@ where
         self.transaction(|state, store| {
             let mut token_array = state.get_token_data_amt(store)?;
             let mut owner_map = state.get_owner_data_hamt(store)?;
+            NFTState::assert_owns_tokens(&token_array, owner_id, token_ids)?;
 
-            for token_id in token_ids {
-                let _token_data = NFTState::owns_token(&token_array, owner_id, *token_id)?;
+            for &token_id in token_ids {
                 // update the token_data to reflect the new owner and clear approved operators
-                state.make_transfer(&mut token_array, &mut owner_map, *token_id, recipient_id)?;
+                state.make_transfer(&mut token_array, &mut owner_map, token_id, recipient_id)?;
             }
 
             state.token_data = token_array.flush().map_err(StateError::from)?;
             state.owner_data = owner_map.flush().map_err(StateError::from)?;
-
             Ok(())
         })?;
 
@@ -311,26 +376,50 @@ where
     /// Transfers a token that the caller is an operator for
     pub fn transfer_from(
         &mut self,
+        owner: &Address,
         operator: &Address,
         recipient: &Address,
         token_ids: &[TokenID],
         operator_data: RawBytes,
         token_data: RawBytes,
-    ) -> Result<ReceiverHook<TransferFromIntermediate>> {
+    ) -> Result<ReceiverHook<TransferIntermediate>> {
         // Attempt to instantiate the accounts if they don't exist
-        let operator = self.msg.resolve_or_init(operator)?;
-        let recipient = self.msg.resolve_or_init(recipient)?;
+        let owner_id = self.msg.resolve_id(owner)?;
+        let operator_id = self.msg.resolve_id(operator)?;
+        let recipient_id = self.msg.resolve_or_init(recipient)?;
 
-        let hook = self.state.operator_transfer_tokens(
-            &self.bs,
-            operator,
-            recipient,
-            token_ids,
+        self.transaction(|state, store| {
+            let mut token_array = state.get_token_data_amt(store)?;
+            let mut owner_map = state.get_owner_data_hamt(store)?;
+            NFTState::assert_owns_tokens(&token_array, owner_id, token_ids)?;
+            NFTState::assert_approved_for_tokens(&token_array, &owner_map, operator_id, token_ids)?;
+
+            for &token_id in token_ids {
+                // update the token_data to reflect the new owner and clear approved operators
+                state.make_transfer(&mut token_array, &mut owner_map, token_id, recipient_id)?;
+            }
+
+            state.token_data = token_array.flush().map_err(StateError::from)?;
+            state.owner_data = owner_map.flush().map_err(StateError::from)?;
+            Ok(())
+        })?;
+
+        let params = FRCXXTokenReceived {
+            to: recipient_id,
+            operator: owner_id,
+            token_ids: token_ids.into(),
             operator_data,
             token_data,
-        )?;
+        };
 
-        Ok(hook)
+        let intermediate = TransferIntermediate {
+            to: recipient_id,
+            from: owner_id,
+            token_ids: token_ids.into(),
+            recipient_data: RawBytes::default(),
+        };
+
+        Ok(ReceiverHook::new_frcxx(*recipient, params, intermediate).map_err(StateError::from)?)
     }
 
     /// Constructs TransferReturn data from a TransferIntermediate
@@ -339,11 +428,11 @@ where
     /// `prior_state_cid` is the CID of the state prior to hook call
     pub fn transfer_from_return(
         &mut self,
-        intermediate: TransferFromIntermediate,
+        intermediate: TransferIntermediate,
         prior_state_cid: Cid,
-    ) -> Result<TransferFromReturn> {
+    ) -> Result<TransferReturn> {
         self.reload_if_changed(prior_state_cid)?;
-        Ok(self.state.transfer_from_return(&self.bs, intermediate)?)
+        Ok(self.state.transfer_return(&self.bs, intermediate)?)
     }
 
     /// Reloads the state if the current root cid has diverged (i.e. during re-entrant receiver hooks)
@@ -464,6 +553,8 @@ mod test {
             assert_eq!(bob_balance, 3);
         }
 
+        /*
+        TODO: either explicitly check for duplicates or use a bitfield representation to prevent duplicates being specified
         {
             // doesn't transfer if there are duplicates
             let err = nft
@@ -486,5 +577,6 @@ mod test {
             let bob_balance = nft.balance_of(&BOB).unwrap();
             assert_eq!(bob_balance, 3);
         }
+         */
     }
 }

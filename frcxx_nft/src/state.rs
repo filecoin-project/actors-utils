@@ -28,8 +28,6 @@ use crate::receiver::FRCXXReceiverHook;
 use crate::receiver::FRCXXTokenReceived;
 use crate::types::MintIntermediate;
 use crate::types::MintReturn;
-use crate::types::TransferFromIntermediate;
-use crate::types::TransferFromReturn;
 use crate::types::TransferIntermediate;
 use crate::types::TransferReturn;
 use crate::util::OperatorSet;
@@ -234,65 +232,64 @@ impl NFTState {
 
     /// Approves an operator to transfer a set of specified tokens
     ///
-    /// Checks that the caller is the owner of the specified token. If any of the token_ids is not
-    /// valid (i.e. non-existent or not-owned by the caller), the entire batch approval is aborted.. If any of the token_ids is not
-    /// valid (i.e. non-existent or not-owned by the caller), the entire batch approval is aborted.
+    /// The caller should own the tokens or an account-level operator on the owner of the tokens.
+    /// This function does not flush the token AMT - it is the caller's responsibility to do so at
+    /// the end of the batch
     pub fn approve_for_tokens<BS: Blockstore>(
         &mut self,
-        bs: &BS,
-        caller: ActorID,
+        token_array: &mut Amt<TokenData, &BS>,
         operator: ActorID,
         token_ids: &[TokenID],
     ) -> Result<()> {
-        let mut token_array = self.get_token_data_amt(bs)?;
-
-        for token_id in token_ids {
-            // FIXME: have this check injected from or done at library-level; allow account-level operators to call this method successfully
-            let mut token_data = Self::owns_token(&token_array, caller, *token_id)?;
+        for &token_id in token_ids {
+            let mut token_data = token_array
+                .get(token_id)?
+                .ok_or_else(|| StateError::TokenNotFound(token_id))?
+                .clone();
             token_data.operators.add_operator(operator);
-            token_array.set(*token_id, token_data)?;
+            token_array.set(token_id, token_data)?;
         }
-
-        self.token_data = token_array.flush()?;
 
         Ok(())
     }
 
-    /// Revokes an operator to transfer a specific token
+    /// Revokes an operator's permission to transfer the specified tokens
     ///
-    /// Checks that the caller is the owner of the specified token. If any of the token_ids is not
-    /// valid (i.e. non-existent or not-owned by the caller), the entire batch revoke is aborted.
+    /// The caller should own the tokens or be an account-level operator on the owner of the tokens.
+    /// This function does not flush the token AMT - it is the caller's responsibility to do so at
+    /// the end of the batch
     pub fn revoke_for_tokens<BS: Blockstore>(
         &mut self,
-        bs: &BS,
-        caller: ActorID,
+        token_array: &mut Amt<TokenData, &BS>,
         operator: ActorID,
         token_ids: &[TokenID],
     ) -> Result<()> {
-        let mut token_array = self.get_token_data_amt(bs)?;
-
-        for token_id in token_ids {
-            let mut token_data = Self::owns_token(&token_array, caller, *token_id)?;
+        for &token_id in token_ids {
+            let mut token_data = token_array
+                .get(token_id)?
+                .ok_or_else(|| StateError::TokenNotFound(token_id))?
+                .clone();
             token_data.operators.remove_operator(&operator);
-            token_array.set(*token_id, token_data)?;
+            token_array.set(token_id, token_data)?;
         }
-
-        self.token_data = token_array.flush()?;
 
         Ok(())
     }
 
     /// Approves an operator to transfer tokens on behalf of the owner
     ///
-    /// The operator is authorized at the account level, meaning that all tokens owned by the owner
-    /// can be transferred or burned by the operator including future tokens held by the account
+    /// The operator becomes authorized at account level, meaning all tokens owned by the account
+    /// can be transferred, approved or burned by the operator, including future tokens owned by the
+    /// account
+    ///
+    /// The caller should be the owning account. This function does not flush the owner
+    /// HAMT- it is the caller's responsibility to do so at the end of the batch
     pub fn approve_for_owner<BS: Blockstore>(
         &mut self,
-        bs: &BS,
+        owner_map: &mut Hamt<&BS, OwnerData>,
         owner: ActorID,
         operator: ActorID,
     ) -> Result<()> {
-        let mut owner_map = self.get_owner_data_hamt(bs)?;
         let new_owner_data = match owner_map.get(&actor_id_key(owner))? {
             Some(data) => {
                 let mut operators = data.operators.clone();
@@ -302,20 +299,20 @@ impl NFTState {
             None => OwnerData { balance: 0, operators: BitField::default() },
         };
         owner_map.set(actor_id_key(owner), new_owner_data)?;
-        self.owner_data = owner_map.flush()?;
 
         Ok(())
     }
 
     /// Revokes an operator's authorization to transfer tokens on behalf of the owner account
+    ///
+    /// The caller should be the owner of the account. This function does not flush the owner
+    /// HAMT- it is the caller's responsibility to do so at the end of the batch
     pub fn revoke_for_all<BS: Blockstore>(
         &mut self,
-        bs: &BS,
+        owner_map: &mut Hamt<&BS, OwnerData>,
         owner: ActorID,
         operator: ActorID,
     ) -> Result<()> {
-        let mut owner_map = self.get_owner_data_hamt(bs)?;
-
         let new_owner_data = owner_map.get(&actor_id_key(owner))?.map(|existing_data| {
             let mut operators = existing_data.operators.clone();
             operators.remove_operator(&operator);
@@ -331,30 +328,28 @@ impl NFTState {
             }
         }
 
-        self.owner_data = owner_map.flush()?;
-
         Ok(())
     }
 
-    /// Burns a set of token, removing them from circulation and deleting associated metadata
+    /// Burns a set of tokens, removing them from circulation and deleting associated metadata
     ///
-    /// If any of the token_ids is not valid (i.e. non-existent/already burned or not owned by the
-    /// caller), the entire batch of burns fails
+    /// If any of the token_ids cannot be burned (e.g. non-existent, already burned), the entire
+    /// transaction should fail atomically
+    ///
+    /// The tokens must all be owned by the same owner. This function does not flush the owner
+    /// HAMT or the token AMT- it is the caller's responsibility to do so at the end of the batch
+    ///
+    /// Returns the new balance of the owner if all tokens were burned successfully
     pub fn burn_tokens<BS: Blockstore>(
         &mut self,
-        bs: &BS,
+        token_array: &mut Amt<TokenData, &BS>,
+        owner_map: &mut Hamt<&BS, OwnerData>,
         owner: ActorID,
         token_ids: &[TokenID],
     ) -> Result<u64> {
-        let mut token_array = self.get_token_data_amt(bs)?;
-        let mut owner_map = self.get_owner_data_hamt(bs)?;
-
-        for token_id in token_ids {
-            Self::owns_token(&token_array, owner, *token_id)?;
-
-            let _token_data = token_array
-                .delete(*token_id)?
-                .ok_or_else(|| StateError::TokenNotFound(*token_id))?;
+        for &token_id in token_ids {
+            let _token_data =
+                token_array.delete(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
         }
 
         // we only reach here if all tokens were burned successfully so assume the caller is valid
@@ -374,101 +369,8 @@ impl NFTState {
         }
 
         self.total_supply -= token_ids.len() as u64;
-        self.token_data = token_array.flush()?;
-        self.owner_data = owner_map.flush()?;
+
         Ok(new_balance)
-    }
-
-    /// Burns a set of token, removing them from circulation and deleting associated metadata.
-    /// The caller must be an approved operator at the token or account level.
-    ///
-    /// If any of the token_ids is not valid (i.e. non-existent/already burned or not authorized for
-    /// the caller), the entire batch of burns fails
-    pub fn operator_burn_tokens<BS: Blockstore>(
-        &mut self,
-        bs: &BS,
-        operator: u64,
-        token_ids: &[u64],
-    ) -> Result<()> {
-        let mut token_array = self.get_token_data_amt(bs)?;
-        let mut owner_map = self.get_owner_data_hamt(bs)?;
-
-        for token_id in token_ids {
-            if !Self::approved_for_token(&token_array, &owner_map, operator, *token_id)? {
-                return Err(StateError::NotAuthorized { actor: operator, token_id: *token_id });
-            }
-
-            let token_data = token_array
-                .delete(*token_id)?
-                .ok_or_else(|| StateError::TokenNotFound(*token_id))?;
-
-            let owner_key = actor_id_key(token_data.owner);
-            let owner_data = owner_map.get(&owner_key)?.ok_or_else(|| {
-                StateError::InvariantFailed(format!("owner of token {token_id} not found"))
-            })?;
-
-            if owner_data.balance == 1 && owner_data.operators.is_empty() {
-                owner_map.delete(&owner_key)?;
-            } else {
-                owner_map.set(
-                    owner_key,
-                    OwnerData {
-                        balance: owner_data.balance - 1,
-                        operators: owner_data.operators.clone(),
-                    },
-                )?;
-            }
-        }
-
-        self.total_supply -= token_ids.len() as u64;
-        self.token_data = token_array.flush()?;
-        self.owner_data = owner_map.flush()?;
-        Ok(())
-    }
-
-    /// Transfers a token, initiated by an operator
-    ///
-    /// An operator is allowed to transfer a token that it has been explicitly approved for or a token
-    /// owned by an account that it has been approved for.
-    pub fn operator_transfer_tokens<BS: Blockstore>(
-        &mut self,
-        bs: &BS,
-        operator: ActorID,
-        to: ActorID,
-        token_ids: &[TokenID],
-        operator_data: RawBytes,
-        token_data: RawBytes,
-    ) -> Result<ReceiverHook<TransferFromIntermediate>> {
-        let mut token_array = self.get_token_data_amt(bs)?;
-        let mut owner_map = self.get_owner_data_hamt(bs)?;
-
-        for token_id in token_ids {
-            if !Self::approved_for_token(&token_array, &owner_map, operator, *token_id)? {
-                return Err(StateError::NotAuthorized { actor: operator, token_id: *token_id });
-            }
-
-            // update the token_data to reflect the new owner and clear approved operators
-            self.make_transfer(&mut token_array, &mut owner_map, *token_id, to)?;
-        }
-
-        self.token_data = token_array.flush()?;
-        self.owner_data = owner_map.flush()?;
-
-        let params = FRCXXTokenReceived {
-            to,
-            operator,
-            token_ids: token_ids.into(),
-            operator_data,
-            token_data,
-        };
-
-        let res = TransferFromIntermediate {
-            to,
-            token_ids: token_ids.into(),
-            recipient_data: RawBytes::default(),
-        };
-
-        Ok(ReceiverHook::new_frcxx(Address::new_id(to), params, res)?)
     }
 
     /// Makes a transfer of a token from one address to another. The caller must verify that such a
@@ -517,44 +419,70 @@ impl NFTState {
     ///
     /// Returns TokenNotFound if the token_id is invalid or NotOwner if the actor does not own
     /// own the token.
-    pub fn owns_token<BS: Blockstore>(
+    pub fn assert_owns_tokens<BS: Blockstore>(
         token_array: &Amt<TokenData, &BS>,
         actor: ActorID,
-        token_id: TokenID,
-    ) -> Result<TokenData> {
-        let token_data =
-            token_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
-        match token_data.owner == actor {
-            true => Ok(token_data.clone()),
-            false => Err(StateError::NotOwner { actor, token_id }),
+        token_ids: &[TokenID],
+    ) -> Result<()> {
+        for &token_id in token_ids {
+            let token_data =
+                token_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
+            if token_data.owner != actor {
+                return Err(StateError::NotOwner { actor, token_id });
+            }
         }
+
+        Ok(())
+    }
+
+    /// Asserts that the actor either owns the token or is an account level operator on the owner of the token
+    pub fn assert_can_approve_tokens<BS: Blockstore>(
+        token_array: &Amt<TokenData, &BS>,
+        actor: ActorID,
+        token_ids: &[TokenID],
+    ) -> Result<()> {
+        for &token_id in token_ids {
+            let token_data =
+                token_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
+            if token_data.owner != actor {
+                return Err(StateError::NotOwner { actor, token_id });
+            }
+        }
+
+        Ok(())
     }
 
     /// Checks whether an operator is approved to transfer/burn a token
-    pub fn approved_for_token<BS: Blockstore>(
+    pub fn assert_approved_for_tokens<BS: Blockstore>(
         token_array: &Amt<TokenData, &BS>,
         owner_map: &Hamt<&BS, OwnerData>,
         operator: ActorID,
-        token_id: TokenID,
-    ) -> Result<bool> {
-        let token_data = token_array
-            .get(token_id)?
-            .ok_or_else(|| StateError::InvariantFailed(format!("token {token_id} not found")))?;
+        token_ids: &[TokenID],
+    ) -> Result<()> {
+        for &token_id in token_ids {
+            let token_data = token_array.get(token_id)?.ok_or_else(|| {
+                StateError::InvariantFailed(format!("token {token_id} not found"))
+            })?;
 
-        // operator is approved at token-level
-        if token_data.operators.contains_actor(&operator) {
-            return Ok(true);
+            // operator is approved at token-level
+            if token_data.operators.contains_actor(&operator) {
+                continue;
+            }
+
+            // operator is approved at account-level
+            let owner_account =
+                owner_map.get(&actor_id_key(token_data.owner))?.ok_or_else(|| {
+                    StateError::InvariantFailed(format!("owner of token {token_id} not found"))
+                })?;
+            if owner_account.operators.contains_actor(&operator) {
+                continue;
+            }
+
+            // wasn't approved
+            return Err(StateError::NotAuthorized { actor: operator, token_id });
         }
 
-        // operator is approved at account-level
-        let owner_account = owner_map.get(&actor_id_key(token_data.owner))?.ok_or_else(|| {
-            StateError::InvariantFailed(format!("owner of token {token_id} not found"))
-        })?;
-        if owner_account.operators.contains_actor(&operator) {
-            return Ok(true);
-        }
-
-        Ok(false)
+        Ok(())
     }
 
     /// Converts a MintIntermediate to a MintReturn
@@ -587,18 +515,6 @@ impl NFTState {
         let to_balance = self.get_balance(bs, intermediate.to)?;
         let from_balance = self.get_balance(bs, intermediate.from)?;
         Ok(TransferReturn { from_balance, to_balance, token_ids: intermediate.token_ids })
-    }
-
-    /// Converts a TransferFromIntermediate to a TransferFromReturn
-    ///
-    /// This function should be called on a freshly loaded or known-up-to-date state
-    pub fn transfer_from_return<BS: Blockstore>(
-        &self,
-        bs: &BS,
-        intermediate: TransferFromIntermediate,
-    ) -> Result<TransferFromReturn> {
-        let to_balance = self.get_balance(bs, intermediate.to)?;
-        Ok(TransferFromReturn { to_balance, token_ids: intermediate.token_ids })
     }
 
     /// Get the metadata for a token
@@ -778,134 +694,109 @@ pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
     u64::decode_var(key.0.as_slice()).map(|a| a.0)
 }
 
-// #[cfg(test)]
-// mod test {
-//     use std::vec;
+#[cfg(test)]
+mod test {
+    use std::vec;
 
-//     use fvm_actor_utils::messaging::FakeMessenger;
-//     use fvm_ipld_blockstore::MemoryBlockstore;
-//     use fvm_ipld_encoding::RawBytes;
-//     use fvm_shared::ActorID;
+    use fvm_actor_utils::messaging::FakeMessenger;
+    use fvm_ipld_blockstore::MemoryBlockstore;
+    use fvm_ipld_encoding::RawBytes;
+    use fvm_shared::ActorID;
 
-//     use crate::{
-//         state::{StateError, TokenID},
-//         types::{MintIntermediate, TransferFromIntermediate, TransferIntermediate},
-//         NFTState,
-//     };
+    use crate::{state::TokenID, types::MintIntermediate, NFTState};
 
-//     const ALICE_ID: ActorID = 1;
-//     const BOB_ID: ActorID = 2;
-//     const CHARLIE_ID: ActorID = 3;
+    const ALICE_ID: ActorID = 1;
+    const BOB_ID: ActorID = 2;
 
-//     /// A convenience wrapper to help with testing
-//     ///
-//     /// Assigns default values to optional fields and calls receiver hooks for minting/transfer
-//     struct StateTester {
-//         pub state: NFTState,
-//         pub bs: MemoryBlockstore,
-//         pub msg: FakeMessenger,
-//     }
+    /// A convenience wrapper to help with testing
+    ///
+    /// Assigns default values to optional fields and calls receiver hooks for minting/transfer
+    struct StateTester {
+        pub state: NFTState,
+        pub bs: MemoryBlockstore,
+        pub msg: FakeMessenger,
+    }
 
-//     impl StateTester {
-//         fn new() -> Self {
-//             let bs = MemoryBlockstore::default();
-//             let state = NFTState::new(&bs).unwrap();
-//             let msg = FakeMessenger::new(0, 99);
-//             Self { state, bs, msg }
-//         }
+    impl StateTester {
+        fn new() -> Self {
+            let bs = MemoryBlockstore::default();
+            let state = NFTState::new(&bs).unwrap();
+            let msg = FakeMessenger::new(0, 99);
+            Self { state, bs, msg }
+        }
 
-//         /// Mint an amount of NFTs and return the token_ids
-//         fn mint_amount(&mut self, to: ActorID, num_tokens: u64) -> MintIntermediate {
-//             let mut hook = self
-//                 .state
-//                 .mint_tokens(
-//                     &self.bs,
-//                     0,
-//                     to,
-//                     vec![String::default(); num_tokens as usize],
-//                     RawBytes::default(),
-//                     RawBytes::default(),
-//                 )
-//                 .unwrap();
-//             hook.call(&self.msg).unwrap()
-//         }
+        /// Mint an amount of NFTs and return the token_ids
+        fn mint_amount(&mut self, to: ActorID, num_tokens: u64) -> MintIntermediate {
+            let mut hook = self
+                .state
+                .mint_tokens(
+                    &self.bs,
+                    0,
+                    to,
+                    vec![String::default(); num_tokens as usize],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            hook.call(&self.msg).unwrap()
+        }
 
-//         /// Transfer tokens to an address, expecting the transaction to succeed
-//         fn operator_transfer(
-//             &mut self,
-//             operator: ActorID,
-//             to: ActorID,
-//             token_ids: &[TokenID],
-//         ) -> TransferFromIntermediate {
-//             let mut hook = self
-//                 .state
-//                 .operator_transfer_tokens(
-//                     &self.bs,
-//                     operator,
-//                     to,
-//                     token_ids,
-//                     RawBytes::default(),
-//                     RawBytes::default(),
-//                 )
-//                 .unwrap();
-//             hook.call(&self.msg).unwrap()
-//         }
+        fn assert_balance(&self, owner: ActorID, expected: u64) {
+            let balance = self.state.get_balance(&self.bs, owner).unwrap();
+            assert_eq!(balance, expected);
+        }
 
-//         fn assert_balance(&self, owner: ActorID, expected: u64) {
-//             let balance = self.state.get_balance(&self.bs, owner).unwrap();
-//             assert_eq!(balance, expected);
-//         }
+        fn assert_invariants(&self) {
+            let (_, vec) = self.state.check_invariants(&self.bs);
+            assert!(vec.is_empty(), "invariants failed: {vec:?}");
+        }
+    }
 
-//         fn assert_invariants(&self) {
-//             let (_, vec) = self.state.check_invariants(&self.bs);
-//             assert!(vec.is_empty(), "invariants failed: {vec:?}");
-//         }
-//     }
+    #[test]
+    fn it_mints_tokens_incrementally() {
+        let mut tester = StateTester::new();
 
-//     #[test]
-//     fn it_mints_tokens_incrementally() {
-//         let mut tester = StateTester::new();
+        // mint first token
+        let res = tester.mint_amount(ALICE_ID, 1);
+        // expect balance increase, token id increment
+        tester.assert_balance(ALICE_ID, 1);
+        assert_eq!(res.token_ids, vec![0]);
+        assert_eq!(tester.state.total_supply, 1);
 
-//         // mint first token
-//         let res = tester.mint_amount(ALICE_ID, 1);
-//         // expect balance increase, token id increment
-//         tester.assert_balance(ALICE_ID, 1);
-//         assert_eq!(res.token_ids, vec![0]);
-//         assert_eq!(tester.state.total_supply, 1);
+        // mint another token
+        let res = tester.mint_amount(ALICE_ID, 1);
+        // expect balance increase, token id increment
+        tester.assert_balance(ALICE_ID, 2);
+        assert_eq!(res.token_ids, vec![1]);
+        assert_eq!(tester.state.total_supply, 2);
 
-//         // mint another token
-//         let res = tester.mint_amount(ALICE_ID, 1);
-//         // expect balance increase, token id increment
-//         tester.assert_balance(ALICE_ID, 2);
-//         assert_eq!(res.token_ids, vec![1]);
-//         assert_eq!(tester.state.total_supply, 2);
+        // expect another actor to have zero balance by default
+        tester.assert_balance(BOB_ID, 0);
 
-//         // expect another actor to have zero balance by default
-//         tester.assert_balance(BOB_ID, 0);
+        // mint another token to a different actor
+        let res = tester.mint_amount(BOB_ID, 1);
+        // expect balance increase globally, token id increment
+        tester.assert_balance(ALICE_ID, 2);
+        tester.assert_balance(BOB_ID, 1);
+        assert_eq!(res.token_ids, vec![2]);
+        assert_eq!(tester.state.total_supply, 3);
 
-//         // mint another token to a different actor
-//         let res = tester.mint_amount(BOB_ID, 1);
-//         // expect balance increase globally, token id increment
-//         tester.assert_balance(ALICE_ID, 2);
-//         tester.assert_balance(BOB_ID, 1);
-//         assert_eq!(res.token_ids, vec![2]);
-//         assert_eq!(tester.state.total_supply, 3);
+        // mint 0 tokens (manual empty array should succeed)
+        let mut hook = tester
+            .state
+            .mint_tokens(&tester.bs, 0, ALICE_ID, vec![], RawBytes::default(), RawBytes::default())
+            .unwrap();
+        let res = hook.call(&tester.msg).unwrap();
+        assert_eq!(res.token_ids, Vec::<TokenID>::default());
+        // assert no state change
+        tester.assert_balance(ALICE_ID, 2);
+        tester.assert_balance(BOB_ID, 1);
+        assert_eq!(res.token_ids, Vec::<TokenID>::default());
+        assert_eq!(tester.state.total_supply, 3);
 
-//         // mint 0 tokens (manual empty array should succeed)
-//         let mut hook = tester
-//             .state
-//             .mint_tokens(&tester.bs, 0, ALICE_ID, vec![], RawBytes::default(), RawBytes::default())
-//             .unwrap();
-//         let res = hook.call(&tester.msg).unwrap();
-//         assert_eq!(res.token_ids, Vec::<TokenID>::default());
-//         // assert no state change
-//         tester.assert_balance(ALICE_ID, 2);
-//         tester.assert_balance(BOB_ID, 1);
-//         assert_eq!(res.token_ids, Vec::<TokenID>::default());
-//         assert_eq!(tester.state.total_supply, 3);
-
-//         tester.assert_invariants();
-//     }
+        tester.assert_invariants();
+    }
+}
 
 //     #[test]
 //     fn it_burns_tokens() {

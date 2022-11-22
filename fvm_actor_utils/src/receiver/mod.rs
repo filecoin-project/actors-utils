@@ -182,7 +182,7 @@ mod test {
     #[test]
     fn calls_hook() {
         let mut hook = generate_hook();
-        let mut msg = FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 3);
+        let msg = FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 3);
         assert!(msg.last_message.borrow().is_none());
         hook.call(&msg).unwrap();
         assert!(msg.last_message.borrow().is_some());
