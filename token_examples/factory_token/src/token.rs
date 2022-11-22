@@ -18,7 +18,7 @@ use fvm_actor_utils::{
 use fvm_ipld_blockstore::{Block, Blockstore as _BS};
 use fvm_ipld_encoding::{
     tuple::{Deserialize_tuple, Serialize_tuple},
-    Cbor, CborStore, RawBytes, DAG_CBOR,
+    CborStore, RawBytes, DAG_CBOR,
 };
 use fvm_sdk::{self as sdk, error::NoStateError, sys::ErrorNumber, NO_DATA_BLOCK_ID};
 use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode};
@@ -214,8 +214,6 @@ pub struct MintParams {
     pub amount: TokenAmount,
     pub operator_data: RawBytes,
 }
-
-impl Cbor for MintParams {}
 
 impl FactoryToken {
     pub fn new<BS: _BS>(
