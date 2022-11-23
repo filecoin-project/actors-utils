@@ -5,7 +5,6 @@ use std::vec;
 
 use cid::multihash::Code;
 use cid::Cid;
-use fvm_actor_utils::receiver::ReceiverHook;
 use fvm_actor_utils::receiver::ReceiverHookError;
 use fvm_ipld_amt::Amt;
 use fvm_ipld_amt::Error as AmtError;
@@ -19,13 +18,10 @@ use fvm_ipld_encoding::DAG_CBOR;
 use fvm_ipld_hamt::BytesKey;
 use fvm_ipld_hamt::Error as HamtError;
 use fvm_ipld_hamt::Hamt;
-use fvm_shared::address::Address;
 use fvm_shared::ActorID;
 use integer_encoding::VarInt;
 use thiserror::Error;
 
-use crate::receiver::FRCXXReceiverHook;
-use crate::receiver::FRCXXTokenReceived;
 use crate::types::MintIntermediate;
 use crate::types::MintReturn;
 use crate::types::TransferIntermediate;
@@ -152,17 +148,15 @@ impl NFTState {
     /// Mint a new token to the specified address
     pub fn mint_tokens<BS: Blockstore>(
         &mut self,
-        bs: &BS,
-        operator: ActorID,
+        token_array: &mut Amt<TokenData, &BS>,
+        owner_map: &mut Hamt<&BS, OwnerData>,
         initial_owner: ActorID,
         metadatas: Vec<String>,
-        operator_data: RawBytes,
-        token_data: RawBytes,
-    ) -> Result<ReceiverHook<MintIntermediate>> {
+    ) -> Result<MintIntermediate> {
         let first_token_id = self.next_token;
+        let num_to_mint = metadatas.len();
 
         // update owner data map
-        let mut owner_map = self.get_owner_data_hamt(bs)?;
         let new_owner_data = match owner_map.get(&actor_id_key(initial_owner)) {
             Ok(entry) => {
                 if let Some(existing_data) = entry {
@@ -180,7 +174,6 @@ impl NFTState {
         owner_map.set(actor_id_key(initial_owner), new_owner_data)?;
 
         // update token data array
-        let mut token_array = self.get_token_data_amt(bs)?;
         for mut metadata in metadatas {
             let token_id = self.next_token;
             token_array.set(
@@ -191,32 +184,18 @@ impl NFTState {
                     metadata: mem::take(&mut metadata),
                 },
             )?;
-
-            // update global trackers
             self.next_token += 1;
-            self.total_supply += 1;
         }
 
-        self.token_data = token_array.flush()?;
-        self.owner_data = owner_map.flush()?;
+        // update global trackers
+        self.total_supply += num_to_mint as u64;
 
         // params for constructing our return value
-        let mint_intermediate = MintIntermediate {
+        Ok(MintIntermediate {
             to: initial_owner,
             recipient_data: RawBytes::default(),
             token_ids: (first_token_id..self.next_token).collect(),
-        };
-
-        // params we'll send to the receiver hook
-        let params = FRCXXTokenReceived {
-            operator,
-            to: initial_owner,
-            operator_data,
-            token_data,
-            token_ids: mint_intermediate.token_ids.clone(),
-        };
-
-        Ok(ReceiverHook::new_frcxx(Address::new_id(initial_owner), params, mint_intermediate)?)
+        })
     }
 
     /// Get the number of tokens owned by a particular address
@@ -692,108 +671,4 @@ pub fn actor_id_key(a: ActorID) -> BytesKey {
 
 pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
     u64::decode_var(key.0.as_slice()).map(|a| a.0)
-}
-
-#[cfg(test)]
-mod test {
-    use std::vec;
-
-    use fvm_actor_utils::messaging::FakeMessenger;
-    use fvm_ipld_blockstore::MemoryBlockstore;
-    use fvm_ipld_encoding::RawBytes;
-    use fvm_shared::ActorID;
-
-    use crate::{state::TokenID, types::MintIntermediate, NFTState};
-
-    const ALICE_ID: ActorID = 1;
-    const BOB_ID: ActorID = 2;
-
-    /// A convenience wrapper to help with testing
-    ///
-    /// Assigns default values to optional fields and calls receiver hooks for minting/transfer
-    struct StateTester {
-        pub state: NFTState,
-        pub bs: MemoryBlockstore,
-        pub msg: FakeMessenger,
-    }
-
-    impl StateTester {
-        fn new() -> Self {
-            let bs = MemoryBlockstore::default();
-            let state = NFTState::new(&bs).unwrap();
-            let msg = FakeMessenger::new(0, 99);
-            Self { state, bs, msg }
-        }
-
-        /// Mint an amount of NFTs and return the token_ids
-        fn mint_amount(&mut self, to: ActorID, num_tokens: u64) -> MintIntermediate {
-            let mut hook = self
-                .state
-                .mint_tokens(
-                    &self.bs,
-                    0,
-                    to,
-                    vec![String::default(); num_tokens as usize],
-                    RawBytes::default(),
-                    RawBytes::default(),
-                )
-                .unwrap();
-            hook.call(&self.msg).unwrap()
-        }
-
-        fn assert_balance(&self, owner: ActorID, expected: u64) {
-            let balance = self.state.get_balance(&self.bs, owner).unwrap();
-            assert_eq!(balance, expected);
-        }
-
-        fn assert_invariants(&self) {
-            let (_, vec) = self.state.check_invariants(&self.bs);
-            assert!(vec.is_empty(), "invariants failed: {vec:?}");
-        }
-    }
-
-    #[test]
-    fn it_mints_tokens_incrementally() {
-        let mut tester = StateTester::new();
-
-        // mint first token
-        let res = tester.mint_amount(ALICE_ID, 1);
-        // expect balance increase, token id increment
-        tester.assert_balance(ALICE_ID, 1);
-        assert_eq!(res.token_ids, vec![0]);
-        assert_eq!(tester.state.total_supply, 1);
-
-        // mint another token
-        let res = tester.mint_amount(ALICE_ID, 1);
-        // expect balance increase, token id increment
-        tester.assert_balance(ALICE_ID, 2);
-        assert_eq!(res.token_ids, vec![1]);
-        assert_eq!(tester.state.total_supply, 2);
-
-        // expect another actor to have zero balance by default
-        tester.assert_balance(BOB_ID, 0);
-
-        // mint another token to a different actor
-        let res = tester.mint_amount(BOB_ID, 1);
-        // expect balance increase globally, token id increment
-        tester.assert_balance(ALICE_ID, 2);
-        tester.assert_balance(BOB_ID, 1);
-        assert_eq!(res.token_ids, vec![2]);
-        assert_eq!(tester.state.total_supply, 3);
-
-        // mint 0 tokens (manual empty array should succeed)
-        let mut hook = tester
-            .state
-            .mint_tokens(&tester.bs, 0, ALICE_ID, vec![], RawBytes::default(), RawBytes::default())
-            .unwrap();
-        let res = hook.call(&tester.msg).unwrap();
-        assert_eq!(res.token_ids, Vec::<TokenID>::default());
-        // assert no state change
-        tester.assert_balance(ALICE_ID, 2);
-        tester.assert_balance(BOB_ID, 1);
-        assert_eq!(res.token_ids, Vec::<TokenID>::default());
-        assert_eq!(tester.state.total_supply, 3);
-
-        tester.assert_invariants();
-    }
 }

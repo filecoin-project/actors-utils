@@ -144,15 +144,32 @@ where
         token_data: RawBytes,
     ) -> Result<ReceiverHook<MintIntermediate>> {
         let operator = self.msg.resolve_id(operator)?;
-        let initial_owner = self.msg.resolve_or_init(initial_owner)?;
-        Ok(self.state.mint_tokens(
-            &self.bs,
+        let initial_owner_id = self.msg.resolve_or_init(initial_owner)?;
+
+        let mint_intermediate = self.transaction(|state, bs| {
+            let mut token_array = state.get_token_data_amt(bs)?;
+            let mut owner_map = state.get_owner_data_hamt(bs)?;
+
+            let mint_intermediate = state
+                .mint_tokens(&mut token_array, &mut owner_map, initial_owner_id, metadata_array)
+                .unwrap();
+
+            state.token_data = token_array.flush().map_err(StateError::from)?;
+            state.owner_data = owner_map.flush().map_err(StateError::from)?;
+            Ok(mint_intermediate)
+        })?;
+
+        // params we'll send to the receiver hook
+        let params = FRCXXTokenReceived {
             operator,
-            initial_owner,
-            metadata_array,
+            to: initial_owner_id,
             operator_data,
             token_data,
-        )?)
+            token_ids: mint_intermediate.token_ids.clone(),
+        };
+
+        Ok(ReceiverHook::new_frcxx(*initial_owner, params, mint_intermediate)
+            .map_err(StateError::from)?)
     }
 
     /// Constructs MintReturn data from a MintIntermediate handle
@@ -458,7 +475,10 @@ mod test {
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::{address::Address, ActorID};
 
-    use crate::{state::StateError, NFTError, NFTState, NFT};
+    use crate::{
+        state::{StateError, TokenID},
+        NFTError, NFTState, NFT,
+    };
 
     const ALICE_ID: ActorID = 1;
     const ALICE: Address = Address::new_id(ALICE_ID);
@@ -466,6 +486,77 @@ mod test {
     const BOB: Address = Address::new_id(BOB_ID);
     const CHARLIE_ID: ActorID = 3;
     const CHARLIE: Address = Address::new_id(CHARLIE_ID);
+
+    #[test]
+    fn it_mints_tokens_incrementally() {
+        let bs = MemoryBlockstore::default();
+        let mut state = NFTState::new(&bs).unwrap();
+        let msg = FakeMessenger::new(4, 5);
+        let mut nft =
+            NFT::wrap(bs.clone(), msg, FakeActor { root: state.save(&bs).unwrap() }, &mut state);
+
+        {
+            // mint first token
+            let mut hook = nft
+                .mint(
+                    &ALICE,
+                    &ALICE,
+                    vec![String::new(); 1],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            let res = hook.call(&nft.msg).unwrap();
+            assert_eq!(res.token_ids, vec![0]);
+        }
+
+        {
+            // mint next token
+            let mut hook = nft
+                .mint(
+                    &ALICE,
+                    &ALICE,
+                    vec![String::new(); 1],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            let res = hook.call(&nft.msg).unwrap();
+            assert_eq!(res.token_ids, vec![1]);
+        }
+
+        {
+            // mint more tokens
+            let mut hook = nft
+                .mint(
+                    &ALICE,
+                    &BOB,
+                    vec![String::new(); 3],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            let res = hook.call(&nft.msg).unwrap();
+            assert_eq!(res.token_ids, vec![2, 3, 4]);
+        }
+
+        {
+            // mint no tokens
+            let mut hook = nft
+                .mint(
+                    &ALICE,
+                    &ALICE,
+                    vec![String::new(); 0],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            let res = hook.call(&nft.msg).unwrap();
+            assert_eq!(res.token_ids, Vec::<TokenID>::default());
+        }
+
+        state.check_invariants(&bs);
+    }
 
     #[test]
     fn it_transfers_tokens() {
@@ -580,6 +671,7 @@ mod test {
             assert_eq!(bob_balance, 3);
         }
          */
+        state.check_invariants(&bs);
     }
 
     #[test]
@@ -676,6 +768,7 @@ mod test {
             let total_supply = nft.total_supply();
             assert_eq!(total_supply, 2);
         }
+        state.check_invariants(&bs);
     }
 
     #[test]
@@ -881,6 +974,7 @@ mod test {
             assert_eq!(nft.balance_of(&BOB).unwrap(), 4);
             assert_eq!(nft.total_supply(), 6);
         }
+        state.check_invariants(&bs);
     }
 
     #[test]
@@ -1035,5 +1129,6 @@ mod test {
                 assert_eq!(nft.total_supply(), 1);
             }
         }
+        state.check_invariants(&bs);
     }
 }
