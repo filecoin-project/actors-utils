@@ -464,6 +464,8 @@ mod test {
     const ALICE: Address = Address::new_id(ALICE_ID);
     const BOB_ID: ActorID = 2;
     const BOB: Address = Address::new_id(BOB_ID);
+    const CHARLIE_ID: ActorID = 3;
+    const CHARLIE: Address = Address::new_id(CHARLIE_ID);
 
     #[test]
     fn it_transfers_tokens() {
@@ -578,5 +580,460 @@ mod test {
             assert_eq!(bob_balance, 3);
         }
          */
+    }
+
+    #[test]
+    fn it_burns_tokens() {
+        let bs = MemoryBlockstore::default();
+        let mut state = NFTState::new(&bs).unwrap();
+        let msg = FakeMessenger::new(4, 5);
+        let mut nft =
+            NFT::wrap(bs.clone(), msg, FakeActor { root: state.save(&bs).unwrap() }, &mut state);
+
+        {
+            // burn a non-existent token
+            let err = nft.burn(&ALICE, &[0]).unwrap_err();
+            if let NFTError::NFTState(StateError::TokenNotFound(id)) = err {
+                assert_eq!(id, 0);
+            } else {
+                panic!("unexpected error {:?}", err);
+            }
+        }
+
+        {
+            // mint some tokens
+            let mut hook = nft
+                .mint(
+                    &ALICE,
+                    &ALICE,
+                    vec![String::new(); 5],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            hook.call(&nft.msg).unwrap();
+            // alice: [0, 1, 2, 3, 4]
+        }
+
+        {
+            // burn a token not owned by the caller
+            let err = nft.burn(&BOB, &[0]).unwrap_err();
+            if let NFTError::NFTState(StateError::NotOwner { actor, token_id }) = err {
+                assert_eq!(actor, BOB_ID);
+                assert_eq!(token_id, 0);
+            } else {
+                panic!("unexpected error {:?}", err);
+            }
+        }
+
+        {
+            // burn fails unless all tokens are owned by caller
+            let err = nft.burn(&ALICE, &[0, 1, 2, 3, 4, 5]).unwrap_err();
+            if let NFTError::NFTState(StateError::TokenNotFound(id)) = err {
+                assert_eq!(id, 5);
+            } else {
+                panic!("unexpected error {:?}", err);
+            }
+        }
+
+        {
+            // tokens weren't burnt
+            let balance = nft.balance_of(&ALICE).unwrap();
+            assert_eq!(balance, 5);
+            let total_supply = nft.total_supply();
+            assert_eq!(total_supply, 5);
+        }
+
+        {
+            // burn some tokens
+            let new_balance = nft.burn(&ALICE, &[0, 1, 2]).unwrap();
+            assert_eq!(new_balance, 2);
+            // alice: [3, 4]
+        }
+
+        {
+            // tokens were burnt
+            let balance = nft.balance_of(&ALICE).unwrap();
+            assert_eq!(balance, 2);
+            let total_supply = nft.total_supply();
+            assert_eq!(total_supply, 2);
+        }
+
+        {
+            // tokens cannot be burnt again
+            let err = nft.burn(&ALICE, &[0, 1, 2]).unwrap_err();
+            if let NFTError::NFTState(StateError::TokenNotFound(id)) = err {
+                assert_eq!(id, 0);
+            } else {
+                panic!("unexpected error {:?}", err);
+            }
+        }
+
+        {
+            // state unchanged
+            let balance = nft.balance_of(&ALICE).unwrap();
+            assert_eq!(balance, 2);
+            let total_supply = nft.total_supply();
+            assert_eq!(total_supply, 2);
+        }
+    }
+
+    #[test]
+    fn it_allows_account_level_delegation() {
+        let bs = MemoryBlockstore::default();
+        let mut state = NFTState::new(&bs).unwrap();
+        let msg = FakeMessenger::new(4, 5);
+        let mut nft =
+            NFT::wrap(bs.clone(), msg, FakeActor { root: state.save(&bs).unwrap() }, &mut state);
+
+        {
+            // mint a few tokens
+            let mut hook = nft
+                .mint(
+                    &ALICE,
+                    &ALICE,
+                    vec![String::new(); 4],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            hook.call(&nft.msg).unwrap();
+            // alice: [0, 1, 2, 3]
+            // bob: []
+        }
+
+        {
+            // bob cannot transfer from alice to himself
+            let err = nft
+                .transfer_from(&ALICE, &BOB, &ALICE, &[0], RawBytes::default(), RawBytes::default())
+                .unwrap_err();
+            if let NFTError::NFTState(StateError::NotAuthorized { actor, token_id }) = err {
+                assert_eq!(actor, BOB_ID);
+                assert_eq!(token_id, 0);
+            } else {
+                panic!("unexpected error {:?}", err);
+            }
+        }
+
+        {
+            // alice still retains all the tokens
+            let owner = nft.owner_of(0).unwrap();
+            assert_eq!(owner, ALICE_ID);
+            let balance = nft.balance_of(&ALICE).unwrap();
+            assert_eq!(balance, 4);
+        }
+
+        // approve bob to transfer for alice
+        nft.approve_for_owner(&ALICE, &BOB).unwrap();
+
+        {
+            // transfer from alice to bob
+            let mut hook = nft
+                .transfer_from(
+                    &ALICE,
+                    &BOB,
+                    &BOB,
+                    &[0, 1],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            let tx_int = hook.call(&nft.msg).unwrap();
+            assert_eq!(tx_int.from, ALICE_ID);
+            assert_eq!(tx_int.to, BOB_ID);
+            assert_eq!(tx_int.token_ids, vec![0, 1]);
+            // alice: [2, 3]
+            // bob: [0, 1]
+        }
+
+        {
+            // ownership was tranferred
+            assert_eq!(nft.owner_of(0).unwrap(), BOB_ID);
+            // balances were updated
+            assert_eq!(nft.balance_of(&ALICE).unwrap(), 2);
+            assert_eq!(nft.balance_of(&BOB).unwrap(), 2);
+        }
+
+        {
+            // cannot transfer when wrong owner specified
+            let err = nft
+                .transfer_from(&BOB, &BOB, &BOB, &[2], RawBytes::default(), RawBytes::default())
+                .unwrap_err();
+            if let NFTError::NFTState(StateError::NotOwner { actor, token_id }) = err {
+                assert_eq!(actor, BOB_ID);
+                assert_eq!(token_id, 2);
+            } else {
+                panic!("unexpected error {:?}", err);
+            }
+        }
+
+        {
+            // owner cannot use operator method - accounts are not considered reflexive operators on themselves
+            let err = nft
+                .transfer_from(&ALICE, &ALICE, &BOB, &[2], RawBytes::default(), RawBytes::default())
+                .unwrap_err();
+            if let NFTError::NFTState(StateError::NotAuthorized { actor, token_id }) = err {
+                assert_eq!(actor, ALICE_ID);
+                assert_eq!(token_id, 2);
+            } else {
+                panic!("unexpected error {:?}", err);
+            }
+        }
+
+        {
+            // state unchanged
+            assert_eq!(nft.owner_of(2).unwrap(), ALICE_ID);
+            assert_eq!(nft.balance_of(&ALICE).unwrap(), 2);
+            assert_eq!(nft.balance_of(&BOB).unwrap(), 2);
+        }
+
+        {
+            // bob can burn from for alice
+            let remaining_balance = nft.burn_from(&ALICE, &BOB, &[2]).unwrap();
+            assert_eq!(remaining_balance, 1);
+            // alice: [3]
+            // bob: [0, 1]
+        }
+
+        {
+            // token was succesfully burned
+            let err = nft.owner_of(2).unwrap_err();
+            if let NFTError::NFTState(StateError::TokenNotFound(id)) = err {
+                assert_eq!(id, 2);
+            } else {
+                panic!("unexpected error {:?}", err);
+            }
+            assert_eq!(nft.balance_of(&ALICE).unwrap(), 1);
+            assert_eq!(nft.balance_of(&BOB).unwrap(), 2);
+            assert_eq!(nft.total_supply(), 3);
+        }
+
+        {
+            // mint new tokens for alice
+            // mint a few tokens
+            let mut hook = nft
+                .mint(
+                    &ALICE,
+                    &ALICE,
+                    vec![String::new(); 4],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            hook.call(&nft.msg).unwrap();
+            // alice: [3, 4, 5, 6, 7]
+            // bob: [0, 1]
+        }
+
+        {
+            // state updated
+            assert_eq!(nft.balance_of(&ALICE).unwrap(), 5);
+            assert_eq!(nft.balance_of(&BOB).unwrap(), 2);
+            assert_eq!(nft.total_supply(), 7);
+        }
+
+        {
+            // bob can burn newly minted tokens from alice
+            let remaining_balance = nft.burn_from(&ALICE, &BOB, &[7]).unwrap();
+            assert_eq!(remaining_balance, 4);
+            // alice: [3, 4, 5, 6]
+            // bob: [0, 1]
+        }
+
+        {
+            // token was succesfully burned
+            let err = nft.owner_of(7).unwrap_err();
+            if let NFTError::NFTState(StateError::TokenNotFound(id)) = err {
+                assert_eq!(id, 7);
+            } else {
+                panic!("unexpected error {:?}", err);
+            }
+            assert_eq!(nft.balance_of(&ALICE).unwrap(), 4);
+            assert_eq!(nft.balance_of(&BOB).unwrap(), 2);
+            assert_eq!(nft.total_supply(), 6);
+        }
+
+        {
+            // bob can transfer newly minted token from alice
+            let mut hook = nft
+                .transfer_from(
+                    &ALICE,
+                    &BOB,
+                    &BOB,
+                    &[5, 6],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            let tx_int = hook.call(&nft.msg).unwrap();
+            assert_eq!(tx_int.from, ALICE_ID);
+            assert_eq!(tx_int.to, BOB_ID);
+            assert_eq!(tx_int.token_ids, vec![5, 6]);
+            // alice: [3, 4]
+            // bob: [0, 1, 5, 6]
+        }
+
+        {
+            // tokens were successfully transferred
+            assert_eq!(nft.owner_of(5).unwrap(), BOB_ID);
+            assert_eq!(nft.owner_of(6).unwrap(), BOB_ID);
+            assert_eq!(nft.balance_of(&ALICE).unwrap(), 2);
+            assert_eq!(nft.balance_of(&BOB).unwrap(), 4);
+            assert_eq!(nft.total_supply(), 6);
+        }
+    }
+
+    #[test]
+    fn it_allows_token_level_delegation() {
+        let bs = MemoryBlockstore::default();
+        let mut state = NFTState::new(&bs).unwrap();
+        let msg = FakeMessenger::new(4, 5);
+        let mut nft =
+            NFT::wrap(bs.clone(), msg, FakeActor { root: state.save(&bs).unwrap() }, &mut state);
+
+        // mint a few tokens
+        let mut hook = nft
+            .mint(&ALICE, &ALICE, vec![String::new(); 2], RawBytes::default(), RawBytes::default())
+            .unwrap();
+        if let [token_0, token_1] = hook.call(&nft.msg).unwrap().token_ids[..] {
+            // alice: [0, 1, 2]
+            // bob: []
+            // charlie: []
+
+            {
+                // neither bob nor charlie can transfer tokens
+                nft.transfer_from(
+                    &ALICE,
+                    &BOB,
+                    &BOB,
+                    &[token_0],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap_err();
+                nft.transfer_from(
+                    &ALICE,
+                    &CHARLIE,
+                    &BOB,
+                    &[token_0],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap_err();
+                nft.transfer_from(
+                    &ALICE,
+                    &BOB,
+                    &BOB,
+                    &[token_1],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap_err();
+                nft.transfer_from(
+                    &ALICE,
+                    &CHARLIE,
+                    &BOB,
+                    &[token_1],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap_err();
+            }
+
+            {
+                // neither bob nor charlie can burn tokens
+                nft.burn_from(&ALICE, &BOB, &[token_0]).unwrap_err();
+                nft.burn_from(&ALICE, &BOB, &[token_1]).unwrap_err();
+                nft.burn_from(&ALICE, &CHARLIE, &[token_0]).unwrap_err();
+                nft.burn_from(&ALICE, &CHARLIE, &[token_1]).unwrap_err();
+            }
+
+            {
+                // original state still intact
+                assert_eq!(nft.owner_of(token_0).unwrap(), ALICE_ID);
+                assert_eq!(nft.balance_of(&ALICE).unwrap(), 2);
+                assert_eq!(nft.balance_of(&BOB).unwrap(), 0);
+                assert_eq!(nft.balance_of(&CHARLIE).unwrap(), 0);
+                assert_eq!(nft.total_supply(), 2);
+            }
+
+            {
+                // charlie cannot approve bob nor charlie for a token owned by alice
+                let err = nft.approve(&CHARLIE, &BOB, &[token_0]).unwrap_err();
+                if let NFTError::NFTState(StateError::NotOwner { actor, token_id }) = err {
+                    assert_eq!(token_id, token_0);
+                    assert_eq!(actor, CHARLIE_ID);
+                } else {
+                    panic!("unexpected error {:?}", err);
+                }
+                let err = nft.approve(&CHARLIE, &CHARLIE, &[token_1]).unwrap_err();
+                if let NFTError::NFTState(StateError::NotOwner { actor, token_id }) = err {
+                    assert_eq!(token_id, token_1);
+                    assert_eq!(actor, CHARLIE_ID);
+                } else {
+                    panic!("unexpected error {:?}", err);
+                }
+            }
+
+            {
+                // alice can approve others for a token owned by alice
+                nft.approve(&ALICE, &BOB, &[token_0]).unwrap();
+                nft.approve(&ALICE, &CHARLIE, &[token_1]).unwrap();
+            }
+
+            {
+                // charlie still can't burn or transfer token_0
+                nft.burn_from(&ALICE, &CHARLIE, &[token_0]).unwrap_err();
+                nft.transfer_from(
+                    &ALICE,
+                    &CHARLIE,
+                    &BOB,
+                    &[token_0],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap_err();
+            }
+
+            {
+                // original state still intact
+                assert_eq!(nft.owner_of(0).unwrap(), ALICE_ID);
+                assert_eq!(nft.balance_of(&ALICE).unwrap(), 2);
+                assert_eq!(nft.balance_of(&BOB).unwrap(), 0);
+                assert_eq!(nft.balance_of(&CHARLIE).unwrap(), 0);
+                assert_eq!(nft.total_supply(), 2);
+            }
+
+            {
+                // bob can transfer token_0
+                let mut hook = nft
+                    .transfer_from(
+                        &ALICE,
+                        &BOB,
+                        &BOB,
+                        &[token_0],
+                        RawBytes::default(),
+                        RawBytes::default(),
+                    )
+                    .unwrap();
+                hook.call(&nft.msg).unwrap();
+                // state updated
+                assert_eq!(nft.owner_of(token_0).unwrap(), BOB_ID);
+                assert_eq!(nft.balance_of(&ALICE).unwrap(), 1);
+                assert_eq!(nft.balance_of(&BOB).unwrap(), 1);
+                assert_eq!(nft.balance_of(&CHARLIE).unwrap(), 0);
+                assert_eq!(nft.total_supply(), 2);
+            }
+
+            {
+                // charlie can transfer token_1
+                nft.burn_from(&ALICE, &CHARLIE, &[token_1]).unwrap();
+                // state updated
+                assert_eq!(nft.balance_of(&ALICE).unwrap(), 0);
+                assert_eq!(nft.balance_of(&BOB).unwrap(), 1);
+                assert_eq!(nft.balance_of(&CHARLIE).unwrap(), 0);
+                assert_eq!(nft.total_supply(), 1);
+            }
+        }
     }
 }
