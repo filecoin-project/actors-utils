@@ -214,17 +214,22 @@ impl NFTState {
     /// The caller should own the tokens or an account-level operator on the owner of the tokens.
     /// This function does not flush the token AMT - it is the caller's responsibility to do so at
     /// the end of the batch
-    pub fn approve_for_tokens<BS: Blockstore>(
+    pub fn approve_for_tokens<F, BS: Blockstore>(
         &mut self,
         token_array: &mut Amt<TokenData, &BS>,
         operator: ActorID,
         token_ids: &[TokenID],
-    ) -> Result<()> {
+        approve_predicate: F,
+    ) -> Result<()>
+    where
+        F: Fn(&TokenData, TokenID, &Amt<TokenData, &BS>) -> Result<()>,
+    {
         for &token_id in token_ids {
             let mut token_data = token_array
                 .get(token_id)?
                 .ok_or_else(|| StateError::TokenNotFound(token_id))?
                 .clone();
+            approve_predicate(&token_data, token_id, token_array)?;
             token_data.operators.add_operator(operator);
             token_array.set(token_id, token_data)?;
         }
@@ -237,17 +242,22 @@ impl NFTState {
     /// The caller should own the tokens or be an account-level operator on the owner of the tokens.
     /// This function does not flush the token AMT - it is the caller's responsibility to do so at
     /// the end of the batch
-    pub fn revoke_for_tokens<BS: Blockstore>(
+    pub fn revoke_for_tokens<F, BS: Blockstore>(
         &mut self,
         token_array: &mut Amt<TokenData, &BS>,
         operator: ActorID,
         token_ids: &[TokenID],
-    ) -> Result<()> {
+        revoke_predicate: F,
+    ) -> Result<()>
+    where
+        F: Fn(&TokenData, TokenID, &Amt<TokenData, &BS>) -> Result<()>,
+    {
         for &token_id in token_ids {
             let mut token_data = token_array
                 .get(token_id)?
                 .ok_or_else(|| StateError::TokenNotFound(token_id))?
                 .clone();
+            revoke_predicate(&token_data, token_id, token_array)?;
             token_data.operators.remove_operator(&operator);
             token_array.set(token_id, token_data)?;
         }
@@ -319,16 +329,21 @@ impl NFTState {
     /// HAMT or the token AMT- it is the caller's responsibility to do so at the end of the batch
     ///
     /// Returns the new balance of the owner if all tokens were burned successfully
-    pub fn burn_tokens<BS: Blockstore>(
+    pub fn burn_tokens<F, BS: Blockstore>(
         &mut self,
         token_array: &mut Amt<TokenData, &BS>,
         owner_map: &mut Hamt<&BS, OwnerData>,
         owner: ActorID,
         token_ids: &[TokenID],
-    ) -> Result<u64> {
+        burn_predicate: F,
+    ) -> Result<u64>
+    where
+        F: Fn(&TokenData, TokenID, &Amt<TokenData, &BS>, &Hamt<&BS, OwnerData>) -> Result<()>,
+    {
         for &token_id in token_ids {
-            let _token_data =
+            let token_data =
                 token_array.delete(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
+            burn_predicate(&token_data, token_id, token_array, owner_map)?;
         }
 
         // we only reach here if all tokens were burned successfully so assume the caller is valid
@@ -355,15 +370,22 @@ impl NFTState {
     /// Makes a transfer of a token from one address to another. The caller must verify that such a
     /// transfer is allowed. This function does not flush the token AMT or the owner HAMT, it is the
     /// caller's responsibility to do so at the end of the batch.
-    pub fn make_transfer<BS: Blockstore>(
+    pub fn make_transfer<F, BS: Blockstore>(
         &mut self,
         token_array: &mut Amt<TokenData, &BS>,
         owner_map: &mut Hamt<&BS, OwnerData>,
         token_id: TokenID,
         receiver: ActorID,
-    ) -> Result<()> {
+        transfer_predicate: F,
+    ) -> Result<()>
+    where
+        F: Fn(&TokenData, TokenID, &Amt<TokenData, &BS>, &Hamt<&BS, OwnerData>) -> Result<()>,
+    {
         let old_token_data =
             token_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?.clone();
+        // check the transfer against business rules
+        transfer_predicate(&old_token_data, token_id, token_array, owner_map)?;
+
         let new_token_data =
             TokenData { owner: receiver, operators: BitField::default(), ..old_token_data };
         token_array.set(token_id, new_token_data)?;
@@ -394,71 +416,53 @@ impl NFTState {
         Ok(())
     }
 
-    /// Asserts that the actor owns the token and returns a copy of the TokenData
-    ///
-    /// Returns TokenNotFound if the token_id is invalid or NotOwner if the actor does not own
-    /// own the token.
-    pub fn assert_owns_tokens<BS: Blockstore>(
-        token_array: &Amt<TokenData, &BS>,
-        actor: ActorID,
-        token_ids: &[TokenID],
-    ) -> Result<()> {
-        for &token_id in token_ids {
-            let token_data =
-                token_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
-            if token_data.owner != actor {
-                return Err(StateError::NotOwner { actor, token_id });
-            }
-        }
-
-        Ok(())
+    /// Checks for account-level approval between owner and operator
+    pub fn is_account_operator<BS: Blockstore>(
+        owner_map: &Hamt<&BS, OwnerData>,
+        owner: ActorID,
+        operator: ActorID,
+    ) -> Result<bool> {
+        let owner_data = owner_map
+            .get(&actor_id_key(owner))?
+            .ok_or_else(|| StateError::InvariantFailed(format!("owner {owner} not found")))?;
+        Ok(owner_data.operators.contains_actor(&operator))
     }
 
     /// Asserts that the actor either owns the token or is an account level operator on the owner of the token
-    pub fn assert_can_approve_tokens<BS: Blockstore>(
-        token_array: &Amt<TokenData, &BS>,
+    pub fn assert_can_approve_token<BS: Blockstore>(
+        token_data: &TokenData,
         actor: ActorID,
-        token_ids: &[TokenID],
+        token_id: TokenID,
     ) -> Result<()> {
-        for &token_id in token_ids {
-            let token_data =
-                token_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
-            if token_data.owner != actor {
-                return Err(StateError::NotOwner { actor, token_id });
-            }
+        if token_data.owner != actor {
+            return Err(StateError::NotOwner { actor, token_id });
         }
 
         Ok(())
     }
 
-    /// Checks whether an operator is approved to transfer/burn a token
-    pub fn assert_approved_for_tokens<BS: Blockstore>(
-        token_array: &Amt<TokenData, &BS>,
-        owner_map: &Hamt<&BS, OwnerData>,
+    /// Asserts that the given operator is permitted authorised for the specified token
+    pub fn assert_token_level_approval(
+        token_data: &TokenData,
+        token_id: TokenID,
         operator: ActorID,
-        token_ids: &[TokenID],
     ) -> Result<()> {
-        for &token_id in token_ids {
-            let token_data = token_array.get(token_id)?.ok_or_else(|| {
-                StateError::InvariantFailed(format!("token {token_id} not found"))
-            })?;
-
-            // operator is approved at token-level
-            if token_data.operators.contains_actor(&operator) {
-                continue;
-            }
-
-            // operator is approved at account-level
-            let owner_account =
-                owner_map.get(&actor_id_key(token_data.owner))?.ok_or_else(|| {
-                    StateError::InvariantFailed(format!("owner of token {token_id} not found"))
-                })?;
-            if owner_account.operators.contains_actor(&operator) {
-                continue;
-            }
-
-            // wasn't approved
+        // operator is approved at token-level
+        if !token_data.operators.contains_actor(&operator) {
             return Err(StateError::NotAuthorized { actor: operator, token_id });
+        }
+
+        Ok(())
+    }
+
+    // Asserts that a given account owns the specified token
+    pub fn assert_owns_token(
+        token_data: &TokenData,
+        token_id: TokenID,
+        actor: ActorID,
+    ) -> Result<()> {
+        if token_data.owner != actor {
+            return Err(StateError::NotOwner { actor, token_id });
         }
 
         Ok(())

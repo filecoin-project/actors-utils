@@ -194,9 +194,16 @@ where
         let balance = self.transaction(|state, bs| {
             let mut token_array = state.get_token_data_amt(bs)?;
             let mut owner_map = state.get_owner_data_hamt(bs)?;
-            NFTState::assert_owns_tokens(&token_array, owner, token_ids)?;
 
-            let res = state.burn_tokens(&mut token_array, &mut owner_map, owner, token_ids)?;
+            let res = state.burn_tokens(
+                &mut token_array,
+                &mut owner_map,
+                owner,
+                token_ids,
+                |token_data, token_id, _token_amt, _owner_hamt| {
+                    NFTState::assert_owns_token(token_data, token_id, owner)
+                },
+            )?;
 
             state.token_data = token_array.flush().map_err(StateError::from)?;
             state.owner_data = owner_map.flush().map_err(StateError::from)?;
@@ -221,12 +228,25 @@ where
         let balance = self.transaction(|state, bs| {
             let mut token_array = state.get_token_data_amt(bs)?;
             let mut owner_map = state.get_owner_data_hamt(bs)?;
-            // check the tokens are all owned by the same expected account
-            NFTState::assert_owns_tokens(&token_array, owner, token_ids)?;
-            // check that the operator has permission to burn the tokens
-            NFTState::assert_approved_for_tokens(&token_array, &owner_map, operator, token_ids)?;
 
-            let res = state.burn_tokens(&mut token_array, &mut owner_map, owner, token_ids)?;
+            let account_operator = NFTState::is_account_operator(&owner_map, owner, operator)?;
+
+            let res = state.burn_tokens(
+                &mut token_array,
+                &mut owner_map,
+                owner,
+                token_ids,
+                |token_data, token_id, _token_amt, _owner_hamt| {
+                    // check the token is owned by the expected account
+                    NFTState::assert_owns_token(token_data, token_id, owner)?;
+                    // check that the operator has permission to burn the token
+                    if !account_operator {
+                        NFTState::assert_token_level_approval(token_data, token_id, operator)
+                    } else {
+                        Ok(())
+                    }
+                },
+            )?;
 
             state.token_data = token_array.flush().map_err(StateError::from)?;
             state.owner_data = owner_map.flush().map_err(StateError::from)?;
@@ -252,9 +272,15 @@ where
 
         self.transaction(|state, bs| {
             let mut token_array = state.get_token_data_amt(bs)?;
-            NFTState::assert_owns_tokens(&token_array, caller, token_ids)?;
 
-            state.approve_for_tokens(&mut token_array, operator, token_ids)?;
+            state.approve_for_tokens(
+                &mut token_array,
+                operator,
+                token_ids,
+                |token_data, token_id, _token_amt| {
+                    NFTState::assert_owns_token(token_data, token_id, caller)
+                },
+            )?;
 
             state.token_data = token_array.flush().map_err(StateError::from)?;
             Ok(())
@@ -282,9 +308,15 @@ where
 
         self.transaction(|state, bs| {
             let mut token_array = state.get_token_data_amt(bs)?;
-            NFTState::assert_owns_tokens(&token_array, caller, token_ids)?;
 
-            state.revoke_for_tokens(&mut token_array, operator, token_ids)?;
+            state.revoke_for_tokens(
+                &mut token_array,
+                operator,
+                token_ids,
+                |token_data, token_id, _token_amt| {
+                    NFTState::assert_owns_token(token_data, token_id, caller)
+                },
+            )?;
 
             state.token_data = token_array.flush().map_err(StateError::from)?;
             Ok(())
@@ -347,11 +379,18 @@ where
         self.transaction(|state, store| {
             let mut token_array = state.get_token_data_amt(store)?;
             let mut owner_map = state.get_owner_data_hamt(store)?;
-            NFTState::assert_owns_tokens(&token_array, owner_id, token_ids)?;
 
             for &token_id in token_ids {
                 // update the token_data to reflect the new owner and clear approved operators
-                state.make_transfer(&mut token_array, &mut owner_map, token_id, recipient_id)?;
+                state.make_transfer(
+                    &mut token_array,
+                    &mut owner_map,
+                    token_id,
+                    recipient_id,
+                    |token_data, token_id, _token_amt, _owner_hamt| {
+                        NFTState::assert_owns_token(token_data, token_id, owner_id)
+                    },
+                )?;
             }
 
             state.token_data = token_array.flush().map_err(StateError::from)?;
@@ -408,12 +447,26 @@ where
         self.transaction(|state, store| {
             let mut token_array = state.get_token_data_amt(store)?;
             let mut owner_map = state.get_owner_data_hamt(store)?;
-            NFTState::assert_owns_tokens(&token_array, owner_id, token_ids)?;
-            NFTState::assert_approved_for_tokens(&token_array, &owner_map, operator_id, token_ids)?;
+
+            let account_operator =
+                NFTState::is_account_operator(&owner_map, owner_id, operator_id)?;
 
             for &token_id in token_ids {
                 // update the token_data to reflect the new owner and clear approved operators
-                state.make_transfer(&mut token_array, &mut owner_map, token_id, recipient_id)?;
+                state.make_transfer(
+                    &mut token_array,
+                    &mut owner_map,
+                    token_id,
+                    recipient_id,
+                    |token_data, token_id, _token_amt, _owner_hamt| {
+                        NFTState::assert_owns_token(token_data, token_id, owner_id)?;
+                        if !account_operator {
+                            NFTState::assert_token_level_approval(token_data, token_id, operator_id)
+                        } else {
+                            Ok(())
+                        }
+                    },
+                )?;
             }
 
             state.token_data = token_array.flush().map_err(StateError::from)?;
