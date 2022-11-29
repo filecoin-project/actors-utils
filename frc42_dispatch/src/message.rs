@@ -37,7 +37,7 @@ impl<T: Hasher> MethodMessenger<T> {
         value: TokenAmount,
     ) -> Result<Receipt, MethodMessengerError> {
         let method = self.method_resolver.method_number(method)?;
-        send::send(to, method, params, value).map_err(MethodMessengerError::from)
+        send::send(to, method, params, value, None).map_err(MethodMessengerError::from)
     }
 
     #[cfg(feature = "no_sdk")]

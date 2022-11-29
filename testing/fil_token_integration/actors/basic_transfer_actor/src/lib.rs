@@ -115,7 +115,7 @@ fn invoke(input: u32) -> u32 {
 
             // get our balance
             let self_address = Address::new_id(sdk::message::receiver());
-            let balance_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("BalanceOf"), RawBytes::serialize(self_address).unwrap(), TokenAmount::zero()).unwrap();
+            let balance_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("BalanceOf"), RawBytes::serialize(self_address).unwrap(), TokenAmount::zero(), None).unwrap();
             if !balance_receipt.exit_code.is_success() {
                 panic!("unable to get balance");
             }
@@ -127,7 +127,7 @@ fn invoke(input: u32) -> u32 {
                 amount: balance, // send everything
                 operator_data: RawBytes::default(),
             };
-            let transfer_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("Transfer"), RawBytes::serialize(&params).unwrap(), TokenAmount::zero()).unwrap();
+            let transfer_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("Transfer"), RawBytes::serialize(&params).unwrap(), TokenAmount::zero(), None).unwrap();
             if !transfer_receipt.exit_code.is_success() {
                 panic!("transfer call failed");
             }

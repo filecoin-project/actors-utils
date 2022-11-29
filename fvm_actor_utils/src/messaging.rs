@@ -109,7 +109,7 @@ impl Messaging for FvmMessenger {
         params: &RawBytes,
         value: &TokenAmount,
     ) -> Result<Receipt> {
-        Ok(send::send(to, method, params.clone(), value.clone())?)
+        Ok(send::send(to, method, params.clone(), value.clone(), None)?)
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
@@ -117,7 +117,7 @@ impl Messaging for FvmMessenger {
     }
 
     fn initialize_account(&self, address: &Address) -> Result<ActorID> {
-        if let Err(e) = send::send(address, METHOD_SEND, Default::default(), TokenAmount::zero()) {
+        if let Err(e) = send::send(address, METHOD_SEND, Default::default(), TokenAmount::zero(), None) {
             return Err(e.into());
         }
 

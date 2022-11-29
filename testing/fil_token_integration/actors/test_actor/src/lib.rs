@@ -71,6 +71,7 @@ fn transfer(token: Address, to: Address, amount: TokenAmount, operator_data: Raw
         method_hash!("Transfer"),
         RawBytes::serialize(&transfer_params).unwrap(),
         TokenAmount::zero(),
+        None,
     )
     .unwrap();
     // ignore failures at this level and return the transfer call receipt so caller can decide what to do
@@ -85,6 +86,7 @@ fn burn(token: Address, amount: TokenAmount) -> u32 {
         method_hash!("Burn"),
         RawBytes::serialize(&burn_params).unwrap(),
         TokenAmount::zero(),
+        None,
     )
     .unwrap();
     if !receipt.exit_code.is_success() {
@@ -148,7 +150,7 @@ fn invoke(input: u32) -> u32 {
             // get our balance
             let get_balance = || {
                 let self_address = Address::new_id(sdk::message::receiver());
-                let balance_receipt = sdk::send::send(&params.token_address, method_hash!("BalanceOf"), RawBytes::serialize(self_address).unwrap(), TokenAmount::zero()).unwrap();
+                let balance_receipt = sdk::send::send(&params.token_address, method_hash!("BalanceOf"), RawBytes::serialize(self_address).unwrap(), TokenAmount::zero(), None).unwrap();
                 if !balance_receipt.exit_code.is_success() {
                     panic!("unable to get balance");
                 }
