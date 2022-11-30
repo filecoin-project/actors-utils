@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 mod common;
 use common::{construct_tester, TestHelpers, TokenHelpers};
-use factory_token::{token::FactoryToken, ConstructorParams};
+use token::{ConstructorParams, FactoryToken};
 
 const FACTORY_TOKEN_ACTOR_WASM: &str =
     "../../target/debug/wbuild/factory_token/factory_token.compact.wasm";

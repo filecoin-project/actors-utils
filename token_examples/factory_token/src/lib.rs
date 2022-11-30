@@ -1,39 +1,10 @@
 use frc42_dispatch::match_method;
-use fvm_actor_utils::{
-    blockstore::Blockstore,
-    messaging::{FvmMessenger, Messaging},
-};
-use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_sdk::NO_DATA_BLOCK_ID;
-use fvm_shared::{address::Address, error::ExitCode};
-pub mod token;
-
-use token::{
-    deserialize_params, frc46_invoke, return_ipld, FactoryToken, MintParams, RuntimeError,
+use fvm_shared::error::ExitCode;
+use token_impl::{
+    construct_token, deserialize_params, frc46_invoke, return_ipld, FactoryToken, MintParams,
+    RuntimeError,
 };
-
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
-pub struct ConstructorParams {
-    pub name: String,
-    pub symbol: String,
-    pub granularity: u64,
-    /// authorised mint operator
-    /// only this address can mint tokens or remove themselves to permanently disable minting
-    pub minter: Address,
-}
-
-fn construct_token(params: ConstructorParams) -> Result<u32, RuntimeError> {
-    let bs = Blockstore::default();
-    let msg = FvmMessenger::default();
-    let actor_id = msg.resolve_id(&params.minter)?;
-    let token =
-        FactoryToken::new(&bs, params.name, params.symbol, params.granularity, Some(actor_id));
-
-    let cid = token.save()?;
-    fvm_sdk::sself::set_root(&cid)?;
-
-    Ok(NO_DATA_BLOCK_ID)
-}
 
 fn token_invoke(method_num: u64, params: u32) -> Result<u32, RuntimeError> {
     match_method!(method_num, {

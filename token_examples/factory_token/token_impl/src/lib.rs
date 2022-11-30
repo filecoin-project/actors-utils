@@ -12,7 +12,7 @@ use frc46_token::token::{
 };
 use fvm_actor_utils::{
     blockstore::Blockstore,
-    messaging::{FvmMessenger, MessagingError},
+    messaging::{FvmMessenger, Messaging, MessagingError},
     receiver::ReceiverHookError,
 };
 use fvm_ipld_blockstore::{Block, Blockstore as _BS};
@@ -55,6 +55,29 @@ pub enum RuntimeError {
     AddressNotAuthorized,
     #[error("minting has been permanently disabled")]
     MintingDisabled,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct ConstructorParams {
+    pub name: String,
+    pub symbol: String,
+    pub granularity: u64,
+    /// authorised mint operator
+    /// only this address can mint tokens or remove themselves to permanently disable minting
+    pub minter: Address,
+}
+
+pub fn construct_token(params: ConstructorParams) -> Result<u32, RuntimeError> {
+    let bs = Blockstore::default();
+    let msg = FvmMessenger::default();
+    let actor_id = msg.resolve_id(&params.minter)?;
+    let token =
+        FactoryToken::new(&bs, params.name, params.symbol, params.granularity, Some(actor_id));
+
+    let cid = token.save()?;
+    fvm_sdk::sself::set_root(&cid)?;
+
+    Ok(NO_DATA_BLOCK_ID)
 }
 
 pub fn caller_address() -> Address {
