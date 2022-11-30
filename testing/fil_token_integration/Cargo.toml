@@ -27,3 +27,4 @@ basic_token_actor = { path = "actors/basic_token_actor" }
 basic_transfer_actor = { path = "actors/basic_transfer_actor" }
 frc46_test_actor = { path = "actors/frc46_test_actor" }
 frcxx_test_actor = { path = "actors/frcxx_test_actor" }
+token_impl = { path = "../../token_examples/factory_token/token_impl" }

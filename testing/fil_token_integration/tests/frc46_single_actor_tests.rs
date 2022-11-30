@@ -9,9 +9,10 @@ mod common;
 use common::frc46_token_helpers::TokenHelper;
 use common::{construct_tester, TestHelpers};
 use frc46_test_actor::{action, ActionParams, TestAction};
+use token_impl::{ConstructorParams, FactoryToken};
 
-const BASIC_TOKEN_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/basic_token_actor/basic_token_actor.compact.wasm";
+const FACTORY_TOKEN_ACTOR_WASM: &str =
+    "../../target/debug/wbuild/factory_token/factory_token.compact.wasm";
 const TEST_ACTOR_WASM: &str =
     "../../target/debug/wbuild/frc46_test_actor/frc46_test_actor.compact.wasm";
 
@@ -32,19 +33,48 @@ fn frc46_single_actor_tests() {
 
     let operator: [Account; 1] = tester.create_accounts().unwrap();
 
-    let initial_token_state = TokenState::new(&blockstore).unwrap();
+    let initial_token_state = FactoryToken {
+        token: TokenState::new(&blockstore).unwrap(),
+        name: String::new(),
+        symbol: String::new(),
+        granularity: 1,
+        minter: None,
+    };
 
     // install actors required for our test: a token actor and one instance of the test actor
     let token_actor =
-        tester.install_actor_with_state(BASIC_TOKEN_ACTOR_WASM, 10000, initial_token_state);
+        tester.install_actor_with_state(FACTORY_TOKEN_ACTOR_WASM, 10000, initial_token_state);
     let frc46_test_actor = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
 
     // Instantiate machine
     tester.instantiate_machine(DummyExterns).unwrap();
 
-    // construct actors
-    for actor in [token_actor, frc46_test_actor] {
-        let ret_val = tester.call_method(operator[0].1, actor, method_hash!("Constructor"), None);
+    // construct our TEST token
+    {
+        let params = ConstructorParams {
+            name: "Test Token".into(),
+            symbol: "TEST".into(),
+            granularity: 1,
+            minter: operator[0].1,
+        };
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method(
+            operator[0].1,
+            token_actor,
+            method_hash!("Constructor"),
+            Some(params),
+        );
+        assert!(
+            ret_val.msg_receipt.exit_code.is_success(),
+            "token constructor returned {:#?}",
+            ret_val
+        );
+    }
+
+    // construct actor
+    {
+        let ret_val =
+            tester.call_method(operator[0].1, frc46_test_actor, method_hash!("Constructor"), None);
         assert!(ret_val.msg_receipt.exit_code.is_success());
     }
 
