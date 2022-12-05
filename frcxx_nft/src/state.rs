@@ -189,6 +189,8 @@ impl NFTState {
 
         // update global trackers
         self.total_supply += num_to_mint as u64;
+        self.token_data = token_array.flush()?;
+        self.owner_data = owner_map.flush()?;
 
         // params for constructing our return value
         Ok(MintIntermediate {
@@ -212,8 +214,6 @@ impl NFTState {
     /// Approves an operator to transfer a set of specified tokens
     ///
     /// The caller should own the tokens or an account-level operator on the owner of the tokens.
-    /// This function does not flush the token AMT - it is the caller's responsibility to do so at
-    /// the end of the batch
     pub fn approve_for_tokens<F, BS: Blockstore>(
         &mut self,
         token_array: &mut Amt<TokenData, &BS>,
@@ -234,14 +234,14 @@ impl NFTState {
             token_array.set(token_id, token_data)?;
         }
 
+        self.token_data = token_array.flush()?;
+
         Ok(())
     }
 
     /// Revokes an operator's permission to transfer the specified tokens
     ///
     /// The caller should own the tokens or be an account-level operator on the owner of the tokens.
-    /// This function does not flush the token AMT - it is the caller's responsibility to do so at
-    /// the end of the batch
     pub fn revoke_for_tokens<F, BS: Blockstore>(
         &mut self,
         token_array: &mut Amt<TokenData, &BS>,
@@ -262,6 +262,8 @@ impl NFTState {
             token_array.set(token_id, token_data)?;
         }
 
+        self.token_data = token_array.flush()?;
+
         Ok(())
     }
 
@@ -271,8 +273,7 @@ impl NFTState {
     /// can be transferred, approved or burned by the operator, including future tokens owned by the
     /// account
     ///
-    /// The caller should be the owning account. This function does not flush the owner
-    /// HAMT- it is the caller's responsibility to do so at the end of the batch
+    /// The caller should be the owning account.
     pub fn approve_for_owner<BS: Blockstore>(
         &mut self,
         owner_map: &mut Hamt<&BS, OwnerData>,
@@ -289,13 +290,14 @@ impl NFTState {
         };
         owner_map.set(actor_id_key(owner), new_owner_data)?;
 
+        self.owner_data = owner_map.flush()?;
+
         Ok(())
     }
 
     /// Revokes an operator's authorization to transfer tokens on behalf of the owner account
     ///
-    /// The caller should be the owner of the account. This function does not flush the owner
-    /// HAMT- it is the caller's responsibility to do so at the end of the batch
+    /// The caller should be the owner of the account.
     pub fn revoke_for_all<BS: Blockstore>(
         &mut self,
         owner_map: &mut Hamt<&BS, OwnerData>,
@@ -317,6 +319,8 @@ impl NFTState {
             }
         }
 
+        self.owner_data = owner_map.flush()?;
+
         Ok(())
     }
 
@@ -325,8 +329,7 @@ impl NFTState {
     /// If any of the token_ids cannot be burned (e.g. non-existent, already burned), the entire
     /// transaction should fail atomically
     ///
-    /// The tokens must all be owned by the same owner. This function does not flush the owner
-    /// HAMT or the token AMT- it is the caller's responsibility to do so at the end of the batch
+    /// The tokens must all be owned by the same owner
     ///
     /// Returns the new balance of the owner if all tokens were burned successfully
     pub fn burn_tokens<F, BS: Blockstore>(
@@ -363,13 +366,14 @@ impl NFTState {
         }
 
         self.total_supply -= token_ids.len() as u64;
+        self.token_data = token_array.flush()?;
+        self.owner_data = owner_map.flush()?;
 
         Ok(new_balance)
     }
 
     /// Makes a transfer of a token from one address to another. The caller must verify that such a
-    /// transfer is allowed. This function does not flush the token AMT or the owner HAMT, it is the
-    /// caller's responsibility to do so at the end of the batch.
+    /// transfer is allowed.
     pub fn make_transfer<F, BS: Blockstore>(
         &mut self,
         token_array: &mut Amt<TokenData, &BS>,
@@ -412,6 +416,9 @@ impl NFTState {
             None => OwnerData { balance: 1, operators: BitField::default() },
         };
         owner_map.set(new_owner_key, new_owner_data)?;
+
+        self.token_data = token_array.flush()?;
+        self.owner_data = owner_map.flush()?;
 
         Ok(())
     }

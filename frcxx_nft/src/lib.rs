@@ -154,8 +154,6 @@ where
                 .mint_tokens(&mut token_array, &mut owner_map, initial_owner_id, metadata_array)
                 .unwrap();
 
-            state.token_data = token_array.flush().map_err(StateError::from)?;
-            state.owner_data = owner_map.flush().map_err(StateError::from)?;
             Ok(mint_intermediate)
         })?;
 
@@ -205,8 +203,6 @@ where
                 },
             )?;
 
-            state.token_data = token_array.flush().map_err(StateError::from)?;
-            state.owner_data = owner_map.flush().map_err(StateError::from)?;
             Ok(res)
         })?;
 
@@ -248,8 +244,6 @@ where
                 },
             )?;
 
-            state.token_data = token_array.flush().map_err(StateError::from)?;
-            state.owner_data = owner_map.flush().map_err(StateError::from)?;
             Ok(res)
         })?;
 
@@ -282,7 +276,6 @@ where
                 },
             )?;
 
-            state.token_data = token_array.flush().map_err(StateError::from)?;
             Ok(())
         })?;
 
@@ -318,7 +311,6 @@ where
                 },
             )?;
 
-            state.token_data = token_array.flush().map_err(StateError::from)?;
             Ok(())
         })
     }
@@ -337,7 +329,6 @@ where
 
             state.approve_for_owner(&mut owner_map, owner, operator)?;
 
-            state.owner_data = owner_map.flush().map_err(StateError::from)?;
             Ok(())
         })
     }
@@ -358,7 +349,6 @@ where
 
             state.revoke_for_all(&mut owner_map, owner, operator)?;
 
-            state.owner_data = owner_map.flush().map_err(StateError::from)?;
             Ok(())
         })
     }
@@ -393,8 +383,6 @@ where
                 )?;
             }
 
-            state.token_data = token_array.flush().map_err(StateError::from)?;
-            state.owner_data = owner_map.flush().map_err(StateError::from)?;
             Ok(())
         })?;
 
@@ -469,8 +457,6 @@ where
                 )?;
             }
 
-            state.token_data = token_array.flush().map_err(StateError::from)?;
-            state.owner_data = owner_map.flush().map_err(StateError::from)?;
             Ok(())
         })?;
 
