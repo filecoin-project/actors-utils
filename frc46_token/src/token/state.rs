@@ -907,12 +907,25 @@ mod test {
         assert_eq!(allowance_2, allowance_1 + delta);
         assert_eq!(allowance_2, TokenAmount::from_atto(50));
 
+        // changing by zero won't affect anything
+        let delta = TokenAmount::zero();
+        let ret = state.change_allowance_by(bs, owner, operator, &delta).unwrap();
+        assert_eq!(ret, allowance_2);
+
         // allowance won't go negative
         let delta = TokenAmount::from_atto(-100);
         let ret = state.change_allowance_by(bs, owner, operator, &delta).unwrap();
         assert_eq!(ret, TokenAmount::zero());
         let allowance_3 = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(allowance_3, TokenAmount::zero());
+
+        // won't set a negative allowance on an owner with no allowances set
+        let new_owner: ActorID = 3;
+        let delta = TokenAmount::from_atto(-50);
+        let ret = state.change_allowance_by(bs, new_owner, operator, &delta).unwrap();
+        assert_eq!(ret, TokenAmount::zero());
+        let allowance_4 = state.get_allowance_between(bs, new_owner, operator).unwrap();
+        assert_eq!(allowance_4, TokenAmount::zero());
     }
 
     #[test]
