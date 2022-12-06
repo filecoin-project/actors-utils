@@ -270,7 +270,14 @@ impl TokenState {
     /// This involves iterating through the entire HAMT
     pub fn count_balances<BS: Blockstore>(&self, bs: &BS) -> Result<usize> {
         let balance_map = self.get_balance_map(bs)?;
-        Ok(balance_map.for_each(|_, _| Ok(())).into_iter().count())
+
+        let mut count: usize = 0;
+        // HAMT doesn't offer a traditional Iterator, we need to count the old-fashined way
+        balance_map.for_each(|_, _| {
+            count += 1;
+            Ok(())
+        })?;
+        Ok(count)
     }
 
     /// Increase/decrease the total supply by the specified value
