@@ -752,7 +752,10 @@ pub struct StateSummary {
 
 #[cfg(test)]
 mod test {
-    use fvm_ipld_blockstore::MemoryBlockstore;
+    use cid::multihash::Code;
+    use cid::Cid;
+    use fvm_ipld_blockstore::{Block, Blockstore, MemoryBlockstore};
+    use fvm_ipld_encoding::DAG_CBOR;
     use fvm_shared::econ::TokenAmount;
     use fvm_shared::{bigint::Zero, ActorID};
 
@@ -766,6 +769,35 @@ mod test {
         let cid = state.save(bs).unwrap();
         let saved_state = TokenState::load(bs, &cid).unwrap();
         assert_eq!(state, saved_state);
+    }
+
+    #[test]
+    fn it_handles_missing_data_load() {
+        // try to load from an empty blockstore (and default Cid)
+        let bs = &MemoryBlockstore::new();
+        let cid = Cid::default();
+        let res = TokenState::load(bs, &cid);
+        match res {
+            Err(StateError::MissingState(_)) => {}
+            _ => panic!("unexpected result"),
+        }
+    }
+
+    #[test]
+    fn it_handles_invalid_data_load() {
+        let bs = &MemoryBlockstore::new();
+
+        // write some invalid data to the blockstore
+        let data = fvm_ipld_encoding::to_vec(&123456u32).unwrap();
+        let block = Block { codec: DAG_CBOR, data };
+        let fake_cid = bs.put(Code::Blake2b256, &block).unwrap();
+
+        // then try to load it as a TokenState
+        let res = TokenState::load(bs, &fake_cid);
+        match res {
+            Err(StateError::Serialization(_)) => {}
+            _ => panic!("unexpected result"),
+        }
     }
 
     #[test]
