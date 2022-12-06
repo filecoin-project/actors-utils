@@ -51,6 +51,7 @@ impl From<&MessagingError> for ExitCode {
     }
 }
 
+// TODO: remove this trait as it is superseded by the fvm_actor_utils::util::Actor trait
 /// An abstraction used to send messages to other actors
 pub trait Messaging {
     /// Returns the address of the current actor as an ActorID
