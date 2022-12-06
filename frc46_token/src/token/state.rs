@@ -1003,6 +1003,8 @@ mod test {
         let mut state = TokenState::new(bs).unwrap();
         let owner: ActorID = 1;
         let operator: ActorID = 2;
+        let new_owner: ActorID = 3;
+        let new_operator: ActorID = 4;
 
         // set a positive allowance
         let delta = TokenAmount::from_atto(100);
@@ -1014,6 +1016,27 @@ mod test {
         state.revoke_allowance(bs, owner, operator).unwrap();
         let allowance = state.get_allowance_between(bs, owner, operator).unwrap();
         assert_eq!(allowance, TokenAmount::zero());
+
+        // try to revoke an allowance that doesn't exist - new owner
+        {
+            let ret = state.revoke_allowance(bs, new_owner, operator).unwrap();
+            assert_eq!(ret, TokenAmount::zero());
+            let allowance = state.get_allowance_between(bs, owner, operator).unwrap();
+            assert_eq!(allowance, TokenAmount::zero());
+        }
+
+        // try to revoke an allowance that doesn't exist - new operator
+        {
+            // set an allowance for one operator
+            let delta = TokenAmount::from_atto(100);
+            state.change_allowance_by(bs, owner, operator, &delta).unwrap();
+            // revoke for a different operator (with no existing allowance)
+            let ret = state.revoke_allowance(bs, owner, new_operator).unwrap();
+            assert_eq!(ret, TokenAmount::zero());
+            // allowance for original operator should be unaffected
+            let allowance = state.get_allowance_between(bs, owner, operator).unwrap();
+            assert_eq!(allowance, TokenAmount::from_atto(100));
+        }
     }
 
     #[test]
