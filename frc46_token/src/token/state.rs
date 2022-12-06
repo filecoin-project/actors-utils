@@ -854,6 +854,23 @@ mod test {
     }
 
     #[test]
+    fn it_counts_balances() {
+        let bs = &MemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
+
+        // set a balance on some different actor ids
+        for actor in 0..16u64 {
+            state.set_balance(bs, actor, &TokenAmount::from_atto(1)).unwrap();
+        }
+
+        // flush it all to the blockstore
+        let _cid = state.save(bs).unwrap();
+
+        // check the number of balances
+        assert_eq!(state.count_balances(bs).unwrap(), 16);
+    }
+
+    #[test]
     fn it_changes_allowances_between_actors() {
         let bs = &MemoryBlockstore::new();
         let mut state = TokenState::new(&bs).unwrap();
