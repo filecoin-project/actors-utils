@@ -71,44 +71,76 @@ mod test {
         // taking the exit code doesn't consume the error
         println!("{msg}: {exit_code:?}");
         assert_eq!(exit_code, ExitCode::USR_ILLEGAL_STATE);
+    }
 
+    #[test]
+    fn error_codes_and_messages() {
         // check the exit codes from all the other error types
         let err = TokenError::InvalidIdAddress {
             address: Address::new_id(1),
             source: AddressError::UnknownNetwork,
         };
         assert_eq!(ExitCode::USR_NOT_FOUND, ExitCode::from(&err));
+        assert_eq!(err.to_string(), String::from("expected Address { network: Mainnet, payload: ID(1) } to be a resolvable id address but threw UnknownNetwork when attempting to resolve"));
 
         let err = TokenError::InvalidOperator(Address::new_id(1));
         assert_eq!(ExitCode::USR_ILLEGAL_ARGUMENT, ExitCode::from(&err));
+        assert_eq!(
+            err.to_string(),
+            String::from("operator cannot be the same as the debited address f01")
+        );
 
         let err = TokenError::InvalidGranularity {
             name: "test",
-            amount: TokenAmount::from_atto(1),
+            amount: TokenAmount::from_whole(1),
             granularity: 10,
         };
         assert_eq!(ExitCode::USR_ILLEGAL_ARGUMENT, ExitCode::from(&err));
+        assert_eq!(
+            err.to_string(),
+            String::from("amount TokenAmount(1.0) for \"test\" must be a multiple of 10")
+        );
 
-        let err = TokenError::InvalidNegative { name: "test", amount: TokenAmount::from_atto(-1) };
+        let err = TokenError::InvalidNegative { name: "test", amount: TokenAmount::from_whole(-1) };
         assert_eq!(ExitCode::USR_ILLEGAL_ARGUMENT, ExitCode::from(&err));
+        assert_eq!(
+            err.to_string(),
+            String::from("value TokenAmount(-1.0) for \"test\" must be non-negative")
+        );
 
         let err = TokenError::StateInvariant(StateInvariantError::SupplyNegative(
-            TokenAmount::from_atto(-1),
+            TokenAmount::from_whole(-1),
         ));
         assert_eq!(ExitCode::USR_ILLEGAL_STATE, ExitCode::from(&err));
+        assert_eq!(
+            err.to_string(),
+            String::from("error in state invariants total supply was negative: -1.0")
+        );
 
         let err = TokenError::Serialization(SerializationError {
             description: "test".into(),
             protocol: CodecProtocol::Cbor,
         });
         assert_eq!(ExitCode::USR_SERIALIZATION, ExitCode::from(&err));
+        assert_eq!(
+            err.to_string(),
+            String::from("error during serialization Serialization error for Cbor protocol: test")
+        );
 
         let err = TokenError::Messaging(MessagingError::AddressNotResolved(Address::new_id(1)));
         // error code comes from MessagingError
         assert_eq!(ExitCode::USR_NOT_FOUND, ExitCode::from(&err));
+        assert_eq!(
+            err.to_string(),
+            String::from("error calling other actor: address could not be resolved: `f01`")
+        );
 
         let err = TokenError::ReceiverHook(ReceiverHookError::NotCalled);
         // error code comes from ReceiverHookError
         assert_eq!(ExitCode::USR_ASSERTION_FAILED, ExitCode::from(&err));
+        assert_eq!(
+            err.to_string(),
+            String::from("receiver hook error: receiver hook was not called")
+        );
     }
 }
