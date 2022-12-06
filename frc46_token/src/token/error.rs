@@ -53,10 +53,15 @@ impl From<&TokenError> for ExitCode {
 
 #[cfg(test)]
 mod test {
-    use fvm_shared::error::ExitCode;
+    use fvm_actor_utils::{messaging::MessagingError, receiver::ReceiverHookError};
+    use fvm_ipld_encoding::{CodecProtocol, Error as SerializationError};
+    use fvm_shared::{
+        address::{Address, Error as AddressError},
+        econ::TokenAmount,
+        error::ExitCode,
+    };
 
-    use crate::token::TokenError;
-    use crate::token::TokenStateError;
+    use crate::token::{state::StateInvariantError, TokenError, TokenStateError};
 
     #[test]
     fn it_creates_exit_codes() {
@@ -66,5 +71,44 @@ mod test {
         // taking the exit code doesn't consume the error
         println!("{msg}: {exit_code:?}");
         assert_eq!(exit_code, ExitCode::USR_ILLEGAL_STATE);
+
+        // check the exit codes from all the other error types
+        let err = TokenError::InvalidIdAddress {
+            address: Address::new_id(1),
+            source: AddressError::UnknownNetwork,
+        };
+        assert_eq!(ExitCode::USR_NOT_FOUND, ExitCode::from(&err));
+
+        let err = TokenError::InvalidOperator(Address::new_id(1));
+        assert_eq!(ExitCode::USR_ILLEGAL_ARGUMENT, ExitCode::from(&err));
+
+        let err = TokenError::InvalidGranularity {
+            name: "test",
+            amount: TokenAmount::from_atto(1),
+            granularity: 10,
+        };
+        assert_eq!(ExitCode::USR_ILLEGAL_ARGUMENT, ExitCode::from(&err));
+
+        let err = TokenError::InvalidNegative { name: "test", amount: TokenAmount::from_atto(-1) };
+        assert_eq!(ExitCode::USR_ILLEGAL_ARGUMENT, ExitCode::from(&err));
+
+        let err = TokenError::StateInvariant(StateInvariantError::SupplyNegative(
+            TokenAmount::from_atto(-1),
+        ));
+        assert_eq!(ExitCode::USR_ILLEGAL_STATE, ExitCode::from(&err));
+
+        let err = TokenError::Serialization(SerializationError {
+            description: "test".into(),
+            protocol: CodecProtocol::Cbor,
+        });
+        assert_eq!(ExitCode::USR_SERIALIZATION, ExitCode::from(&err));
+
+        let err = TokenError::Messaging(MessagingError::AddressNotResolved(Address::new_id(1)));
+        // error code comes from MessagingError
+        assert_eq!(ExitCode::USR_NOT_FOUND, ExitCode::from(&err));
+
+        let err = TokenError::ReceiverHook(ReceiverHookError::NotCalled);
+        // error code comes from ReceiverHookError
+        assert_eq!(ExitCode::USR_ASSERTION_FAILED, ExitCode::from(&err));
     }
 }
