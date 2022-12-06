@@ -14,10 +14,10 @@ use crate::actor::FakeActor;
 use crate::messaging::FakeMessenger;
 use crate::messaging::Messaging;
 
-struct TestActor {
-    bs: MemoryBlockstore,
-    messenger: FakeMessenger,
-    actor: FakeActor,
+pub struct TestActor {
+    pub bs: MemoryBlockstore,
+    pub messenger: FakeMessenger,
+    pub actor: FakeActor,
 }
 
 impl Actor for TestActor {

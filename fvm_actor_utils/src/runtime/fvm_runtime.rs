@@ -5,6 +5,7 @@ use fvm_shared::{address::Address, MethodNum};
 use super::Runtime;
 
 /// Runtime that delegates to fvm_sdk allowing actors to be deployed on-chain
+#[derive(Default, Debug, Clone)]
 pub struct FvmRuntime {}
 
 impl Runtime for FvmRuntime {

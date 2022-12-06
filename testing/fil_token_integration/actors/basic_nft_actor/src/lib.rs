@@ -7,7 +7,7 @@ use frcxx_nft::{
     },
     NFT,
 };
-use fvm_actor_utils::{actor::FvmActor, blockstore::Blockstore, messaging::FvmMessenger};
+use fvm_actor_utils::{blockstore::Blockstore, messaging::FvmMessenger, util::FvmActor};
 use fvm_ipld_encoding::{
     de::DeserializeOwned,
     ser,
@@ -30,12 +30,13 @@ fn invoke(params: u32) -> u32 {
     }
 
     // After constructor has run we have state
-    let bs = Blockstore {};
+    // let bs = Blockstore {};
+    // let actor_helper = FvmActor {};
     let messenger = FvmMessenger::default();
-    let actor_helper = FvmActor {};
     let root_cid = sdk::sself::root().unwrap();
-    let mut state = NFTState::load(&bs, &root_cid).unwrap();
-    let mut handle = NFT::wrap(bs, messenger, actor_helper, &mut state);
+    let runtime = FvmActor::default();
+    let mut state = NFTState::load(&runtime, &root_cid).unwrap();
+    let mut handle = NFT::wrap(runtime, &mut state);
 
     match_method!(method_num,{
         "BalanceOf" => {

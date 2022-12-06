@@ -1,13 +1,8 @@
-
-
-
 use anyhow::anyhow;
 use cid::multihash::Code;
 use cid::Cid;
-
 use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore;
-
 use fvm_ipld_encoding::Error as IpldError;
 use fvm_ipld_encoding::RawBytes;
 use fvm_sdk::error::NoStateError;
@@ -24,6 +19,7 @@ use crate::runtime;
 use crate::runtime::Runtime;
 
 mod test_util;
+pub use test_util::TestActor;
 
 pub type MessagingResult<T> = std::result::Result<T, MessagingError>;
 
@@ -135,7 +131,8 @@ pub trait Actor {
     fn root_cid(&self) -> ActorResult<Cid>;
 }
 
-struct FvmActor {
+#[derive(Default, Debug, Clone)]
+pub struct FvmActor {
     fvm_runtime: runtime::FvmRuntime,
 }
 

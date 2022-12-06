@@ -27,6 +27,7 @@ impl Actor for FvmActor {
 }
 
 /// A fake actor fixture that can be twiddled for testing
+#[derive(Default, Clone, Debug)]
 pub struct FakeActor {
     pub root: Cid,
 }
