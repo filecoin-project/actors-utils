@@ -1,12 +1,20 @@
 use cid::Cid;
 use fvm_ipld_encoding::RawBytes;
-use fvm_sdk::{error::NoStateError, SyscallResult};
-use fvm_shared::{address::Address, econ::TokenAmount, receipt::Receipt, ActorID, MethodNum};
+use fvm_shared::{
+    address::Address, econ::TokenAmount, error::ErrorNumber, receipt::Receipt, ActorID, MethodNum,
+};
+use thiserror::Error;
 
 mod fvm_runtime;
-mod test_runtime;
-
 pub use fvm_runtime::FvmRuntime;
+
+mod test_runtime;
+pub use test_runtime::TestRuntime;
+
+/// Copied to avoid linking against `fvm_sdk` for non-WASM targets
+#[derive(Copy, Clone, Debug, Error)]
+#[error("actor does not exist in state-tree")]
+pub struct NoStateError;
 
 /// Runtime is the abstract interface that an FVM actor uses to interact with the rest of the system
 ///
@@ -26,7 +34,7 @@ pub trait Runtime {
         method: MethodNum,
         params: RawBytes,
         value: TokenAmount,
-    ) -> SyscallResult<Receipt>;
+    ) -> Result<Receipt, ErrorNumber>;
 
     /// Resolves the ID address of an actor.
     ///
