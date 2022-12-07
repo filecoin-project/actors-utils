@@ -724,7 +724,7 @@ pub fn validate_amount_with_granularity<'a>(
 /// Validates that an allowance is non-negative. Allowances do not need to be an integer multiple of
 /// granularity.
 ///
-/// Returns the argument, or an error.
+/// Returns the argument, or an error...
 pub fn validate_allowance<'a>(a: &'a TokenAmount, name: &'static str) -> Result<&'a TokenAmount> {
     if a.is_negative() {
         return Err(TokenError::InvalidNegative { name, amount: a.clone() });
