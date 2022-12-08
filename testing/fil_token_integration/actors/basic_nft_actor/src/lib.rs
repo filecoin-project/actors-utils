@@ -2,8 +2,8 @@ use frc42_dispatch::match_method;
 use frcxx_nft::{
     state::{NFTState, TokenID},
     types::{
-        ApproveForAllParams, ApproveParams, RevokeForAllParams, RevokeParams, TransferFromParams,
-        TransferParams,
+        ApproveForAllParams, ApproveParams, BurnFromParams, RevokeForAllParams, RevokeParams,
+        TransferFromParams, TransferParams,
     },
     NFT,
 };
@@ -92,6 +92,7 @@ fn invoke(params: u32) -> u32 {
             let params = deserialize_params::<TransferFromParams>(params);
             let mut hook = handle.transfer_from(
                 &caller_address(),
+                &params.from,
                 &params.to,
                 &params.token_ids,
                 params.operator_data,
@@ -109,16 +110,16 @@ fn invoke(params: u32) -> u32 {
         "Burn" => {
             let params = deserialize_params::<Vec<TokenID>>(params);
             let caller = sdk::message::caller();
-            let ret_val = handle.burn(caller, &params).unwrap();
+            let ret_val = handle.burn(&Address::new_id(caller), &params).unwrap();
 
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
             return_ipld(&ret_val).unwrap()
         }
-        "BurnFor" => {
-            let params = deserialize_params::<Vec<TokenID>>(params);
+        "BurnFrom" => {
+            let params = deserialize_params::<BurnFromParams>(params);
             let caller = sdk::message::caller();
-            handle.burn_for(caller, &params).unwrap();
+            handle.burn_from(&params.from, &Address::new_id(caller), &params.token_ids).unwrap();
 
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
