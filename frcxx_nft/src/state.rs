@@ -148,13 +148,15 @@ impl NFTState {
     /// Mint a new token to the specified address
     pub fn mint_tokens<BS: Blockstore>(
         &mut self,
-        token_array: &mut Amt<TokenData, &BS>,
-        owner_map: &mut Hamt<&BS, OwnerData>,
+        bs: &BS,
         initial_owner: ActorID,
         metadatas: Vec<String>,
     ) -> Result<MintIntermediate> {
         let first_token_id = self.next_token;
         let num_to_mint = metadatas.len();
+
+        let mut token_array = self.get_token_data_amt(bs)?;
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         // update owner data map
         let new_owner_data = match owner_map.get(&actor_id_key(initial_owner)) {
@@ -216,20 +218,22 @@ impl NFTState {
     /// The caller should own the tokens or an account-level operator on the owner of the tokens.
     pub fn approve_for_tokens<F, BS: Blockstore>(
         &mut self,
-        token_array: &mut Amt<TokenData, &BS>,
+        bs: &BS,
         operator: ActorID,
         token_ids: &[TokenID],
         approve_predicate: F,
     ) -> Result<()>
     where
-        F: Fn(&TokenData, TokenID, &Amt<TokenData, &BS>) -> Result<()>,
+        F: Fn(&TokenData, TokenID) -> Result<()>,
     {
+        let mut token_array = self.get_token_data_amt(bs)?;
+
         for &token_id in token_ids {
             let mut token_data = token_array
                 .get(token_id)?
                 .ok_or_else(|| StateError::TokenNotFound(token_id))?
                 .clone();
-            approve_predicate(&token_data, token_id, token_array)?;
+            approve_predicate(&token_data, token_id)?;
             token_data.operators.add_operator(operator);
             token_array.set(token_id, token_data)?;
         }
@@ -244,20 +248,21 @@ impl NFTState {
     /// The caller should own the tokens or be an account-level operator on the owner of the tokens.
     pub fn revoke_for_tokens<F, BS: Blockstore>(
         &mut self,
-        token_array: &mut Amt<TokenData, &BS>,
+        bs: &BS,
         operator: ActorID,
         token_ids: &[TokenID],
         revoke_predicate: F,
     ) -> Result<()>
     where
-        F: Fn(&TokenData, TokenID, &Amt<TokenData, &BS>) -> Result<()>,
+        F: Fn(&TokenData, TokenID) -> Result<()>,
     {
+        let mut token_array = self.get_token_data_amt(bs)?;
         for &token_id in token_ids {
             let mut token_data = token_array
                 .get(token_id)?
                 .ok_or_else(|| StateError::TokenNotFound(token_id))?
                 .clone();
-            revoke_predicate(&token_data, token_id, token_array)?;
+            revoke_predicate(&token_data, token_id)?;
             token_data.operators.remove_operator(&operator);
             token_array.set(token_id, token_data)?;
         }
@@ -276,10 +281,12 @@ impl NFTState {
     /// The caller should be the owning account.
     pub fn approve_for_owner<BS: Blockstore>(
         &mut self,
-        owner_map: &mut Hamt<&BS, OwnerData>,
+        bs: &BS,
         owner: ActorID,
         operator: ActorID,
     ) -> Result<()> {
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
+
         let new_owner_data = match owner_map.get(&actor_id_key(owner))? {
             Some(data) => {
                 let mut operators = data.operators.clone();
@@ -300,10 +307,12 @@ impl NFTState {
     /// The caller should be the owner of the account.
     pub fn revoke_for_all<BS: Blockstore>(
         &mut self,
-        owner_map: &mut Hamt<&BS, OwnerData>,
+        bs: &BS,
         owner: ActorID,
         operator: ActorID,
     ) -> Result<()> {
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
+
         let new_owner_data = owner_map.get(&actor_id_key(owner))?.map(|existing_data| {
             let mut operators = existing_data.operators.clone();
             operators.remove_operator(&operator);
@@ -334,19 +343,21 @@ impl NFTState {
     /// Returns the new balance of the owner if all tokens were burned successfully
     pub fn burn_tokens<F, BS: Blockstore>(
         &mut self,
-        token_array: &mut Amt<TokenData, &BS>,
-        owner_map: &mut Hamt<&BS, OwnerData>,
+        bs: &BS,
         owner: ActorID,
         token_ids: &[TokenID],
         burn_predicate: F,
     ) -> Result<u64>
     where
-        F: Fn(&TokenData, TokenID, &Amt<TokenData, &BS>, &Hamt<&BS, OwnerData>) -> Result<()>,
+        F: Fn(&TokenData, TokenID) -> Result<()>,
     {
+        let mut token_array = self.get_token_data_amt(bs)?;
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
+
         for &token_id in token_ids {
             let token_data =
                 token_array.delete(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
-            burn_predicate(&token_data, token_id, token_array, owner_map)?;
+            burn_predicate(&token_data, token_id)?;
         }
 
         // we only reach here if all tokens were burned successfully so assume the caller is valid
@@ -372,23 +383,61 @@ impl NFTState {
         Ok(new_balance)
     }
 
+    /// Transfers a batch of tokens between the owner and receiver
+    ///
+    /// The predicate is checked for each token to be transferred, and the entire transfer is
+    /// aborted if the predicate fails. It is the caller's responsibility to check that the
+    /// actor using this method is permitted to do so.
+    pub fn transfer<F, BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        token_ids: &[TokenID],
+        owner: ActorID,
+        receiver: ActorID,
+        transfer_predicate: &F,
+    ) -> Result<TransferIntermediate>
+    where
+        F: Fn(&TokenData, TokenID) -> Result<()>,
+    {
+        let mut token_array = self.get_token_data_amt(bs)?;
+        let mut owner_map = self.get_owner_data_hamt(bs)?;
+
+        for &token_id in token_ids {
+            // update the token_data to reflect the new owner and clear approved operators
+            self.make_transfer(
+                &mut token_array,
+                &mut owner_map,
+                token_id,
+                receiver,
+                transfer_predicate,
+            )?;
+        }
+
+        Ok(TransferIntermediate {
+            token_ids: token_ids.into(),
+            from: owner,
+            to: receiver,
+            recipient_data: RawBytes::default(),
+        })
+    }
+
     /// Makes a transfer of a token from one address to another. The caller must verify that such a
     /// transfer is allowed.
-    pub fn make_transfer<F, BS: Blockstore>(
+    fn make_transfer<F, BS: Blockstore>(
         &mut self,
         token_array: &mut Amt<TokenData, &BS>,
         owner_map: &mut Hamt<&BS, OwnerData>,
         token_id: TokenID,
         receiver: ActorID,
-        transfer_predicate: F,
+        transfer_predicate: &F,
     ) -> Result<()>
     where
-        F: Fn(&TokenData, TokenID, &Amt<TokenData, &BS>, &Hamt<&BS, OwnerData>) -> Result<()>,
+        F: Fn(&TokenData, TokenID) -> Result<()>,
     {
         let old_token_data =
             token_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?.clone();
         // check the transfer against business rules
-        transfer_predicate(&old_token_data, token_id, token_array, owner_map)?;
+        transfer_predicate(&old_token_data, token_id)?;
 
         let new_token_data =
             TokenData { owner: receiver, operators: BitField::default(), ..old_token_data };
