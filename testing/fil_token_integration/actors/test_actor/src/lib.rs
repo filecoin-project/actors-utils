@@ -9,7 +9,9 @@ use fvm_ipld_encoding::{
     RawBytes, DAG_CBOR,
 };
 use fvm_sdk as sdk;
-use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode};
+use fvm_shared::{
+    address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode, sys::SendFlags,
+};
 use sdk::NO_DATA_BLOCK_ID;
 use serde::{Deserialize, Serialize};
 
@@ -72,6 +74,7 @@ fn transfer(token: Address, to: Address, amount: TokenAmount, operator_data: Raw
         RawBytes::serialize(&transfer_params).unwrap(),
         TokenAmount::zero(),
         None,
+        SendFlags::default(),
     )
     .unwrap();
     // ignore failures at this level and return the transfer call receipt so caller can decide what to do
@@ -87,6 +90,7 @@ fn burn(token: Address, amount: TokenAmount) -> u32 {
         RawBytes::serialize(&burn_params).unwrap(),
         TokenAmount::zero(),
         None,
+        SendFlags::default(),
     )
     .unwrap();
     if !receipt.exit_code.is_success() {
@@ -150,7 +154,14 @@ fn invoke(input: u32) -> u32 {
             // get our balance
             let get_balance = || {
                 let self_address = Address::new_id(sdk::message::receiver());
-                let balance_receipt = sdk::send::send(&params.token_address, method_hash!("BalanceOf"), RawBytes::serialize(self_address).unwrap(), TokenAmount::zero(), None).unwrap();
+                let balance_receipt = sdk::send::send(
+                    &params.token_address,
+                    method_hash!("BalanceOf"),
+                    RawBytes::serialize(self_address).unwrap(),
+                    TokenAmount::zero(),
+                    None,
+                    SendFlags::default(),
+                ).unwrap();
                 if !balance_receipt.exit_code.is_success() {
                     panic!("unable to get balance");
                 }

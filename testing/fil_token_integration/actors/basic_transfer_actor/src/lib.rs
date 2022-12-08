@@ -8,7 +8,9 @@ use fvm_ipld_blockstore::Block;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{de::DeserializeOwned, RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
-use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode};
+use fvm_shared::{
+    address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode, sys::SendFlags,
+};
 use sdk::NO_DATA_BLOCK_ID;
 
 /// Grab the incoming parameters and convert from RawBytes to deserialized struct
@@ -115,7 +117,7 @@ fn invoke(input: u32) -> u32 {
 
             // get our balance
             let self_address = Address::new_id(sdk::message::receiver());
-            let balance_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("BalanceOf"), RawBytes::serialize(self_address).unwrap(), TokenAmount::zero(), None).unwrap();
+            let balance_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("BalanceOf"), RawBytes::serialize(self_address).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
             if !balance_receipt.exit_code.is_success() {
                 panic!("unable to get balance");
             }
@@ -127,7 +129,7 @@ fn invoke(input: u32) -> u32 {
                 amount: balance, // send everything
                 operator_data: RawBytes::default(),
             };
-            let transfer_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("Transfer"), RawBytes::serialize(&params).unwrap(), TokenAmount::zero(), None).unwrap();
+            let transfer_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("Transfer"), RawBytes::serialize(&params).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
             if !transfer_receipt.exit_code.is_success() {
                 panic!("transfer call failed");
             }

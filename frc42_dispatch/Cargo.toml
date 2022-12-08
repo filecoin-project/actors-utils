@@ -10,8 +10,8 @@ edition = "2021"
 
 [dependencies]
 fvm_ipld_encoding = { version = "0.3.0" }
-fvm_sdk = { version = "3.0.0-alpha.15", optional = true }
-fvm_shared = { version = "3.0.0-alpha.13" }
+fvm_sdk = { version = "3.0.0-alpha.16", optional = true }
+fvm_shared = { version = "3.0.0-alpha.14" }
 frc42_hasher = { version = "1.0.0", path = "hasher" }
 frc42_macros = { version = "1.0.0", path = "macros" }
 thiserror = { version = "1.0.31" }

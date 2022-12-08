@@ -14,7 +14,7 @@ frc46_token = { version = "1.1.0", path = "../../frc46_token" }
 fvm_integration_tests = "2.0.0-alpha.1"
 fvm_ipld_blockstore = "0.1.1"
 fvm_ipld_encoding = "0.3.0"
-fvm_shared = { version = "3.0.0-alpha.13" }
+fvm_shared = { version = "3.0.0-alpha.14" }
 serde = { version = "1.0", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }
 

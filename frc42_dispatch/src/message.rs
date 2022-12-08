@@ -1,6 +1,7 @@
 use fvm_ipld_encoding::RawBytes;
 #[cfg(not(feature = "no_sdk"))]
 use fvm_sdk::send;
+use fvm_shared::sys::SendFlags;
 use fvm_shared::{address::Address, econ::TokenAmount, error::ErrorNumber, receipt::Receipt};
 use thiserror::Error;
 
@@ -37,7 +38,8 @@ impl<T: Hasher> MethodMessenger<T> {
         value: TokenAmount,
     ) -> Result<Receipt, MethodMessengerError> {
         let method = self.method_resolver.method_number(method)?;
-        send::send(to, method, params, value, None).map_err(MethodMessengerError::from)
+        send::send(to, method, params, value, None, SendFlags::default())
+            .map_err(MethodMessengerError::from)
     }
 
     #[cfg(feature = "no_sdk")]

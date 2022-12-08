@@ -8,6 +8,7 @@ use fvm_sdk::{actor, message, send, sys::ErrorNumber};
 use fvm_shared::address::Payload;
 use fvm_shared::error::ExitCode;
 use fvm_shared::receipt::Receipt;
+use fvm_shared::sys::SendFlags;
 use fvm_shared::MethodNum;
 use fvm_shared::METHOD_SEND;
 use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
@@ -109,7 +110,7 @@ impl Messaging for FvmMessenger {
         params: &RawBytes,
         value: &TokenAmount,
     ) -> Result<Receipt> {
-        Ok(send::send(to, method, params.clone(), value.clone(), None)?)
+        Ok(send::send(to, method, params.clone(), value.clone(), None, SendFlags::default())?)
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
@@ -117,7 +118,14 @@ impl Messaging for FvmMessenger {
     }
 
     fn initialize_account(&self, address: &Address) -> Result<ActorID> {
-        if let Err(e) = send::send(address, METHOD_SEND, Default::default(), TokenAmount::zero(), None) {
+        if let Err(e) = send::send(
+            address,
+            METHOD_SEND,
+            Default::default(),
+            TokenAmount::zero(),
+            None,
+            SendFlags::default(),
+        ) {
             return Err(e.into());
         }
 
@@ -182,7 +190,12 @@ impl Messaging for FakeMessenger {
             });
         }
 
-        Ok(Receipt { exit_code: ExitCode::OK, return_data: Default::default(), gas_used: 0, events_root: None })
+        Ok(Receipt {
+            exit_code: ExitCode::OK,
+            return_data: Default::default(),
+            gas_used: 0,
+            events_root: None,
+        })
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {

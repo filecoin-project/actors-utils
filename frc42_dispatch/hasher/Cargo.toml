@@ -7,8 +7,8 @@ repository = "https://github.com/helix-onchain/filecoin/"
 edition = "2021"
 
 [dependencies]
-fvm_sdk = { version = "3.0.0-alpha.15", optional = true }
-fvm_shared = { version = "3.0.0-alpha.13" }
+fvm_sdk = { version = "3.0.0-alpha.16", optional = true }
+fvm_shared = { version = "3.0.0-alpha.14" }
 thiserror = { version = "1.0.31" }
 
 [features]
