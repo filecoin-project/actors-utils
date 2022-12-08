@@ -41,32 +41,34 @@ pub enum NFTError {
 pub type Result<T> = std::result::Result<T, NFTError>;
 
 /// A helper handle for NFTState that injects services into the state-level operations
-pub struct NFT<'st, RT>
+pub struct NFT<'st, RT, BS>
 where
-    RT: Runtime + Blockstore,
+    RT: Runtime,
+    BS: Blockstore,
 {
-    helper: ActorHelper<RT>,
+    helper: ActorHelper<RT, BS>,
     state: &'st mut NFTState,
 }
 
-impl<'st, RT> NFT<'st, RT>
+impl<'st, RT, BS> NFT<'st, RT, BS>
 where
-    RT: Runtime + Blockstore,
+    RT: Runtime,
+    BS: Blockstore,
 {
     /// Wrap an instance of the state-tree in a handle for higher-level operations
-    pub fn wrap(helper: ActorHelper<RT>, state: &'st mut NFTState) -> Self {
+    pub fn wrap(helper: ActorHelper<RT, BS>, state: &'st mut NFTState) -> Self {
         Self { helper, state }
     }
 
     /// Flush state and return Cid for root
     pub fn flush(&mut self) -> Result<Cid> {
-        Ok(self.state.save(&self.helper.runtime)?)
+        Ok(self.state.save(&self.helper)?)
     }
 
     /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing state
     /// The old state is returned for convenience but can be safely dropped
     pub fn load_replace(&mut self, cid: &Cid) -> Result<NFTState> {
-        let new_state = NFTState::load(&self.helper.runtime, cid)?;
+        let new_state = NFTState::load(&self.helper, cid)?;
         Ok(std::mem::replace(self.state, new_state))
     }
 
@@ -82,7 +84,7 @@ where
     /// observed on token state.
     pub fn transaction<F, Res>(&mut self, f: F) -> Result<Res>
     where
-        F: FnOnce(&mut NFTState, &ActorHelper<RT>) -> Result<Res>,
+        F: FnOnce(&mut NFTState, &ActorHelper<RT, BS>) -> Result<Res>,
     {
         let mut mutable_state = self.state.clone();
         let res = f(&mut mutable_state, &self.helper)?;
@@ -93,7 +95,7 @@ where
 
     /// Check the underlying state for consistency errors
     pub fn check_invariants(&self) -> std::result::Result<StateSummary, Vec<StateInvariantError>> {
-        let (summary, errors) = self.state.check_invariants(&self.helper.runtime);
+        let (summary, errors) = self.state.check_invariants(&self.helper);
         if errors.is_empty() {
             Ok(summary)
         } else {
@@ -102,9 +104,10 @@ where
     }
 }
 
-impl<'st, RT> NFT<'st, RT>
+impl<'st, RT, BS> NFT<'st, RT, BS>
 where
-    RT: Runtime + Blockstore,
+    RT: Runtime,
+    BS: Blockstore,
 {
     /// Return the total number of NFTs in circulation from this collection
     pub fn total_supply(&self) -> u64 {
@@ -114,7 +117,7 @@ where
     /// Return the number of NFTs held by a particular address
     pub fn balance_of(&self, address: &Address) -> Result<u64> {
         let balance = match self.helper.resolve_id(address) {
-            Ok(owner) => self.state.get_balance(&self.helper.runtime, owner)?,
+            Ok(owner) => self.state.get_balance(&self.helper, owner)?,
             Err(MessagingError::AddressNotResolved(_)) => 0,
             Err(e) => return Err(e.into()),
         };
@@ -123,12 +126,12 @@ where
 
     /// Return the owner of an NFT
     pub fn owner_of(&self, token_id: TokenID) -> Result<ActorID> {
-        Ok(self.state.get_owner(&self.helper.runtime, token_id)?)
+        Ok(self.state.get_owner(&self.helper, token_id)?)
     }
 
     /// Return the metadata for an NFT
     pub fn metadata(&self, token_id: TokenID) -> Result<String> {
-        Ok(self.state.get_metadata(&self.helper.runtime, token_id)?)
+        Ok(self.state.get_metadata(&self.helper, token_id)?)
     }
 
     /// Create new NFTs belonging to the initial_owner. The mint method is not standardised
@@ -176,7 +179,7 @@ where
         prior_state_cid: Cid,
     ) -> Result<MintReturn> {
         self.reload_if_changed(prior_state_cid)?;
-        Ok(self.state.mint_return(&self.helper.runtime, intermediate)?)
+        Ok(self.state.mint_return(&self.helper, intermediate)?)
     }
 
     /// Burn a set of NFTs as the owner
@@ -185,8 +188,8 @@ where
     pub fn burn(&mut self, owner: &Address, token_ids: &[TokenID]) -> Result<u64> {
         let owner = self.helper.resolve_id(owner)?;
 
-        let balance = self.transaction(|state, bs| {
-            Ok(state.burn_tokens(bs, owner, token_ids, |token_data, token_id| {
+        let balance = self.transaction(|state, helper| {
+            Ok(state.burn_tokens(helper, owner, token_ids, |token_data, token_id| {
                 NFTState::assert_owns_token(token_data, token_id, owner)
             })?)
         })?;
@@ -346,7 +349,7 @@ where
         prior_state_cid: Cid,
     ) -> Result<TransferReturn> {
         self.reload_if_changed(prior_state_cid)?;
-        Ok(self.state.transfer_return(&self.helper.runtime, intermediate)?)
+        Ok(self.state.transfer_return(&self.helper, intermediate)?)
     }
 
     /// Transfers a token that the caller is an operator for
@@ -406,7 +409,7 @@ where
         prior_state_cid: Cid,
     ) -> Result<TransferReturn> {
         self.reload_if_changed(prior_state_cid)?;
-        Ok(self.state.transfer_return(&self.helper.runtime, intermediate)?)
+        Ok(self.state.transfer_return(&self.helper, intermediate)?)
     }
 
     /// Reloads the state if the current root cid has diverged (i.e. during re-entrant receiver hooks)
@@ -428,6 +431,7 @@ where
 mod test {
 
     use fvm_actor_utils::{runtime::TestRuntime, util::ActorHelper};
+    use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::{address::Address, ActorID};
 
@@ -445,8 +449,8 @@ mod test {
 
     #[test]
     fn it_mints_tokens_incrementally() {
-        let helper = ActorHelper { runtime: TestRuntime::default() };
-        let mut state = NFTState::new(&helper.runtime).unwrap();
+        let helper = ActorHelper::<TestRuntime, MemoryBlockstore>::new_test_helper();
+        let mut state = NFTState::new(&helper).unwrap();
         let mut nft = NFT::wrap(helper, &mut state);
 
         {
@@ -514,8 +518,8 @@ mod test {
 
     #[test]
     fn it_transfers_tokens() {
-        let helper = ActorHelper { runtime: TestRuntime::default() };
-        let mut state = NFTState::new(&helper.runtime).unwrap();
+        let helper = ActorHelper::<TestRuntime, MemoryBlockstore>::new_test_helper();
+        let mut state = NFTState::new(&helper).unwrap();
         let mut nft = NFT::wrap(helper, &mut state);
 
         {
@@ -629,8 +633,8 @@ mod test {
 
     #[test]
     fn it_burns_tokens() {
-        let helper = ActorHelper { runtime: TestRuntime::default() };
-        let mut state = NFTState::new(&helper.runtime).unwrap();
+        let helper = ActorHelper::<TestRuntime, MemoryBlockstore>::new_test_helper();
+        let mut state = NFTState::new(&helper).unwrap();
         let mut nft = NFT::wrap(helper, &mut state);
 
         {
@@ -725,8 +729,8 @@ mod test {
 
     #[test]
     fn it_allows_account_level_delegation() {
-        let helper = ActorHelper { runtime: TestRuntime::default() };
-        let mut state = NFTState::new(&helper.runtime).unwrap();
+        let helper = ActorHelper::<TestRuntime, MemoryBlockstore>::new_test_helper();
+        let mut state = NFTState::new(&helper).unwrap();
         let mut nft = NFT::wrap(helper, &mut state);
 
         {
@@ -930,8 +934,8 @@ mod test {
 
     #[test]
     fn it_allows_token_level_delegation() {
-        let helpers = ActorHelper { runtime: TestRuntime::default() };
-        let mut state = NFTState::new(&helpers.runtime).unwrap();
+        let helpers = ActorHelper::<TestRuntime, MemoryBlockstore>::new_test_helper();
+        let mut state = NFTState::new(&helpers).unwrap();
         let mut nft = NFT::wrap(helpers, &mut state);
 
         // mint a few tokens
@@ -1080,7 +1084,7 @@ mod test {
         }
 
         nft.transaction(|state, helpers| {
-            let (_, errors) = state.check_invariants(&helpers.runtime);
+            let (_, errors) = state.check_invariants(&helpers);
             assert!(errors.is_empty(), "{errors:?}");
             Ok(())
         })

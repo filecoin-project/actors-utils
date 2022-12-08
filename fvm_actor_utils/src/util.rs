@@ -1,5 +1,6 @@
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore;
+use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::Error as IpldError;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::error::ExitCode;
@@ -11,8 +12,10 @@ use num_traits::Zero;
 use thiserror::Error;
 
 use crate::messaging::Messaging;
+use crate::runtime::FvmRuntime;
 use crate::runtime::NoStateError;
 use crate::runtime::Runtime;
+use crate::runtime::TestRuntime;
 
 pub type MessagingResult<T> = std::result::Result<T, MessagingError>;
 
@@ -60,12 +63,25 @@ pub enum ActorError {
 
 type ActorResult<T> = std::result::Result<T, ActorError>;
 
+/// ActorHelper contains utils to help access the underlying execution environment (runtime and blockstore)
 #[derive(Clone, Debug)]
-pub struct ActorHelper<R: Runtime + Blockstore> {
-    pub runtime: R,
+pub struct ActorHelper<R: Runtime, BS: Blockstore> {
+    runtime: R,
+    blockstore: BS,
 }
 
-impl<R: Runtime + Blockstore> ActorHelper<R> {
+impl<R: Runtime, B: Blockstore> ActorHelper<R, B> {
+    pub fn new_test_helper() -> ActorHelper<TestRuntime, MemoryBlockstore> {
+        ActorHelper { runtime: TestRuntime::default(), blockstore: MemoryBlockstore::default() }
+    }
+
+    pub fn new_fvm_helper() -> ActorHelper<FvmRuntime, crate::blockstore::Blockstore> {
+        ActorHelper {
+            runtime: FvmRuntime::default(),
+            blockstore: crate::blockstore::Blockstore::default(),
+        }
+    }
+
     /// Returns the address of the current actor as an ActorID
     pub fn actor_id(&self) -> ActorID {
         self.runtime.receiver()
@@ -137,8 +153,19 @@ impl<R: Runtime + Blockstore> ActorHelper<R> {
     }
 }
 
+/// Convenience impl encapsulating the blockstore functionality
+impl<R: Runtime, BS: Blockstore> Blockstore for ActorHelper<R, BS> {
+    fn get(&self, k: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
+        self.blockstore.get(k)
+    }
+
+    fn put_keyed(&self, k: &Cid, block: &[u8]) -> anyhow::Result<()> {
+        self.blockstore.put_keyed(k, block)
+    }
+}
+
 // FIXME: remove this when hook helpers are refactored to use the above runtime abstraction instead
-impl<R: Runtime + Blockstore> Messaging for ActorHelper<R> {
+impl<R: Runtime, BS: Blockstore> Messaging for ActorHelper<R, BS> {
     fn actor_id(&self) -> ActorID {
         self.runtime.receiver()
     }

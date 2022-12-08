@@ -1,7 +1,6 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use cid::Cid;
-use fvm_ipld_blockstore::{Blockstore, MemoryBlockstore};
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{
     address::Address, error::ErrorNumber, error::ExitCode, receipt::Receipt, ActorID,
@@ -25,8 +24,6 @@ pub struct TestRuntime {
     pub last_message: RefCell<Option<RawBytes>>,
     /// Flag to control message success
     abort_next_send: RefCell<bool>,
-
-    pub blockstore: MemoryBlockstore,
 }
 
 impl Runtime for TestRuntime {
@@ -81,15 +78,5 @@ impl Runtime for TestRuntime {
 
         let map = self.addresses.borrow();
         map.get(addr).copied()
-    }
-}
-
-impl Blockstore for TestRuntime {
-    fn get(&self, k: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
-        self.blockstore.get(k)
-    }
-
-    fn put_keyed(&self, k: &Cid, block: &[u8]) -> anyhow::Result<()> {
-        self.blockstore.put_keyed(k, block)
     }
 }

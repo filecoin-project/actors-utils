@@ -36,8 +36,8 @@ fn invoke(params: u32) -> u32 {
     // let actor_helper = FvmActor {};
     let messenger = FvmMessenger::default();
     let root_cid = sdk::sself::root().unwrap();
-    let helpers = ActorHelper { runtime: FvmRuntime::default() };
-    let mut state = NFTState::load(&helpers.runtime, &root_cid).unwrap();
+    let helpers = ActorHelper::<FvmRuntime, Blockstore>::new_fvm_helper();
+    let mut state = NFTState::load(&helpers, &root_cid).unwrap();
     let mut handle = NFT::wrap(helpers, &mut state);
 
     match_method!(method_num,{
