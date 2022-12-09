@@ -35,8 +35,6 @@ fn token_invoke(method_num: u64, params: u32) -> Result<u32, RuntimeError> {
 
             let mut token_actor = FactoryToken::load(&root_cid)?;
 
-            // call FRC46 token methods
-            // note that the `token_actor` passed in here needs to know how to save and load state
             let res = frc46_invoke(method_num, params, &mut token_actor, |token| {
                 // `token` is passed through from the original token provided in the function call
                 // so it won't break mutable borrow rules when used here (trying to use token_actor directly won't work)
