@@ -10,11 +10,12 @@ use serde::{Deserialize, Serialize};
 
 mod common;
 use common::{construct_tester, TestHelpers, TokenHelpers};
-use token::{ConstructorParams, FactoryToken};
+use token_impl::{ConstructorParams, FactoryToken};
 
 const FACTORY_TOKEN_ACTOR_WASM: &str =
     "../../target/debug/wbuild/factory_token/factory_token.compact.wasm";
-const TEST_ACTOR_WASM: &str = "../../target/debug/wbuild/test_actor/test_actor.compact.wasm";
+const TEST_ACTOR_WASM: &str =
+    "../../target/debug/wbuild/frc46_test_actor/frc46_test_actor.compact.wasm";
 
 // NOTE: things here copied from the test actor, can't include it properly
 // because its invoke function will conflict with our token actor one
