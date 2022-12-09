@@ -767,7 +767,7 @@ mod test {
     use fvm_shared::{bigint::Zero, ActorID};
 
     use super::TokenState;
-    use crate::token::state::{actor_id_key, StateError, StateInvariantError};
+    use crate::token::state::{actor_id_key, OwnerAllowanceMap, StateError, StateInvariantError};
 
     #[test]
     fn it_instantiates() {
@@ -1107,6 +1107,122 @@ mod test {
         if let StateInvariantError::BalanceSupplyMismatch { balance_sum, supply } = &errors[2] {
             assert_eq!(*balance_sum, TokenAmount::from_atto(0));
             assert_eq!(*supply, TokenAmount::from_atto(5));
+        } else {
+            panic!("unexpected error");
+        }
+    }
+
+    #[test]
+    fn check_invariants_balances() {
+        let bs = &MemoryBlockstore::new();
+        let granularity: u64 = 10;
+        let mut state = TokenState::new_with_bit_width(bs, 8).unwrap();
+
+        // empty state should fail none
+        let (summary, _errors) = state.check_invariants(bs, granularity);
+        assert_eq!(summary.allowance_map.unwrap().keys().len(), 0);
+        assert_eq!(summary.balance_map.unwrap().keys().len(), 0);
+        assert_eq!(summary.total_supply, TokenAmount::from_atto(0));
+
+        // add an explicit zero balance
+        let mut balance_map = state.get_balance_map(bs).unwrap();
+        balance_map.set(actor_id_key(1), TokenAmount::from_atto(0)).unwrap();
+        state.balances = balance_map.flush().unwrap();
+
+        // should fail with one error
+        let (_summary, errors) = state.check_invariants(bs, granularity);
+        assert_eq!(errors.len(), 1);
+        if let StateInvariantError::ExplicitZeroBalance(actor) = errors[0] {
+            assert_eq!(actor, 1);
+        } else {
+            panic!("unexpected error");
+        }
+
+        // add a negative balance - this will trigger negative balance, invalid granularity
+        // and balance/supply mismtch errors all at once
+        let mut balance_map = state.get_balance_map(bs).unwrap();
+        balance_map.set(actor_id_key(2), TokenAmount::from_atto(-1)).unwrap();
+        state.balances = balance_map.flush().unwrap();
+
+        // it accumulates errors
+        let (_summary, errors) = state.check_invariants(bs, granularity);
+        assert_eq!(errors.len(), 4);
+        if let StateInvariantError::BalanceNegative { account, balance: _ } = &errors[1] {
+            assert_eq!(*account, 2);
+        } else {
+            panic!("unexpected error");
+        }
+
+        // add a different type of error
+        state.supply = TokenAmount::from_atto(5);
+
+        // it accumulates errors
+        let (_summary, errors) = state.check_invariants(bs, granularity);
+        assert_eq!(errors.len(), 4);
+        if let StateInvariantError::BalanceSupplyMismatch { balance_sum, supply } = &errors[3] {
+            assert_eq!(*balance_sum, TokenAmount::from_atto(-1));
+            assert_eq!(*supply, TokenAmount::from_atto(5));
+        } else {
+            panic!("unexpected error");
+        }
+    }
+
+    #[test]
+    fn check_invariants_allowances() {
+        let bs = &MemoryBlockstore::new();
+        let granularity: u64 = 1;
+        let mut state = TokenState::new_with_bit_width(bs, 8).unwrap();
+
+        // empty state should fail none
+        let (summary, _errors) = state.check_invariants(bs, granularity);
+        assert_eq!(summary.allowance_map.unwrap().keys().len(), 0);
+        assert_eq!(summary.balance_map.unwrap().keys().len(), 0);
+        assert_eq!(summary.total_supply, TokenAmount::from_atto(0));
+
+        // set up an empty alloance map for one owner
+        let mut allowances = state.get_allowances_map(bs).unwrap();
+        let mut empty_owner_allowances = OwnerAllowanceMap::new_with_bit_width(bs, 8);
+        let empty_cid = empty_owner_allowances.flush().unwrap();
+        allowances.set(actor_id_key(1), empty_cid).unwrap();
+        state.allowances = allowances.flush().unwrap();
+
+        let mut owner_allowances = OwnerAllowanceMap::new_with_bit_width(bs, 8);
+        // set up a self-allowance of zero on another owner (explicit zero allowance and self-allowance are both errors)
+        owner_allowances.set(actor_id_key(2), TokenAmount::zero()).unwrap();
+        // also set another actor to have a negative allowance
+        owner_allowances.set(actor_id_key(1), TokenAmount::from_whole(-1)).unwrap();
+        let owner_cid = owner_allowances.flush().unwrap();
+        allowances.set(actor_id_key(2), owner_cid).unwrap();
+        state.allowances = allowances.flush().unwrap();
+
+        let (_summary, errors) = state.check_invariants(bs, granularity);
+        assert_eq!(errors.len(), 4);
+
+        // error order: explicit zero(actor id: 1), negative allowance, explicit self allowance(actor id: 2), explicit zero(actor id: 2)
+        if let StateInvariantError::ExplicitEmptyAllowance(actor) = &errors[0] {
+            assert_eq!(*actor, 1);
+        } else {
+            panic!("unexpected error");
+        }
+
+        if let StateInvariantError::NegativeAllowance { owner, operator, allowance: _ } = &errors[1]
+        {
+            assert_eq!(*owner, 2);
+            assert_eq!(*operator, 1);
+        } else {
+            panic!("unexpected error");
+        }
+
+        if let StateInvariantError::ExplicitSelfAllowance { account, allowance } = &errors[2] {
+            assert_eq!(*account, 2);
+            assert_eq!(*allowance, TokenAmount::zero());
+        } else {
+            panic!("unexpected error");
+        }
+
+        if let StateInvariantError::ExplicitZeroAllowance { owner, operator } = &errors[3] {
+            // we set a self allowance of zero to trigger two errors at once
+            assert_eq!(*owner, *operator);
         } else {
             panic!("unexpected error");
         }
