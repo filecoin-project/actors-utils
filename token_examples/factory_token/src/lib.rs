@@ -62,14 +62,12 @@ fn token_invoke(method_num: u64, params: u32) -> Result<u32, RuntimeError> {
 #[no_mangle]
 pub fn invoke(params: u32) -> u32 {
     std::panic::set_hook(Box::new(|info| {
-        fvm_sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{}", info)))
+        fvm_sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{info}")))
     }));
 
     let method_num = fvm_sdk::message::method_number();
     match token_invoke(method_num, params) {
         Ok(ret) => ret,
-        Err(err) => {
-            fvm_sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&err.to_string()))
-        }
+        Err(err) => fvm_sdk::vm::abort(ExitCode::from(&err).value(), Some(&err.to_string())),
     }
 }

@@ -57,6 +57,38 @@ pub enum RuntimeError {
     MintingDisabled,
 }
 
+impl From<&RuntimeError> for ExitCode {
+    fn from(error: &RuntimeError) -> Self {
+        match error {
+            RuntimeError::Token(e) => e.into(),
+            RuntimeError::Receiver(e) => e.into(),
+            RuntimeError::Encoding(_) => ExitCode::USR_SERIALIZATION,
+            RuntimeError::Blockstore(e) => match e {
+                ErrorNumber::IllegalArgument => ExitCode::USR_ILLEGAL_ARGUMENT,
+                ErrorNumber::Forbidden | ErrorNumber::IllegalOperation => ExitCode::USR_FORBIDDEN,
+                ErrorNumber::AssertionFailed => ExitCode::USR_ASSERTION_FAILED,
+                ErrorNumber::InsufficientFunds => ExitCode::USR_INSUFFICIENT_FUNDS,
+                ErrorNumber::IllegalCid | ErrorNumber::NotFound | ErrorNumber::InvalidHandle => {
+                    ExitCode::USR_NOT_FOUND
+                }
+                ErrorNumber::Serialization | ErrorNumber::IllegalCodec => {
+                    ExitCode::USR_SERIALIZATION
+                }
+                _ => ExitCode::USR_UNSPECIFIED,
+            },
+            RuntimeError::NoState(_) => ExitCode::USR_NOT_FOUND,
+            RuntimeError::Deserialization(_) | RuntimeError::Serialization(_) => {
+                ExitCode::USR_SERIALIZATION
+            }
+            RuntimeError::State(e) => e.into(),
+            RuntimeError::Messaging(e) => e.into(),
+            RuntimeError::AddressNotAuthorized | RuntimeError::MintingDisabled => {
+                ExitCode::USR_FORBIDDEN
+            }
+        }
+    }
+}
+
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct ConstructorParams {
     pub name: String,
