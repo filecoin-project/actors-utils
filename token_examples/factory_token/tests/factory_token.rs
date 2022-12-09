@@ -5,7 +5,7 @@ use fvm_ipld_encoding::{
     tuple::{Deserialize_tuple, Serialize_tuple},
     RawBytes,
 };
-use fvm_shared::{address::Address, econ::TokenAmount, receipt::Receipt};
+use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode, receipt::Receipt};
 use serde::{Deserialize, Serialize};
 
 mod common;
@@ -180,9 +180,10 @@ fn factory_token() {
             TokenAmount::from_atto(100),
             action(TestAction::Accept),
         );
-        assert!(
-            !ret_val.msg_receipt.exit_code.is_success(),
-            "third minting returned {:#?}",
+        assert_eq!(
+            ret_val.msg_receipt.exit_code,
+            ExitCode::USR_FORBIDDEN,
+            "third (disabled) minting returned {:#?}",
             ret_val
         );
 
