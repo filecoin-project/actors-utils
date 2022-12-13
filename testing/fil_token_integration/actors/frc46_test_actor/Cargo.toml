@@ -11,7 +11,7 @@ frcxx_nft = { version = "0.1.0", path = "../../../../frcxx_nft" }
 fvm_actor_utils = { version = "0.1.0", path = "../../../../fvm_actor_utils" }
 fvm_ipld_blockstore = { version = "0.1.1" }
 fvm_ipld_encoding = { version = "0.2.2" }
-fvm_sdk = { version = "2.0.0" }
+fvm_sdk =  "=2.0.0"
 fvm_shared = { version = "2.0.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }
