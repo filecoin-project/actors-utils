@@ -126,24 +126,9 @@ pub struct TransferFromParams {
     pub operator_data: RawBytes,
 }
 
-/// Intermediate data used by transfer_return to construct the return data
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
-pub struct TransferFromIntermediate {
-    pub token_ids: Vec<TokenID>,
-    pub to: ActorID,
-    /// (Optional) data returned from the receiver hook
-    pub recipient_data: RawBytes,
-}
-
-impl RecipientData for TransferFromIntermediate {
-    fn set_recipient_data(&mut self, data: RawBytes) {
-        self.recipient_data = data;
-    }
-}
-
-#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
-pub struct TransferFromReturn {
-    pub to_balance: u64,
+pub struct BurnFromParams {
+    pub from: Address,
     pub token_ids: Vec<TokenID>,
 }
 
