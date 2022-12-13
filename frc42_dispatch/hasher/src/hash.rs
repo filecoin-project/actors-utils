@@ -111,7 +111,7 @@ fn check_method_name(method_name: &str) -> Result<(), MethodNameErr> {
     // Check starts with capital letter
     let first_letter = method_name.chars().next().unwrap(); // safe because we checked for empty string
     if !(first_letter.is_ascii_uppercase() || first_letter == '_') {
-        return Err(IllegalNameErr:: NotValidStart.into());
+        return Err(IllegalNameErr::NotValidStart.into());
     }
 
     // Check that all characters are legal
