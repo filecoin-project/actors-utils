@@ -179,8 +179,8 @@ pub struct MintParams {
 
 /// Grab the incoming parameters and convert from RawBytes to deserialized struct
 pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
-    let params = sdk::message::params_raw(params).unwrap().1;
-    let params = RawBytes::new(params);
+    let params = sdk::message::params_raw(params).unwrap().unwrap();
+    let params = RawBytes::new(params.data);
     params.deserialize().unwrap()
 }
 

@@ -1,5 +1,6 @@
 use std::mem;
 
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode};
@@ -122,7 +123,12 @@ impl<T: RecipientData> ReceiverHook<T> {
         let receipt = msg.send(
             &self.address,
             RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(&params)?,
+            IpldBlock::serialize_cbor(&params).map_err(|e| {
+                ReceiverHookError::IpldEncoding(fvm_ipld_encoding::Error {
+                    description: e.to_string(),
+                    protocol: fvm_ipld_encoding::CodecProtocol::Cbor,
+                })
+            })?,
             &TokenAmount::zero(),
         )?;
 

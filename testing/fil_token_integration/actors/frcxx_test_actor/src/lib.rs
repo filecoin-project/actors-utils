@@ -3,6 +3,7 @@ use frcxx_nft::receiver::FRCXXTokenReceived;
 use frcxx_nft::types::TransferParams;
 use frcxx_nft::{receiver::FRCXX_TOKEN_TYPE, state::TokenID};
 use fvm_actor_utils::receiver::UniversalReceiverParams;
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::{
     de::DeserializeOwned,
     tuple::{Deserialize_tuple, Serialize_tuple},
@@ -15,8 +16,8 @@ use serde::{Deserialize, Serialize};
 
 /// Grab the incoming parameters and convert from RawBytes to deserialized struct
 pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
-    let params = sdk::message::params_raw(params).unwrap().1;
-    let params = RawBytes::new(params);
+    let params = sdk::message::params_raw(params).unwrap().unwrap();
+    let params = RawBytes::new(params.data);
     params.deserialize().unwrap()
 }
 
@@ -69,7 +70,7 @@ fn transfer(token: Address, to: Address, token_ids: Vec<TokenID>, operator_data:
     let receipt = sdk::send::send(
         &token,
         method_hash!("Transfer"),
-        RawBytes::serialize(&transfer_params).unwrap(),
+        IpldBlock::serialize_cbor(&transfer_params).unwrap(),
         TokenAmount::zero(),
     )
     .unwrap();
@@ -82,7 +83,7 @@ fn burn(token: Address, token_ids: Vec<TokenID>) -> u32 {
     let receipt = sdk::send::send(
         &token,
         method_hash!("Burn"),
-        RawBytes::serialize(token_ids).unwrap(),
+        IpldBlock::serialize_cbor(&token_ids).unwrap(),
         TokenAmount::zero(),
     )
     .unwrap();

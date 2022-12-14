@@ -18,7 +18,7 @@ const DISPATCH_EXAMPLE_WASM: &str = "../../target/debug/wbuild/greeter/greeter.c
 #[test]
 fn test_greeter() {
     let blockstore = MemoryBlockstore::default();
-    let bundle_root = bundle::import_bundle(&blockstore, actors_v9::BUNDLE_CAR).unwrap();
+    let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
     let mut tester =
         Tester::new(NetworkVersion::V15, StateTreeVersion::V4, bundle_root, blockstore).unwrap();
 

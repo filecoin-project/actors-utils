@@ -19,8 +19,8 @@ fn invoke(input: u32) -> u32 {
         "Greet" => {
             // Greet takes a name as a utf8 string
             // returns "Hello, {name}"
-            let params = sdk::message::params_raw(input).unwrap().1;
-            let params = RawBytes::new(params);
+            let params = sdk::message::params_raw(input).unwrap().unwrap();
+            let params = RawBytes::new(params.data);
             let name = params.deserialize::<String>().unwrap();
 
             let greeting = greet(&name);
