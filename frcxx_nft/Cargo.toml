@@ -5,9 +5,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cid = { version = "0.8.3", default-features = false, features = ["serde-codec"] }
 frc42_dispatch = { path = "../frc42_dispatch" }
-fvm_actor_utils = { version = "1.0.0", path = "../fvm_actor_utils" }
+fvm_actor_utils = { path = "../fvm_actor_utils" }
+
+cid = { version = "0.8.3", default-features = false, features = ["serde-codec"] }
 fvm_ipld_bitfield = "0.5.4"
 fvm_ipld_blockstore = "0.1.1"
 fvm_ipld_hamt = "0.5.1"
