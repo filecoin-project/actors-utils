@@ -5,12 +5,13 @@ repository = "https://github.com/helix-collective/filecoin"
 edition = "2021"
 
 [dependencies]
+frcxx_nft = { path = "../../frcxx_nft" }
+frc42_dispatch = { path = "../../frc42_dispatch" }
+frc46_token = { path = "../../frc46_token" }
+
 anyhow = { version = "1.0.63", features = ["backtrace"] }
 cid = { version = "0.8.5", default-features = false }
 fvm = { version = "2.0.0", default-features = false }
-frcxx_nft = { path = "../../frcxx_nft" }
-frc42_dispatch = { version = "1.1.0", path = "../../frc42_dispatch" }
-frc46_token = { version = "2.0.0", path = "../../frc46_token" }
 fvm_integration_tests = "2.0.0-alpha.1"
 fvm_ipld_blockstore = "0.1.1"
 fvm_ipld_encoding = "=0.2.3"
