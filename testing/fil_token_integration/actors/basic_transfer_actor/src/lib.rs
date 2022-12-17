@@ -1,10 +1,10 @@
 use cid::{multihash::Code, Cid};
 use frc42_dispatch::{match_method, method_hash};
-use frc46_token::{
-    receiver::types::{FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE},
-    token::types::TransferParams,
-};
+use frc46_token::receiver::{FRC46TokenReceived, FRC46_TOKEN_TYPE};
+use frc46_token::token::types::TransferParams;
+use fvm_actor_utils::receiver::UniversalReceiverParams;
 use fvm_ipld_blockstore::Block;
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{de::DeserializeOwned, RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
@@ -15,8 +15,8 @@ use sdk::NO_DATA_BLOCK_ID;
 
 /// Grab the incoming parameters and convert from RawBytes to deserialized struct
 pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
-    let params = sdk::message::params_raw(params).unwrap().1;
-    let params = RawBytes::new(params);
+    let params = sdk::message::params_raw(params).unwrap().unwrap();
+    let params = RawBytes::new(params.data);
     params.deserialize().unwrap()
 }
 
@@ -53,7 +53,7 @@ impl TransferActorState {
 #[no_mangle]
 fn invoke(input: u32) -> u32 {
     std::panic::set_hook(Box::new(|info| {
-        sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{}", info)))
+        sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{info}")))
     }));
 
     let method_num = sdk::message::method_number();
@@ -117,7 +117,8 @@ fn invoke(input: u32) -> u32 {
 
             // get our balance
             let self_address = Address::new_id(sdk::message::receiver());
-            let balance_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("BalanceOf"), RawBytes::serialize(self_address).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
+            let balance_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("BalanceOf"), IpldBlock::serialize_cbor(&self_address).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
+
             if !balance_receipt.exit_code.is_success() {
                 panic!("unable to get balance");
             }
@@ -129,7 +130,8 @@ fn invoke(input: u32) -> u32 {
                 amount: balance, // send everything
                 operator_data: RawBytes::default(),
             };
-            let transfer_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("Transfer"), RawBytes::serialize(&params).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
+
+            let transfer_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("Transfer"), IpldBlock::serialize_cbor(&params).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
             if !transfer_receipt.exit_code.is_success() {
                 panic!("transfer call failed");
             }

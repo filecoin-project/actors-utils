@@ -4,12 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-frc46_token = { version = "1.1.0", path = "../../../../frc46_token" }
 frc42_dispatch = { path = "../../../../frc42_dispatch" }
+frc46_token = { path = "../../../../frc46_token" }
+frcxx_nft = { path = "../../../../frcxx_nft" }
+fvm_actor_utils = { path = "../../../../fvm_actor_utils" }
+
 fvm_ipld_blockstore = "0.1.1"
-fvm_ipld_encoding = "0.3.0"
-fvm_sdk = { version = "3.0.0-alpha.16" }
+fvm_ipld_encoding = "=0.3.2"
+fvm_sdk = { version = "3.0.0-alpha.19" }
 fvm_shared = { version = "3.0.0-alpha.14" }
 
 [build-dependencies]
-wasm-builder = "3.0"
+substrate-wasm-builder = "4.0"

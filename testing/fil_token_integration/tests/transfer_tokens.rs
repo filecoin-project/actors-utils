@@ -10,7 +10,8 @@ use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
 
 mod common;
-use common::{construct_tester, TestHelpers, TokenHelpers};
+use common::frc46_token_helpers::TokenHelper;
+use common::{construct_tester, TestHelpers};
 
 const BASIC_TOKEN_ACTOR_WASM: &str =
     "../../target/debug/wbuild/basic_token_actor/basic_token_actor.compact.wasm";
@@ -64,7 +65,7 @@ fn transfer_tokens() {
 
     // check balance of transfer actor
     let balance = tester.token_balance(operator[0].1, token_address, transfer_address);
-    println!("balance held by transfer actor: {:?}", balance);
+    println!("balance held by transfer actor: {balance:?}");
     assert_eq!(balance, TokenAmount::from_atto(100));
 
     // forward from transfer to receiving actor
@@ -75,10 +76,10 @@ fn transfer_tokens() {
 
     // check balance of receiver actor
     let balance = tester.token_balance(operator[0].1, token_address, transfer_address);
-    println!("balance held by transfer actor: {:?}", balance);
+    println!("balance held by transfer actor: {balance:?}");
     assert_eq!(balance, TokenAmount::from_atto(0));
 
     let balance = tester.token_balance(operator[0].1, token_address, receiver_address);
-    println!("balance held by receiver actor: {:?}", balance);
+    println!("balance held by receiver actor: {balance:?}");
     assert_eq!(balance, TokenAmount::from_atto(100));
 }

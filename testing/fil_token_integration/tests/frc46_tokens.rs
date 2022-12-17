@@ -106,5 +106,5 @@ fn it_mints_tokens() {
 
     let return_data = ret_val.msg_receipt.return_data;
     let balance: TokenAmount = return_data.deserialize().unwrap();
-    println!("balance: {:?}", balance);
+    println!("balance: {balance:?}");
 }

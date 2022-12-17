@@ -1,4 +1,4 @@
-use fvm_ipld_encoding::RawBytes;
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 #[cfg(not(feature = "no_sdk"))]
 use fvm_sdk::send;
 use fvm_shared::sys::SendFlags;
@@ -34,7 +34,7 @@ impl<T: Hasher> MethodMessenger<T> {
         &self,
         to: &Address,
         method: &str,
-        params: RawBytes,
+        params: Option<IpldBlock>,
         value: TokenAmount,
     ) -> Result<Receipt, MethodMessengerError> {
         let method = self.method_resolver.method_number(method)?;

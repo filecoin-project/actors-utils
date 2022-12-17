@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use frc42_dispatch::method_hash;
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::Error as IpldError;
-use fvm_ipld_encoding::RawBytes;
 use fvm_sdk::{actor, message, send, sys::ErrorNumber};
 use fvm_shared::address::Payload;
 use fvm_shared::error::ExitCode;
@@ -29,6 +29,30 @@ pub enum MessagingError {
     Ipld(#[from] IpldError),
 }
 
+impl From<&MessagingError> for ExitCode {
+    fn from(error: &MessagingError) -> Self {
+        match error {
+            MessagingError::Syscall(e) => match e {
+                ErrorNumber::IllegalArgument => ExitCode::USR_ILLEGAL_ARGUMENT,
+                ErrorNumber::Forbidden | ErrorNumber::IllegalOperation => ExitCode::USR_FORBIDDEN,
+                ErrorNumber::AssertionFailed => ExitCode::USR_ASSERTION_FAILED,
+                ErrorNumber::InsufficientFunds => ExitCode::USR_INSUFFICIENT_FUNDS,
+                ErrorNumber::IllegalCid | ErrorNumber::NotFound | ErrorNumber::InvalidHandle => {
+                    ExitCode::USR_NOT_FOUND
+                }
+                ErrorNumber::Serialization | ErrorNumber::IllegalCodec => {
+                    ExitCode::USR_SERIALIZATION
+                }
+                _ => ExitCode::USR_UNSPECIFIED,
+            },
+            MessagingError::AddressNotResolved(_) | MessagingError::AddressNotInitialized(_) => {
+                ExitCode::USR_NOT_FOUND
+            }
+            MessagingError::Ipld(_) => ExitCode::USR_SERIALIZATION,
+        }
+    }
+}
+
 /// An abstraction used to send messages to other actors
 pub trait Messaging {
     /// Returns the address of the current actor as an ActorID
@@ -39,7 +63,7 @@ pub trait Messaging {
         &self,
         to: &Address,
         method: MethodNum,
-        params: &RawBytes,
+        params: Option<IpldBlock>,
         value: &TokenAmount,
     ) -> Result<Receipt>;
 
@@ -107,10 +131,10 @@ impl Messaging for FvmMessenger {
         &self,
         to: &Address,
         method: MethodNum,
-        params: &RawBytes,
+        params: Option<IpldBlock>,
         value: &TokenAmount,
     ) -> Result<Receipt> {
-        Ok(send::send(to, method, params.clone(), value.clone(), None, SendFlags::default())?)
+        Ok(send::send(to, method, params, value.clone(), None, SendFlags::default())?)
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
@@ -133,11 +157,19 @@ impl Messaging for FvmMessenger {
     }
 }
 
+/// A fake message
+///
+#[derive(Debug, Clone)]
+pub struct FakeMessage {
+    pub params: Option<IpldBlock>,
+    pub method: MethodNum,
+}
+
 /// A fake method caller
 ///
 #[derive(Debug)]
 pub struct FakeMessenger {
-    pub last_message: RefCell<Option<RawBytes>>,
+    pub last_message: RefCell<Option<FakeMessage>>,
     address_resolver: RefCell<FakeAddressResolver>,
     actor_id: ActorID,
     abort_next_send: RefCell<bool>,
@@ -174,11 +206,11 @@ impl Messaging for FakeMessenger {
     fn send(
         &self,
         _to: &Address,
-        _method: MethodNum,
-        params: &RawBytes,
+        method: MethodNum,
+        params: Option<IpldBlock>,
         _value: &TokenAmount,
     ) -> Result<Receipt> {
-        self.last_message.borrow_mut().replace(params.clone());
+        self.last_message.borrow_mut().replace(FakeMessage { params, method });
 
         if *self.abort_next_send.borrow() {
             self.abort_next_send.replace(false);

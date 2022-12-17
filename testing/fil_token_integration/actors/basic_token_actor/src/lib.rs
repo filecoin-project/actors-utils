@@ -4,14 +4,14 @@ use cid::Cid;
 use frc46_token::token::types::{
     AllowanceReturn, BalanceReturn, BurnFromReturn, BurnParams, BurnReturn,
     DecreaseAllowanceParams, FRC46Token, GetAllowanceParams, GranularityReturn,
-    IncreaseAllowanceParams, MintReturn, Result, RevokeAllowanceParams, TotalSupplyReturn,
+    IncreaseAllowanceParams, MintReturn, RevokeAllowanceParams, TotalSupplyReturn,
     TransferFromReturn, TransferParams, TransferReturn,
 };
 use frc46_token::token::Token;
 use fvm_actor_utils::blockstore::Blockstore;
 use fvm_actor_utils::messaging::FvmMessenger;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
-use fvm_ipld_encoding::{Cbor, RawBytes, DAG_CBOR};
+use fvm_ipld_encoding::{RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
 use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
@@ -151,8 +151,6 @@ pub struct MintParams {
     pub operator_data: RawBytes,
 }
 
-impl Cbor for MintParams {}
-
 impl BasicToken<'_> {
     fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {
         // todo: revise error type here so it plays nice with the result and doesn't need unwrap
@@ -204,7 +202,7 @@ where
 #[no_mangle]
 pub fn invoke(params: u32) -> u32 {
     std::panic::set_hook(Box::new(|info| {
-        sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{}", info)))
+        sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{info}")))
     }));
 
     let method_num = sdk::message::method_number();

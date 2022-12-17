@@ -23,13 +23,15 @@ test-coverage: install-toolchain
 		--exclude basic_receiving_actor \
 		--exclude basic_nft_actor \
 		--exclude basic_transfer_actor \
-		--exclude test_actor
+		--exclude frc46_test_actor \
+		--exclude frcxx_test_actor
 
 # separate actor testing stage to run from CI without coverage support
 test-actors: install-toolchain
 	cargo test --package greeter --package fil_token_integration_tests
 
 install-toolchain:
+	rustup update
 	rustup component add rustfmt
 	rustup component add clippy
 	rustup target add wasm32-unknown-unknown
@@ -37,3 +39,4 @@ install-toolchain:
 clean:
 	cargo clean
 	find . -name '*.profraw' -delete
+	rm Cargo.lock

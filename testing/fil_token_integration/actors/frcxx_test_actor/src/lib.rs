@@ -1,8 +1,9 @@
 use frc42_dispatch::{match_method, method_hash};
-use frc46_token::{
-    receiver::types::{FRC46TokenReceived, UniversalReceiverParams, FRC46_TOKEN_TYPE},
-    token::types::{BurnParams, TransferParams},
-};
+use frcxx_nft::receiver::FRCXXTokenReceived;
+use frcxx_nft::types::TransferParams;
+use frcxx_nft::{receiver::FRCXX_TOKEN_TYPE, state::TokenID};
+use fvm_actor_utils::receiver::UniversalReceiverParams;
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::{
     de::DeserializeOwned,
     tuple::{Deserialize_tuple, Serialize_tuple},
@@ -17,8 +18,8 @@ use serde::{Deserialize, Serialize};
 
 /// Grab the incoming parameters and convert from RawBytes to deserialized struct
 pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
-    let params = sdk::message::params_raw(params).unwrap().1;
-    let params = RawBytes::new(params);
+    let params = sdk::message::params_raw(params).unwrap().unwrap();
+    let params = RawBytes::new(params.data);
     params.deserialize().unwrap()
 }
 
@@ -39,9 +40,9 @@ pub enum TestAction {
     /// Reject the tokens (hook aborts)
     Reject,
     /// Transfer to another address (with operator_data that can provide further instructions)
-    Transfer(Address, RawBytes),
+    Transfer(Address, Vec<TokenID>, RawBytes),
     /// Burn incoming tokens
-    Burn,
+    Burn(Vec<TokenID>),
 }
 
 /// Params for Action method call
@@ -66,12 +67,12 @@ pub fn action(action: TestAction) -> RawBytes {
 }
 
 /// Execute the Transfer action
-fn transfer(token: Address, to: Address, amount: TokenAmount, operator_data: RawBytes) -> u32 {
-    let transfer_params = TransferParams { to, amount, operator_data };
+fn transfer(token: Address, to: Address, token_ids: Vec<TokenID>, operator_data: RawBytes) -> u32 {
+    let transfer_params = TransferParams { to, token_ids, operator_data };
     let receipt = sdk::send::send(
         &token,
         method_hash!("Transfer"),
-        RawBytes::serialize(&transfer_params).unwrap(),
+        IpldBlock::serialize_cbor(&transfer_params).unwrap(),
         TokenAmount::zero(),
         None,
         SendFlags::default(),
@@ -82,12 +83,11 @@ fn transfer(token: Address, to: Address, amount: TokenAmount, operator_data: Raw
 }
 
 /// Execute the Burn action
-fn burn(token: Address, amount: TokenAmount) -> u32 {
-    let burn_params = BurnParams { amount };
+fn burn(token: Address, token_ids: Vec<TokenID>) -> u32 {
     let receipt = sdk::send::send(
         &token,
         method_hash!("Burn"),
-        RawBytes::serialize(&burn_params).unwrap(),
+        IpldBlock::serialize_cbor(&token_ids).unwrap(),
         TokenAmount::zero(),
         None,
         SendFlags::default(),
@@ -102,7 +102,7 @@ fn burn(token: Address, amount: TokenAmount) -> u32 {
 #[no_mangle]
 fn invoke(input: u32) -> u32 {
     std::panic::set_hook(Box::new(|info| {
-        sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{}", info)))
+        sdk::vm::abort(ExitCode::USR_ASSERTION_FAILED.value(), Some(&format!("{info}")))
     }));
 
     let method_num = sdk::message::method_number();
@@ -114,14 +114,14 @@ fn invoke(input: u32) -> u32 {
             // Received is passed a UniversalReceiverParams
             let params: UniversalReceiverParams = deserialize_params(input);
 
-            // reject if not an FRC46 token
+            // reject if not a set of FRCXX NFTs
             // we don't know how to inspect other payloads here
-            if params.type_ != FRC46_TOKEN_TYPE {
+            if params.type_ != FRCXX_TOKEN_TYPE {
                 panic!("invalid token type, rejecting transfer");
             }
 
             // get token transfer data
-            let token_params: FRC46TokenReceived = params.payload.deserialize().unwrap();
+            let token_params: FRCXXTokenReceived = params.payload.deserialize().unwrap();
 
             // todo: examine the operator_data to determine our next move
             let action: TestAction = token_params.operator_data.deserialize().unwrap();
@@ -137,36 +137,19 @@ fn invoke(input: u32) -> u32 {
                         Some("rejecting transfer"),
                     );
                 }
-                TestAction::Transfer(to, operator_data) => {
+                TestAction::Transfer(to, token_ids, operator_data) => {
                     // transfer to a target address
-                    transfer(Address::new_id(sdk::message::caller()), to, token_params.amount, operator_data)
+                    transfer(Address::new_id(sdk::message::caller()), to, token_ids, operator_data)
                 }
-                TestAction::Burn => {
+                TestAction::Burn(token_ids) => {
                     // burn the tokens
-                    burn(Address::new_id(sdk::message::caller()), token_params.amount)
+                    burn(Address::new_id(sdk::message::caller()), token_ids)
                 }
             }
         },
         "Action" => {
             // take action independent of the receiver hook
             let params: ActionParams = deserialize_params(input);
-
-            // get our balance
-            let get_balance = || {
-                let self_address = Address::new_id(sdk::message::receiver());
-                let balance_receipt = sdk::send::send(
-                    &params.token_address,
-                    method_hash!("BalanceOf"),
-                    RawBytes::serialize(self_address).unwrap(),
-                    TokenAmount::zero(),
-                    None,
-                    SendFlags::default(),
-                ).unwrap();
-                if !balance_receipt.exit_code.is_success() {
-                    panic!("unable to get balance");
-                }
-                balance_receipt.return_data.deserialize::<TokenAmount>().unwrap()
-            };
 
             match params.action {
                 TestAction::Accept | TestAction::Reject => {
@@ -175,15 +158,13 @@ fn invoke(input: u32) -> u32 {
                         Some("invalid argument"),
                     );
                 }
-                TestAction::Transfer(to, operator_data) => {
+                TestAction::Transfer(to, token_ids, operator_data) => {
                     // transfer to a target address
-                    let balance = get_balance();
-                    transfer(params.token_address, to, balance, operator_data)
+                    transfer(params.token_address, to, token_ids, operator_data)
                 }
-                TestAction::Burn => {
+                TestAction::Burn(token_ids) => {
                     // burn the tokens
-                    let balance = get_balance();
-                    burn(params.token_address, balance)
+                    burn(params.token_address, token_ids)
                 }
             }
         }

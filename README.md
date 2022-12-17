@@ -10,24 +10,34 @@ This repo contains utilities and libraries to work with the
 
 ## Packages
 
+### fvm_actor_utils
+
+A set of utilities to help write testable native actors for the Filecoin Virtual
+Machine. Provides abstractions on top of FVM-SDK functionality that can be
+shimmed or mocked in unit tests. This includes helpers for:
+
+- Universal receiver hooks (as defined in
+  [FRC-0046](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md))
+- IPLD-compatible blockstore
+- Messaging and address resolution
+
 ### frc42_dispatch
 
-An actor calling convention that derives method numbers by hashing method names
-
-| FRC Spec                                                              | Reference Implementation                     | Examples                                         |
-| --------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------ |
-| https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0042.md | [frc42_dispatch](./frc42_dispatch/README.md) | [greeter](./dispatch_examples/greeter/README.md) |
-
-A set of CLI utilities to generate method numbers is also available:
+Reference library containing macros for standard method dispatch. A set of CLI
+utilities to generate method numbers is also available:
 [fvm_dispatch_tools](./fvm_dispatch_tools/)
+
+| Specification                                                                     | Reference Implementation                     | Examples                                         |
+| --------------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------ |
+| [FRC-0042](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0042.md) | [frc42_dispatch](./frc42_dispatch/README.md) | [greeter](./dispatch_examples/greeter/README.md) |
 
 ### frc46_token
 
-A standard interface for native actor fungible tokens
+Reference library for implementing a standard fungible token in native actors
 
-| FRC Spec                                                              | Reference Implementation                  | Examples                                                                                                                                                                   |
-| --------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md | [frc42_dispatch](./frc46_token/README.md) | [basic_token](./testing/fil_token_integration/actors/basic_token_actor/README.md) [basic_receiver](./testing/fil_token_integration/actors/basic_receiving_actor/README.md) |
+| Specification                                                                     | Reference Implementation                  | Examples                                                                                                                                                                   |
+| --------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [FRC-0046](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md) | [frc42_dispatch](./frc46_token/README.md) | [basic_token](./testing/fil_token_integration/actors/basic_token_actor/README.md) [basic_receiver](./testing/fil_token_integration/actors/basic_receiving_actor/README.md) |
 
 ## License
 

@@ -1,21 +1,8 @@
+use fvm_actor_utils::receiver::RecipientData;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
-use fvm_ipld_encoding::{Cbor, RawBytes};
+use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
-use thiserror::Error;
-
-use super::TokenError;
-use crate::receiver::RecipientData;
-
-#[derive(Error, Debug)]
-pub enum ActorError<Err> {
-    #[error("token error: {0}")]
-    Token(#[from] TokenError),
-    #[error("error during actor execution: {0}")]
-    Runtime(Err),
-}
-
-pub type Result<T, E> = std::result::Result<T, ActorError<E>>;
 
 /// A standard fungible token interface allowing for on-chain transactions that implements the
 /// FRC-0046 standard. This represents the external interface exposed to other on-chain actors
@@ -118,7 +105,7 @@ pub type RevokeAllowanceReturn = ();
 /// Return value after a successful mint.
 /// The mint method is not standardised, so this is merely a useful library-level type,
 /// and recommendation for token implementations.
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct MintReturn {
     /// The new balance of the owner address
     pub balance: TokenAmount,
@@ -128,10 +115,8 @@ pub struct MintReturn {
     pub recipient_data: RawBytes,
 }
 
-impl Cbor for MintReturn {}
-
 /// Intermediate data used by mint_return to construct the return data
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MintIntermediate {
     /// Recipient address to use for querying balance
     pub recipient: Address,
@@ -146,7 +131,7 @@ impl RecipientData for MintIntermediate {
 }
 
 /// Instruction to transfer tokens to another address
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct TransferParams {
     pub to: Address,
     /// A non-negative amount to transfer
@@ -156,7 +141,7 @@ pub struct TransferParams {
 }
 
 /// Return value after a successful transfer
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct TransferReturn {
     /// The new balance of the `from` address
     pub from_balance: TokenAmount,
@@ -165,9 +150,6 @@ pub struct TransferReturn {
     /// (Optional) data returned from receiver hook
     pub recipient_data: RawBytes,
 }
-
-impl Cbor for TransferParams {}
-impl Cbor for TransferReturn {}
 
 /// Intermediate data used by transfer_return to construct the return data
 #[derive(Debug)]
@@ -185,7 +167,7 @@ impl RecipientData for TransferIntermediate {
 }
 
 /// Instruction to transfer tokens between two addresses as an operator
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct TransferFromParams {
     pub from: Address,
     pub to: Address,
@@ -196,7 +178,7 @@ pub struct TransferFromParams {
 }
 
 /// Return value after a successful delegated transfer
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct TransferFromReturn {
     /// The new balance of the `from` address
     pub from_balance: TokenAmount,
@@ -208,11 +190,8 @@ pub struct TransferFromReturn {
     pub recipient_data: RawBytes,
 }
 
-impl Cbor for TransferFromParams {}
-impl Cbor for TransferFromReturn {}
-
 /// Intermediate data used by transfer_from_return to construct the return data
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TransferFromIntermediate {
     pub operator: Address,
     pub from: Address,
@@ -228,7 +207,7 @@ impl RecipientData for TransferFromIntermediate {
 }
 
 /// Instruction to increase an allowance between two addresses
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct IncreaseAllowanceParams {
     pub operator: Address,
     /// A non-negative amount to increase the allowance by
@@ -236,7 +215,7 @@ pub struct IncreaseAllowanceParams {
 }
 
 /// Instruction to decrease an allowance between two addresses
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct DecreaseAllowanceParams {
     pub operator: Address,
     /// A non-negative amount to decrease the allowance by
@@ -244,42 +223,34 @@ pub struct DecreaseAllowanceParams {
 }
 
 /// Instruction to revoke (set to 0) an allowance
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct RevokeAllowanceParams {
     pub operator: Address,
 }
 
 /// Params to get allowance between to addresses
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct GetAllowanceParams {
     pub owner: Address,
     pub operator: Address,
 }
 
-impl Cbor for IncreaseAllowanceParams {}
-impl Cbor for DecreaseAllowanceParams {}
-impl Cbor for RevokeAllowanceParams {}
-impl Cbor for GetAllowanceParams {}
-
 /// Instruction to burn an amount of tokens
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct BurnParams {
     /// A non-negative amount to burn
     pub amount: TokenAmount,
 }
 
 /// The updated value after burning
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct BurnReturn {
     /// New balance in the account after the successful burn
     pub balance: TokenAmount,
 }
 
-impl Cbor for BurnParams {}
-impl Cbor for BurnReturn {}
-
 /// Instruction to burn an amount of tokens from another address
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct BurnFromParams {
     pub owner: Address,
     /// A non-negative amount to burn
@@ -287,13 +258,10 @@ pub struct BurnFromParams {
 }
 
 /// The updated value after a delegated burn
-#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct BurnFromReturn {
     /// New balance in the account after the successful burn
     pub balance: TokenAmount,
     /// New remaining allowance between the owner and operator (caller)
     pub allowance: TokenAmount,
 }
-
-impl Cbor for BurnFromParams {}
-impl Cbor for BurnFromReturn {}
