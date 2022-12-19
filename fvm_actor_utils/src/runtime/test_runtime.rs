@@ -23,7 +23,7 @@ pub struct TestRuntime {
     /// The last message sent via this runtime
     pub last_message: RefCell<Option<RawBytes>>,
     /// Flag to control message success
-    abort_next_send: RefCell<bool>,
+    pub abort_next_send: RefCell<bool>,
 }
 
 impl Runtime for TestRuntime {
@@ -39,10 +39,11 @@ impl Runtime for TestRuntime {
         &self,
         to: &fvm_shared::address::Address,
         _method: fvm_shared::MethodNum,
-        params: fvm_ipld_encoding::RawBytes,
+        params: Option<fvm_ipld_encoding::ipld_block::IpldBlock>,
         _value: fvm_shared::econ::TokenAmount,
     ) -> Result<Receipt, ErrorNumber> {
         if *self.abort_next_send.borrow() {
+            self.abort_next_send.replace(false);
             Err(ErrorNumber::AssertionFailed)
         } else {
             // sending to an address instantiates it if it isn't already
@@ -66,7 +67,10 @@ impl Runtime for TestRuntime {
                 }
             }?;
 
-            Ok(Receipt { exit_code: ExitCode::OK, return_data: params, gas_used: 0 })
+            // derive fake return data, echoing the params
+            let return_data = params.map(|b| RawBytes::from(b.data)).unwrap_or(RawBytes::default());
+
+            Ok(Receipt { exit_code: ExitCode::OK, return_data, gas_used: 0 })
         }
     }
 

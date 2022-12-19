@@ -1,8 +1,8 @@
 use cid::Cid;
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_blockstore::MemoryBlockstore;
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::Error as IpldError;
-use fvm_ipld_encoding::RawBytes;
 use fvm_shared::error::ExitCode;
 use fvm_shared::receipt::Receipt;
 use fvm_shared::MethodNum;
@@ -92,7 +92,7 @@ impl<R: Runtime, B: Blockstore> ActorHelper<R, B> {
         &self,
         to: &Address,
         method: MethodNum,
-        params: RawBytes,
+        params: Option<IpldBlock>,
         value: TokenAmount,
     ) -> MessagingResult<Receipt> {
         Ok(self.runtime.send(to, method, params, value)?)
@@ -174,10 +174,10 @@ impl<R: Runtime, BS: Blockstore> Messaging for ActorHelper<R, BS> {
         &self,
         to: &Address,
         method: fvm_shared::MethodNum,
-        params: &RawBytes,
+        params: Option<IpldBlock>,
         value: &fvm_shared::econ::TokenAmount,
     ) -> crate::messaging::Result<Receipt> {
-        let res = self.runtime.send(to, method, params.clone(), value.clone());
+        let res = self.runtime.send(to, method, params, value.clone());
         // FIXME: handle this error
         Ok(res.unwrap())
     }
@@ -191,7 +191,7 @@ impl<R: Runtime, BS: Blockstore> Messaging for ActorHelper<R, BS> {
     }
 
     fn initialize_account(&self, address: &Address) -> crate::messaging::Result<ActorID> {
-        self.runtime.send(address, 0, RawBytes::default(), TokenAmount::default())?;
+        self.runtime.send(address, 0, None, TokenAmount::default())?;
         let res = self.runtime.resolve_address(address);
         match res {
             Some(id) => Ok(id),

@@ -1,5 +1,5 @@
 use cid::Cid;
-use fvm_ipld_encoding::RawBytes;
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_shared::{
     address::Address, econ::TokenAmount, error::ErrorNumber, receipt::Receipt, ActorID, MethodNum,
 };
@@ -32,7 +32,7 @@ pub trait Runtime {
         &self,
         to: &Address,
         method: MethodNum,
-        params: RawBytes,
+        params: Option<IpldBlock>,
         value: TokenAmount,
     ) -> Result<Receipt, ErrorNumber>;
 
