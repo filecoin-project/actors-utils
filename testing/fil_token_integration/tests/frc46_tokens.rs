@@ -25,7 +25,7 @@ const BASIC_RECEIVER_ACTOR_WASM: &str =
 #[test]
 fn it_mints_tokens() {
     let blockstore = MemoryBlockstore::default();
-    let bundle_root = bundle::import_bundle(&blockstore, actors_v9::BUNDLE_CAR).unwrap();
+    let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
     let mut tester =
         Tester::new(NetworkVersion::V15, StateTreeVersion::V4, bundle_root, blockstore.clone())
             .unwrap();

@@ -4,6 +4,7 @@ use frc46_token::{
     token::types::{BurnParams, TransferParams},
 };
 use fvm_actor_utils::receiver::UniversalReceiverParams;
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::{
     de::DeserializeOwned,
     tuple::{Deserialize_tuple, Serialize_tuple},
@@ -16,8 +17,8 @@ use serde::{Deserialize, Serialize};
 
 /// Grab the incoming parameters and convert from RawBytes to deserialized struct
 pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
-    let params = sdk::message::params_raw(params).unwrap().1;
-    let params = RawBytes::new(params);
+    let params = sdk::message::params_raw(params).unwrap().unwrap();
+    let params = RawBytes::new(params.data);
     params.deserialize().unwrap()
 }
 
@@ -70,7 +71,7 @@ fn transfer(token: Address, to: Address, amount: TokenAmount, operator_data: Raw
     let receipt = sdk::send::send(
         &token,
         method_hash!("Transfer"),
-        RawBytes::serialize(&transfer_params).unwrap(),
+        IpldBlock::serialize_cbor(&transfer_params).unwrap(),
         TokenAmount::zero(),
     )
     .unwrap();
@@ -84,7 +85,7 @@ fn burn(token: Address, amount: TokenAmount) -> u32 {
     let receipt = sdk::send::send(
         &token,
         method_hash!("Burn"),
-        RawBytes::serialize(&burn_params).unwrap(),
+        IpldBlock::serialize_cbor(&burn_params).unwrap(),
         TokenAmount::zero(),
     )
     .unwrap();
@@ -102,84 +103,84 @@ fn invoke(input: u32) -> u32 {
 
     let method_num = sdk::message::method_number();
     match_method!(method_num, {
-        "Constructor" => {
-            NO_DATA_BLOCK_ID
-        },
-        "Receive" => {
-            // Received is passed a UniversalReceiverParams
-            let params: UniversalReceiverParams = deserialize_params(input);
+            "Constructor" => {
+                NO_DATA_BLOCK_ID
+            },
+            "Receive" => {
+                // Received is passed a UniversalReceiverParams
+                let params: UniversalReceiverParams = deserialize_params(input);
 
-            // reject if not an FRC46 token
-            // we don't know how to inspect other payloads here
-            if params.type_ != FRC46_TOKEN_TYPE {
-                panic!("invalid token type, rejecting transfer");
+                // reject if not an FRC46 token
+                // we don't know how to inspect other payloads here
+                if params.type_ != FRC46_TOKEN_TYPE {
+                    panic!("invalid token type, rejecting transfer");
+                }
+
+                // get token transfer data
+                let token_params: FRC46TokenReceived = params.payload.deserialize().unwrap();
+
+                // todo: examine the operator_data to determine our next move
+                let action: TestAction = token_params.operator_data.deserialize().unwrap();
+                match action {
+                    TestAction::Accept => {
+                        // do nothing, return success
+                        NO_DATA_BLOCK_ID
+                    }
+                    TestAction::Reject => {
+                        // abort to reject transfer
+                        sdk::vm::abort(
+                            ExitCode::USR_FORBIDDEN.value(),
+                            Some("rejecting transfer"),
+                        );
+                    }
+                    TestAction::Transfer(to, operator_data) => {
+                        // transfer to a target address
+                        transfer(Address::new_id(sdk::message::caller()), to, token_params.amount, operator_data)
+                    }
+                    TestAction::Burn => {
+                        // burn the tokens
+                        burn(Address::new_id(sdk::message::caller()), token_params.amount)
+                    }
+                }
+            },
+            "Action" => {
+                // take action independent of the receiver hook
+                let params: ActionParams = deserialize_params(input);
+
+                // get our balance
+                let get_balance = || {
+                    let self_address = Address::new_id(sdk::message::receiver());
+    let balance_receipt = sdk::send::send(&params.token_address, method_hash!("BalanceOf"), IpldBlock::serialize_cbor(&self_address).unwrap(), TokenAmount::zero()).unwrap();
+                    if !balance_receipt.exit_code.is_success() {
+                        panic!("unable to get balance");
+                    }
+                    balance_receipt.return_data.deserialize::<TokenAmount>().unwrap()
+                };
+
+                match params.action {
+                    TestAction::Accept | TestAction::Reject => {
+                        sdk::vm::abort(
+                            ExitCode::USR_ILLEGAL_ARGUMENT.value(),
+                            Some("invalid argument"),
+                        );
+                    }
+                    TestAction::Transfer(to, operator_data) => {
+                        // transfer to a target address
+                        let balance = get_balance();
+                        transfer(params.token_address, to, balance, operator_data)
+                    }
+                    TestAction::Burn => {
+                        // burn the tokens
+                        let balance = get_balance();
+                        burn(params.token_address, balance)
+                    }
+                }
             }
-
-            // get token transfer data
-            let token_params: FRC46TokenReceived = params.payload.deserialize().unwrap();
-
-            // todo: examine the operator_data to determine our next move
-            let action: TestAction = token_params.operator_data.deserialize().unwrap();
-            match action {
-                TestAction::Accept => {
-                    // do nothing, return success
-                    NO_DATA_BLOCK_ID
-                }
-                TestAction::Reject => {
-                    // abort to reject transfer
-                    sdk::vm::abort(
-                        ExitCode::USR_FORBIDDEN.value(),
-                        Some("rejecting transfer"),
-                    );
-                }
-                TestAction::Transfer(to, operator_data) => {
-                    // transfer to a target address
-                    transfer(Address::new_id(sdk::message::caller()), to, token_params.amount, operator_data)
-                }
-                TestAction::Burn => {
-                    // burn the tokens
-                    burn(Address::new_id(sdk::message::caller()), token_params.amount)
-                }
+            _ => {
+                sdk::vm::abort(
+                    ExitCode::USR_UNHANDLED_MESSAGE.value(),
+                    Some("Unknown method number"),
+                );
             }
-        },
-        "Action" => {
-            // take action independent of the receiver hook
-            let params: ActionParams = deserialize_params(input);
-
-            // get our balance
-            let get_balance = || {
-                let self_address = Address::new_id(sdk::message::receiver());
-                let balance_receipt = sdk::send::send(&params.token_address, method_hash!("BalanceOf"), RawBytes::serialize(self_address).unwrap(), TokenAmount::zero()).unwrap();
-                if !balance_receipt.exit_code.is_success() {
-                    panic!("unable to get balance");
-                }
-                balance_receipt.return_data.deserialize::<TokenAmount>().unwrap()
-            };
-
-            match params.action {
-                TestAction::Accept | TestAction::Reject => {
-                    sdk::vm::abort(
-                        ExitCode::USR_ILLEGAL_ARGUMENT.value(),
-                        Some("invalid argument"),
-                    );
-                }
-                TestAction::Transfer(to, operator_data) => {
-                    // transfer to a target address
-                    let balance = get_balance();
-                    transfer(params.token_address, to, balance, operator_data)
-                }
-                TestAction::Burn => {
-                    // burn the tokens
-                    let balance = get_balance();
-                    burn(params.token_address, balance)
-                }
-            }
-        }
-        _ => {
-            sdk::vm::abort(
-                ExitCode::USR_UNHANDLED_MESSAGE.value(),
-                Some("Unknown method number"),
-            );
-        }
-    })
+        })
 }

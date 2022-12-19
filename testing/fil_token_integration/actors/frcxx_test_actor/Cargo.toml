@@ -4,14 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cid = { version = "0.8.5", default-features = false }
-frc46_token = { version = "1.1.0", path = "../../../../frc46_token" }
+frc46_token = { path = "../../../../frc46_token" }
+fvm_actor_utils = { path = "../../../../fvm_actor_utils" }
 frc42_dispatch = { path = "../../../../frc42_dispatch" }
-frcxx_nft = { version = "0.1.0", path = "../../../../frcxx_nft" }
-fvm_actor_utils = { version = "0.1.0", path = "../../../../fvm_actor_utils" }
+frcxx_nft = { path = "../../../../frcxx_nft" }
+
+cid = { version = "0.8.5", default-features = false }
 fvm_ipld_blockstore = { version = "0.1.1" }
-fvm_ipld_encoding = { version = "0.2.2" }
-fvm_sdk = { version = "2.0.0-alpha.2" }
+fvm_ipld_encoding = "0.2.3"
+fvm_sdk =  "=2.1.0"
 fvm_shared = { version = "2.0.0-alpha.2" }
 serde = { version = "1.0", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }

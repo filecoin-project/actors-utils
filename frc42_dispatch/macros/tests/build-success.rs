@@ -2,6 +2,7 @@ use frc42_macros::method_hash;
 
 fn main() {
     assert_eq!(method_hash!("Method"), 0xa20642fc);
+    assert_eq!(method_hash!("_Method"), 0xeb9575aa);
 
     // method names from the example token actor
     // numbers are hashed by the python script included in the main dispatch crate

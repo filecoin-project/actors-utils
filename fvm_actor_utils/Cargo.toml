@@ -1,20 +1,21 @@
 [package]
 name = "fvm_actor_utils"
 description = "Utils for authoring native actors for the Filecoin Virtual Machine"
-version = "0.1.0"
+version = "2.0.0"
 license = "MIT OR Apache-2.0"
 keywords = ["filecoin", "fvm"]
 repository = "https://github.com/helix-onchain/filecoin/"
 edition = "2021"
 
 [dependencies]
+frc42_dispatch = { version = "2.0.0", path = "../frc42_dispatch" }
+
 anyhow = "1.0.56"
 cid = { version = "0.8.3", default-features = false, features = ["serde-codec"] }
-frc42_dispatch = { version = "1.0.0", path = "../frc42_dispatch" }
 fvm_ipld_blockstore = "0.1.1"
-fvm_ipld_encoding = "0.2.2"
+fvm_ipld_encoding = "=0.2.3"
 fvm_shared = "2.0.0"
-fvm_sdk = "2.0.0"
+fvm_sdk = "=2.1.0"
 num-traits = { version = "0.2.15" }
 serde = { version = "1.0.136", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }

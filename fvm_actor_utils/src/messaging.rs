@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use frc42_dispatch::method_hash;
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::Error as IpldError;
-use fvm_ipld_encoding::RawBytes;
 use fvm_sdk::{actor, message, send, sys::ErrorNumber};
 use fvm_shared::error::ExitCode;
 use fvm_shared::receipt::Receipt;
@@ -62,7 +62,7 @@ pub trait Messaging {
         &self,
         to: &Address,
         method: MethodNum,
-        params: &RawBytes,
+        params: Option<IpldBlock>,
         value: &TokenAmount,
     ) -> Result<Receipt>;
 
@@ -130,10 +130,10 @@ impl Messaging for FvmMessenger {
         &self,
         to: &Address,
         method: MethodNum,
-        params: &RawBytes,
+        params: Option<IpldBlock>,
         value: &TokenAmount,
     ) -> Result<Receipt> {
-        Ok(send::send(to, method, params.clone(), value.clone())?)
+        Ok(send::send(to, method, params, value.clone())?)
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
@@ -149,11 +149,19 @@ impl Messaging for FvmMessenger {
     }
 }
 
+/// A fake message
+///
+#[derive(Debug, Clone)]
+pub struct FakeMessage {
+    pub params: Option<IpldBlock>,
+    pub method: MethodNum,
+}
+
 /// A fake method caller
 ///
 #[derive(Debug)]
 pub struct FakeMessenger {
-    pub last_message: RefCell<Option<RawBytes>>,
+    pub last_message: RefCell<Option<FakeMessage>>,
     address_resolver: RefCell<FakeAddressResolver>,
     actor_id: ActorID,
     abort_next_send: RefCell<bool>,
@@ -190,11 +198,11 @@ impl Messaging for FakeMessenger {
     fn send(
         &self,
         _to: &Address,
-        _method: MethodNum,
-        params: &RawBytes,
+        method: MethodNum,
+        params: Option<IpldBlock>,
         _value: &TokenAmount,
     ) -> Result<Receipt> {
-        self.last_message.borrow_mut().replace(params.clone());
+        self.last_message.borrow_mut().replace(FakeMessage { params, method });
 
         if *self.abort_next_send.borrow() {
             self.abort_next_send.replace(false);

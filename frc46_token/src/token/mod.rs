@@ -5,6 +5,7 @@ pub use error::TokenError;
 use fvm_actor_utils::messaging::{Messaging, MessagingError, RECEIVER_HOOK_METHOD_NUM};
 use fvm_actor_utils::receiver::{ReceiverHook, ReceiverHookError};
 use fvm_ipld_blockstore::Blockstore;
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::econ::TokenAmount;
@@ -672,7 +673,7 @@ where
         let receipt = self.msg.send(
             token_receiver,
             RECEIVER_HOOK_METHOD_NUM,
-            &RawBytes::serialize(params)?,
+            IpldBlock::serialize_cbor(&params)?,
             &TokenAmount::zero(),
         )?;
 
@@ -736,7 +737,9 @@ pub fn validate_allowance<'a>(a: &'a TokenAmount, name: &'static str) -> Result<
 mod test {
     use std::ops::Neg;
 
-    use fvm_actor_utils::messaging::{FakeMessenger, Messaging, MessagingError};
+    use fvm_actor_utils::messaging::{
+        FakeMessenger, Messaging, MessagingError, RECEIVER_HOOK_METHOD_NUM,
+    };
     use fvm_actor_utils::receiver::{ReceiverHookError, UniversalReceiverParams};
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
@@ -782,8 +785,10 @@ mod test {
     }
 
     fn assert_last_hook_call_eq(messenger: &FakeMessenger, expected: FRC46TokenReceived) {
-        let last_called = messenger.last_message.borrow().clone().unwrap();
-        let last_called: UniversalReceiverParams = last_called.deserialize().unwrap();
+        let last_message = messenger.last_message.borrow().clone().unwrap();
+        assert_eq!(last_message.method, RECEIVER_HOOK_METHOD_NUM);
+        let last_called: UniversalReceiverParams =
+            last_message.params.unwrap().deserialize().unwrap();
         assert_eq!(last_called.type_, FRC46_TOKEN_TYPE);
         let last_called: FRC46TokenReceived = last_called.payload.deserialize().unwrap();
         assert_eq!(last_called, expected);
