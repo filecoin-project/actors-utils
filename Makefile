@@ -25,7 +25,7 @@ test-coverage: install-toolchain
 		--exclude basic_transfer_actor \
 		--exclude frc46_test_actor \
 		--exclude frcxx_test_actor \
-		--exclude factory_token
+		--exclude frc46_factory_token
 
 # separate actor testing stage to run from CI without coverage support
 test-actors: install-toolchain
@@ -55,5 +55,5 @@ local-coverage:
 		--exclude basic_transfer_actor \
 		--exclude frc46_test_actor \
 		--exclude frcxx_test_actor \
-		--exclude factory_token
+		--exclude frc46_factory_token
 	grcov . --binary-path ./target/debug/deps/ -s . -t html --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o target/coverage/html
