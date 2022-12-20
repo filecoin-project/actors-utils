@@ -1,12 +1,20 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use cid::Cid;
-use fvm_ipld_encoding::RawBytes;
+use fvm_ipld_encoding::{ipld_block::IpldBlock, RawBytes};
 use fvm_shared::{
-    address::Address, error::ErrorNumber, error::ExitCode, receipt::Receipt, ActorID,
+    address::Address, econ::TokenAmount, error::ErrorNumber, error::ExitCode, receipt::Receipt,
+    ActorID,
 };
 
 use super::Runtime;
+
+#[derive(Clone, Default, Debug)]
+pub struct TestMessage {
+    pub method: u64,
+    pub params: Option<IpldBlock>,
+    pub value: TokenAmount,
+}
 
 #[derive(Clone, Default, Debug)]
 pub struct TestRuntime {
@@ -21,7 +29,7 @@ pub struct TestRuntime {
     pub next_actor_id: RefCell<ActorID>,
 
     /// The last message sent via this runtime
-    pub last_message: RefCell<Option<RawBytes>>,
+    pub last_message: RefCell<Option<TestMessage>>,
     /// Flag to control message success
     pub abort_next_send: RefCell<bool>,
 }
@@ -38,9 +46,9 @@ impl Runtime for TestRuntime {
     fn send(
         &self,
         to: &fvm_shared::address::Address,
-        _method: fvm_shared::MethodNum,
+        method: fvm_shared::MethodNum,
         params: Option<fvm_ipld_encoding::ipld_block::IpldBlock>,
-        _value: fvm_shared::econ::TokenAmount,
+        value: fvm_shared::econ::TokenAmount,
     ) -> Result<Receipt, ErrorNumber> {
         if *self.abort_next_send.borrow() {
             self.abort_next_send.replace(false);
@@ -66,6 +74,10 @@ impl Runtime for TestRuntime {
                     Ok(())
                 }
             }?;
+
+            // save the fake message as being sent
+            let message = TestMessage { method, params: params.clone(), value };
+            self.last_message.replace(Some(message));
 
             // derive fake return data, echoing the params
             let return_data = params.map(|b| RawBytes::from(b.data)).unwrap_or(RawBytes::default());

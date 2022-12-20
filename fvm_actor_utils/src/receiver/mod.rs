@@ -120,7 +120,7 @@ impl<T: RecipientData> ReceiverHook<T> {
             payload: mem::take(&mut self.token_params), // once encoded and sent, we don't need this anymore
         };
 
-        let receipt = msg.send(
+        let receipt = match msg.send(
             &self.address,
             RECEIVER_HOOK_METHOD_NUM,
             IpldBlock::serialize_cbor(&params).map_err(|e| {
@@ -130,7 +130,10 @@ impl<T: RecipientData> ReceiverHook<T> {
                 })
             })?,
             &TokenAmount::zero(),
-        )?;
+        ) {
+            Ok(receipt) => receipt,
+            Err(e) => return Err(ReceiverHookError::Messaging(e)),
+        };
 
         match receipt.exit_code {
             ExitCode::OK => {
@@ -161,13 +164,15 @@ impl<T: RecipientData> std::ops::Drop for ReceiverHook<T> {
 #[cfg(test)]
 mod test {
     use frc42_dispatch::method_hash;
+    use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::address::Address;
 
     use super::{ReceiverHook, RecipientData};
-    use crate::messaging::FakeMessenger;
+    use crate::{runtime::TestRuntime, util::ActorHelper};
 
-    const TOKEN_ACTOR: Address = Address::new_id(1);
+    // FIXME: cleanup
+    // const TOKEN_ACTOR: Address = Address::new_id(1);
     const ALICE: Address = Address::new_id(2);
 
     struct TestReturn;
@@ -188,10 +193,10 @@ mod test {
     #[test]
     fn calls_hook() {
         let mut hook = generate_hook();
-        let msg = FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 3);
-        assert!(msg.last_message.borrow().is_none());
-        hook.call(&msg).unwrap();
-        assert!(msg.last_message.borrow().is_some());
+        let util = ActorHelper::<TestRuntime, MemoryBlockstore>::new_test_helper();
+        assert!(util.runtime.last_message.borrow().is_none());
+        hook.call(&util).unwrap();
+        assert!(util.runtime.last_message.borrow().is_some());
     }
 
     #[test]

@@ -8,9 +8,9 @@
 
 use cid::Cid;
 use fvm_actor_utils::{
+    messaging::MessagingError,
     receiver::ReceiverHook,
     runtime::Runtime,
-    util::MessagingError,
     util::{ActorError, ActorHelper},
 };
 use fvm_ipld_blockstore::Blockstore;

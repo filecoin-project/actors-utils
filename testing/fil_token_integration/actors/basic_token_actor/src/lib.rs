@@ -9,7 +9,8 @@ use frc46_token::token::types::{
 };
 use frc46_token::token::Token;
 use fvm_actor_utils::blockstore::Blockstore;
-use fvm_actor_utils::messaging::FvmMessenger;
+use fvm_actor_utils::runtime::FvmRuntime;
+use fvm_actor_utils::util::ActorHelper;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
@@ -24,7 +25,7 @@ use util::{caller_address, deserialize_params, RuntimeError};
 
 struct BasicToken<'state> {
     /// Default token helper impl
-    util: Token<'state, Blockstore, FvmMessenger>,
+    util: Token<'state, FvmRuntime, Blockstore>,
 }
 
 /// Implementation of the token API in a FVM actor
@@ -64,7 +65,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let hook_ret = hook.call(self.util.msg())?;
+        let hook_ret = hook.call(&self.util.helper)?;
 
         self.reload(&cid)?;
         let ret = self.util.transfer_return(hook_ret)?;
@@ -89,7 +90,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let hook_ret = hook.call(self.util.msg())?;
+        let hook_ret = hook.call(&self.util.helper)?;
 
         self.reload(&cid)?;
         let ret = self.util.transfer_from_return(hook_ret)?;
@@ -173,7 +174,7 @@ impl BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let hook_ret = hook.call(self.util.msg())?;
+        let hook_ret = hook.call(&self.util.helper)?;
 
         self.reload(&cid)?;
         let ret = self.util.mint_return(hook_ret)?;
@@ -215,11 +216,11 @@ pub fn invoke(params: u32) -> u32 {
         rest => {
             let root_cid = sdk::sself::root().unwrap();
 
-            let bs = Blockstore::default();
-            let mut token_state = Token::<_, FvmMessenger>::load_state(&bs, &root_cid).unwrap();
+            let helper = ActorHelper::<FvmRuntime, Blockstore>::new_fvm_helper();
+            let mut token_state =
+                Token::<FvmRuntime, Blockstore>::load_state(helper.bs(), &root_cid).unwrap();
 
-            let mut token_actor =
-                BasicToken { util: Token::wrap(bs, FvmMessenger::default(), 1, &mut token_state) };
+            let mut token_actor = BasicToken { util: Token::wrap(helper, 1, &mut token_state) };
 
             // Method numbers calculated via fvm_dispatch_tools using CamelCase names derived from
             // the corresponding FRC46Token trait methods.
@@ -316,9 +317,9 @@ pub fn invoke(params: u32) -> u32 {
 }
 
 fn constructor() -> u32 {
-    let bs = Blockstore::default();
-    let mut token_state = Token::<_, FvmMessenger>::create_state(&bs).unwrap();
-    let mut token = Token::wrap(bs, FvmMessenger::default(), 1, &mut token_state);
+    let helper = ActorHelper::<FvmRuntime, Blockstore>::new_fvm_helper();
+    let mut token_state = Token::<FvmRuntime, Blockstore>::create_state(helper.bs()).unwrap();
+    let mut token = Token::wrap(helper, 1, &mut token_state);
     let cid = token.flush().unwrap();
     sdk::sself::set_root(&cid).unwrap();
     NO_DATA_BLOCK_ID

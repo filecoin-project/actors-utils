@@ -2,58 +2,18 @@ use cid::Cid;
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::ipld_block::IpldBlock;
-use fvm_ipld_encoding::Error as IpldError;
-use fvm_shared::error::ExitCode;
 use fvm_shared::receipt::Receipt;
 use fvm_shared::MethodNum;
 use fvm_shared::METHOD_SEND;
-use fvm_shared::{address::Address, econ::TokenAmount, error::ErrorNumber, ActorID};
+use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
 use num_traits::Zero;
 use thiserror::Error;
 
-use crate::messaging::Messaging;
+use crate::messaging::{Messaging, MessagingError, Result as MessagingResult};
 use crate::runtime::FvmRuntime;
 use crate::runtime::NoStateError;
 use crate::runtime::Runtime;
 use crate::runtime::TestRuntime;
-
-pub type MessagingResult<T> = std::result::Result<T, MessagingError>;
-
-#[derive(Error, Debug)]
-pub enum MessagingError {
-    #[error("fvm syscall error: `{0}`")]
-    Syscall(#[from] ErrorNumber),
-    #[error("address could not be resolved: `{0}`")]
-    AddressNotResolved(Address),
-    #[error("address could not be initialized: `{0}`")]
-    AddressNotInitialized(Address),
-    #[error("ipld serialization error: `{0}`")]
-    Ipld(#[from] IpldError),
-}
-
-impl From<&MessagingError> for ExitCode {
-    fn from(error: &MessagingError) -> Self {
-        match error {
-            MessagingError::Syscall(e) => match e {
-                ErrorNumber::IllegalArgument => ExitCode::USR_ILLEGAL_ARGUMENT,
-                ErrorNumber::Forbidden | ErrorNumber::IllegalOperation => ExitCode::USR_FORBIDDEN,
-                ErrorNumber::AssertionFailed => ExitCode::USR_ASSERTION_FAILED,
-                ErrorNumber::InsufficientFunds => ExitCode::USR_INSUFFICIENT_FUNDS,
-                ErrorNumber::IllegalCid | ErrorNumber::NotFound | ErrorNumber::InvalidHandle => {
-                    ExitCode::USR_NOT_FOUND
-                }
-                ErrorNumber::Serialization | ErrorNumber::IllegalCodec => {
-                    ExitCode::USR_SERIALIZATION
-                }
-                _ => ExitCode::USR_UNSPECIFIED,
-            },
-            MessagingError::AddressNotResolved(_) | MessagingError::AddressNotInitialized(_) => {
-                ExitCode::USR_NOT_FOUND
-            }
-            MessagingError::Ipld(_) => ExitCode::USR_SERIALIZATION,
-        }
-    }
-}
 
 #[derive(Error, Clone, Debug)]
 pub enum ActorError {
@@ -66,11 +26,11 @@ type ActorResult<T> = std::result::Result<T, ActorError>;
 /// ActorHelper contains utils to help access the underlying execution environment (runtime and blockstore)
 #[derive(Clone, Debug)]
 pub struct ActorHelper<R: Runtime, BS: Blockstore> {
-    runtime: R,
-    blockstore: BS,
+    pub runtime: R,
+    pub blockstore: BS,
 }
 
-impl<R: Runtime, B: Blockstore> ActorHelper<R, B> {
+impl<R: Runtime, BS: Blockstore> ActorHelper<R, BS> {
     pub fn new_test_helper() -> ActorHelper<TestRuntime, MemoryBlockstore> {
         ActorHelper { runtime: TestRuntime::default(), blockstore: MemoryBlockstore::default() }
     }
@@ -120,7 +80,14 @@ impl<R: Runtime, B: Blockstore> ActorHelper<R, B> {
 
     pub fn initialize_account(&self, address: &Address) -> MessagingResult<ActorID> {
         self.send(address, METHOD_SEND, Default::default(), TokenAmount::zero())?;
-        self.resolve_id(address)
+        match self.resolve_id(address) {
+            Ok(id) => Ok(id),
+            Err(MessagingError::AddressNotResolved(e)) => {
+                // if we can't resolve after the send, then the account was not initialized
+                Err(MessagingError::AddressNotInitialized(e))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Get the root cid of the actor's state
@@ -151,6 +118,10 @@ impl<R: Runtime, B: Blockstore> ActorHelper<R, B> {
             id_a == id_b
         }
     }
+
+    pub fn bs(&self) -> &BS {
+        &self.blockstore
+    }
 }
 
 /// Convenience impl encapsulating the blockstore functionality
@@ -164,12 +135,7 @@ impl<R: Runtime, BS: Blockstore> Blockstore for ActorHelper<R, BS> {
     }
 }
 
-// FIXME: remove this when hook helpers are refactored to use the above runtime abstraction instead
 impl<R: Runtime, BS: Blockstore> Messaging for ActorHelper<R, BS> {
-    fn actor_id(&self) -> ActorID {
-        self.runtime.receiver()
-    }
-
     fn send(
         &self,
         to: &Address,
@@ -178,24 +144,6 @@ impl<R: Runtime, BS: Blockstore> Messaging for ActorHelper<R, BS> {
         value: &fvm_shared::econ::TokenAmount,
     ) -> crate::messaging::Result<Receipt> {
         let res = self.runtime.send(to, method, params, value.clone());
-        // FIXME: handle this error
-        Ok(res.unwrap())
-    }
-
-    fn resolve_id(&self, address: &Address) -> crate::messaging::Result<ActorID> {
-        let res = self.runtime.resolve_address(address);
-        match res {
-            Some(id) => Ok(id),
-            None => Err(crate::messaging::MessagingError::AddressNotResolved(*address)),
-        }
-    }
-
-    fn initialize_account(&self, address: &Address) -> crate::messaging::Result<ActorID> {
-        self.runtime.send(address, 0, None, TokenAmount::default())?;
-        let res = self.runtime.resolve_address(address);
-        match res {
-            Some(id) => Ok(id),
-            None => Err(crate::messaging::MessagingError::AddressNotInitialized(*address)),
-        }
+        Ok(res?)
     }
 }
