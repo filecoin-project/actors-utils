@@ -171,8 +171,6 @@ mod test {
     use super::{ReceiverHook, RecipientData};
     use crate::{runtime::TestRuntime, util::ActorHelper};
 
-    // FIXME: cleanup
-    // const TOKEN_ACTOR: Address = Address::new_id(1);
     const ALICE: Address = Address::new_id(2);
 
     struct TestReturn;
