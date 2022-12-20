@@ -343,8 +343,8 @@ impl FactoryToken {
 }
 
 pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
-    let params = sdk::message::params_raw(params).unwrap().1;
-    let params = RawBytes::new(params);
+    let params = sdk::message::params_raw(params).unwrap();
+    let params = params.unwrap();
     params.deserialize().unwrap()
 }
 
@@ -446,7 +446,13 @@ where
 // this aborts on errors and is intended for frc46_invoke to use
 pub fn frc46_unpack_params<O: DeserializeOwned>(params: u32) -> O {
     let params = match sdk::message::params_raw(params) {
-        Ok((_, params)) => params,
+        Ok(Some(params)) => params,
+        Ok(None) => {
+            fvm_sdk::vm::abort(
+                ExitCode::USR_ILLEGAL_ARGUMENT.value(),
+                Some(String::from("missing parameters").as_str()),
+            );
+        }
         Err(e) => {
             fvm_sdk::vm::abort(
                 ExitCode::USR_SERIALIZATION.value(),
@@ -455,7 +461,7 @@ pub fn frc46_unpack_params<O: DeserializeOwned>(params: u32) -> O {
         }
     };
 
-    match RawBytes::new(params).deserialize() {
+    match params.deserialize() {
         Ok(p) => p,
         Err(e) => {
             fvm_sdk::vm::abort(
