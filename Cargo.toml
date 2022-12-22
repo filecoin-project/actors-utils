@@ -24,3 +24,10 @@ members = [
 [patch.crates-io]
 # tracking issue: https://github.com/bitvecto-rs/funty/issues/7
 funty = { git = "https://github.com/bitvecto-rs/funty/", rev = "7ef0d890fbcd8b3def1635ac1a877fc298488446" }
+fvm_shared = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/send-refactor-v2" }
+fvm_sdk = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/send-refactor-v2" }
+fvm_ipld_hamt = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/send-refactor-v2" }
+fvm_ipld_amt = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/send-refactor-v2" }
+fvm_ipld_bitfield = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/send-refactor-v2" }
+fvm_ipld_encoding = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/send-refactor-v2" }
+fvm_ipld_blockstore = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/send-refactor-v2" }

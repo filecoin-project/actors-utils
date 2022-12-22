@@ -670,20 +670,20 @@ where
         token_receiver: &Address,
         params: FRC46TokenReceived,
     ) -> Result<()> {
-        let receipt = self.msg.send(
+        let ret = self.msg.send(
             token_receiver,
             RECEIVER_HOOK_METHOD_NUM,
             IpldBlock::serialize_cbor(&params)?,
             &TokenAmount::zero(),
         )?;
 
-        match receipt.exit_code {
+        match ret.exit_code {
             ExitCode::OK => Ok(()),
-            abort_code => Err(ReceiverHookError::Receiver {
-                address: *token_receiver,
-                exit_code: abort_code,
-                return_data: receipt.return_data,
-            }
+            abort_code => Err(ReceiverHookError::new_receiver_error(
+                *token_receiver,
+                abort_code,
+                ret.return_data,
+            )
             .into()),
         }
     }
