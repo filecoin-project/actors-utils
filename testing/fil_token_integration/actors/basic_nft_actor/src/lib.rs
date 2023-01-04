@@ -1,5 +1,5 @@
 use frc42_dispatch::match_method;
-use frcxx_nft::{
+use frc53_nft::{
     state::{NFTState, TokenID},
     types::{
         ApproveForAllParams, ApproveParams, BurnFromParams, RevokeForAllParams, RevokeParams,
@@ -171,7 +171,7 @@ pub fn constructor() {
 }
 
 // Note that the below MintParams needs to be manually synced with
-// testing/fil_token_integration/tests/frcxx_nfts.rs::MintParams
+// testing/fil_token_integration/tests/frc53_nfts.rs::MintParams
 
 /// Minting tokens goes directly to the caller for now
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]

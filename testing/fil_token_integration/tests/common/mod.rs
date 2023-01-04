@@ -15,7 +15,7 @@ use fvm_shared::{
 use serde::Serialize;
 
 pub mod frc46_token_helpers;
-pub mod frcxx_nft_helpers;
+pub mod frc53_nft_helpers;
 
 /// Helper routines to simplify common operations with a Tester
 pub trait TestHelpers {

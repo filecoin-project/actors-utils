@@ -1,11 +1,11 @@
 use frc42_dispatch::method_hash;
-use frcxx_nft::{state::TokenID, types::MintReturn};
+use frc53_nft::{state::TokenID, types::MintReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
 
 mod common;
-use common::frcxx_nft_helpers::{MintParams, NFTHelper};
+use common::frc53_nft_helpers::{MintParams, NFTHelper};
 use common::{construct_tester, TestHelpers};
 
 const BASIC_NFT_ACTOR_WASM: &str =

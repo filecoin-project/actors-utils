@@ -7,7 +7,9 @@ members = [
     "frc42_dispatch/macros",
     "frc42_dispatch/macros/example",
     "frc46_token",
-    "frcxx_nft",
+    "frc46_factory_token",
+    "frc46_factory_token/token_impl",
+    "frc53_nft",
     "fvm_actor_utils",
     "fvm_dispatch_tools",
     "testing/fil_token_integration",
@@ -16,7 +18,5 @@ members = [
     "testing/fil_token_integration/actors/basic_token_actor",
     "testing/fil_token_integration/actors/basic_transfer_actor",
     "testing/fil_token_integration/actors/frc46_test_actor",
-    "testing/fil_token_integration/actors/frcxx_test_actor",
-    "frc46_factory_token",
-    "frc46_factory_token/token_impl"
+    "testing/fil_token_integration/actors/frc53_test_actor"
 ]

@@ -1,4 +1,4 @@
-//! Interfaces and types for the FRCXX NFT standard
+//! Interfaces and types for the frc53 NFT standard
 use cid::Cid;
 use fvm_actor_utils::receiver::RecipientData;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
@@ -8,8 +8,8 @@ use fvm_shared::ActorID;
 
 type TokenID = u64;
 
-/// A trait to be implemented by FRCXXX compliant actors
-pub trait FRCXXXNFT {
+/// A trait to be implemented by frc53X compliant actors
+pub trait FRC53NFT {
     /// A descriptive name for the collection of NFTs in this actor
     fn name(&self) -> String;
 

@@ -5,7 +5,7 @@ repository = "https://github.com/helix-collective/filecoin"
 edition = "2021"
 
 [dependencies]
-frcxx_nft = { path = "../../frcxx_nft" }
+frc53_nft = { path = "../../frc53_nft" }
 frc42_dispatch = { path = "../../frc42_dispatch" }
 frc46_token = { path = "../../frc46_token" }
 token_impl = { path = "../../frc46_factory_token/token_impl" }
@@ -27,5 +27,5 @@ basic_receiving_actor = { path = "actors/basic_receiving_actor" }
 basic_token_actor = { path = "actors/basic_token_actor" }
 basic_transfer_actor = { path = "actors/basic_transfer_actor" }
 frc46_test_actor = { path = "actors/frc46_test_actor" }
-frcxx_test_actor = { path = "actors/frcxx_test_actor" }
 frc46_factory_token = { path = "../../frc46_factory_token" }
+frc53_test_actor = { path = "actors/frc53_test_actor" }
