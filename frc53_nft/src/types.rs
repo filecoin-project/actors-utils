@@ -8,7 +8,7 @@ use fvm_shared::ActorID;
 
 type TokenID = u64;
 
-/// A trait to be implemented by frc53X compliant actors
+/// A trait to be implemented by FRC-0053 compliant actors
 pub trait FRC53NFT {
     /// A descriptive name for the collection of NFTs in this actor
     fn name(&self) -> String;
