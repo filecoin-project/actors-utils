@@ -118,7 +118,7 @@ pub struct MintReturn {
     pub balance: TokenAmount,
     /// The new total supply.
     pub supply: TokenAmount,
-    /// (Optional) CBOR-encoded data returned from receiver hook
+    /// (Optional) data returned from receiver hook
     pub recipient_data: RawBytes,
 }
 
@@ -127,7 +127,7 @@ pub struct MintReturn {
 pub struct MintIntermediate {
     /// Recipient address to use for querying balance
     pub recipient: Address,
-    /// (Optional) CBOR-encoded data returned from receiver hook
+    /// (Optional) data returned from receiver hook
     pub recipient_data: RawBytes,
 }
 

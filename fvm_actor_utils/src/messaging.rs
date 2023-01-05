@@ -51,7 +51,7 @@ impl From<&MessagingError> for ExitCode {
 }
 
 /// Matches the SDK's Response type
-/// We duplicate the type here, because this trait must be implemented
+/// We duplicate the type here, because the Messaging trait below must be implemented
 /// by actors that shouldn't depend on the SDK
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Response {
