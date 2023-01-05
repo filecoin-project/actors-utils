@@ -3,13 +3,13 @@ use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_sdk;
 use fvm_shared::{address::Address, MethodNum};
 
-use super::Runtime;
+use super::Syscalls;
 
 /// Runtime that delegates to fvm_sdk allowing actors to be deployed on-chain
 #[derive(Default, Debug, Clone, Copy)]
-pub struct FvmRuntime {}
+pub struct FvmSyscalls {}
 
-impl Runtime for FvmRuntime {
+impl Syscalls for FvmSyscalls {
     fn root(&self) -> Result<cid::Cid, super::NoStateError> {
         fvm_sdk::sself::root().map_err(|_| super::NoStateError)
     }
