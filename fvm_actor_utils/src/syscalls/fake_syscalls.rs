@@ -7,7 +7,7 @@ use fvm_shared::{
     ActorID,
 };
 
-use super::Runtime;
+use super::Syscalls;
 
 #[derive(Clone, Default, Debug)]
 pub struct TestMessage {
@@ -17,7 +17,7 @@ pub struct TestMessage {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct TestRuntime {
+pub struct FakeSyscalls {
     /// The root of the calling actor
     pub root: Cid,
     /// The f0 ID of the calling actor
@@ -34,7 +34,7 @@ pub struct TestRuntime {
     pub abort_next_send: RefCell<bool>,
 }
 
-impl Runtime for TestRuntime {
+impl Syscalls for FakeSyscalls {
     fn root(&self) -> Result<Cid, super::NoStateError> {
         Ok(self.root)
     }

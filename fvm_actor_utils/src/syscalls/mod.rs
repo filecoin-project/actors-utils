@@ -5,21 +5,21 @@ use fvm_shared::{
 };
 use thiserror::Error;
 
-mod fvm_runtime;
-pub use fvm_runtime::FvmRuntime;
+mod fvm_syscalls;
+pub use fvm_syscalls::FvmSyscalls;
 
-mod test_runtime;
-pub use test_runtime::TestRuntime;
+mod fake_syscalls;
+pub use fake_syscalls::FakeSyscalls;
 
 /// Copied to avoid linking against `fvm_sdk` for non-WASM targets
 #[derive(Copy, Clone, Debug, Error)]
 #[error("actor does not exist in state-tree")]
 pub struct NoStateError;
 
-/// Runtime is the abstract interface that an FVM actor uses to interact with the rest of the system
+/// The Syscalls trait defines methods available to the actor from its execution environment.
 ///
-/// The methods available on runtime are a subset of the methods exported by `fvm_sdk`
-pub trait Runtime {
+/// The methods available are a subset of the methods exported by `fvm_sdk`
+pub trait Syscalls {
     /// Get the IPLD root CID. Fails if the actor doesn't have state (before the first call to
     /// `set_root` and after actor deletion).
     fn root(&self) -> Result<Cid, NoStateError>;

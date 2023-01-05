@@ -169,7 +169,7 @@ mod test {
     use fvm_shared::address::Address;
 
     use super::{ReceiverHook, RecipientData};
-    use crate::{runtime::TestRuntime, util::ActorHelper};
+    use crate::{syscalls::FakeSyscalls, util::ActorRuntime};
 
     const ALICE: Address = Address::new_id(2);
 
@@ -191,10 +191,10 @@ mod test {
     #[test]
     fn calls_hook() {
         let mut hook = generate_hook();
-        let util = ActorHelper::<TestRuntime, MemoryBlockstore>::new_test_helper();
-        assert!(util.runtime.last_message.borrow().is_none());
+        let util = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        assert!(util.syscalls.last_message.borrow().is_none());
         hook.call(&util).unwrap();
-        assert!(util.runtime.last_message.borrow().is_some());
+        assert!(util.syscalls.last_message.borrow().is_some());
     }
 
     #[test]

@@ -10,10 +10,10 @@ use num_traits::Zero;
 use thiserror::Error;
 
 use crate::messaging::{Messaging, MessagingError, Result as MessagingResult};
-use crate::runtime::FvmRuntime;
-use crate::runtime::NoStateError;
-use crate::runtime::Runtime;
-use crate::runtime::TestRuntime;
+use crate::syscalls::FakeSyscalls;
+use crate::syscalls::FvmSyscalls;
+use crate::syscalls::NoStateError;
+use crate::syscalls::Syscalls;
 
 #[derive(Error, Clone, Debug)]
 pub enum ActorError {
@@ -23,28 +23,31 @@ pub enum ActorError {
 
 type ActorResult<T> = std::result::Result<T, ActorError>;
 
-/// ActorHelper contains utils to help access the underlying execution environment (runtime and blockstore)
+/// ActorRuntime provides access to system resources via Syscalls and the Blockstore
+///
+/// It provides higher level utilities than raw syscalls for actors to use to interact with the
+/// IPLD layer and the FVM runtime (e.g. messaging other actors)
 #[derive(Clone, Debug)]
-pub struct ActorHelper<R: Runtime, BS: Blockstore> {
-    pub runtime: R,
+pub struct ActorRuntime<S: Syscalls, BS: Blockstore> {
+    pub syscalls: S,
     pub blockstore: BS,
 }
 
-impl<R: Runtime, BS: Blockstore> ActorHelper<R, BS> {
-    pub fn new_test_helper() -> ActorHelper<TestRuntime, MemoryBlockstore> {
-        ActorHelper { runtime: TestRuntime::default(), blockstore: MemoryBlockstore::default() }
+impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
+    pub fn new_test_helper() -> ActorRuntime<FakeSyscalls, MemoryBlockstore> {
+        ActorRuntime { syscalls: FakeSyscalls::default(), blockstore: MemoryBlockstore::default() }
     }
 
-    pub fn new_fvm_helper() -> ActorHelper<FvmRuntime, crate::blockstore::Blockstore> {
-        ActorHelper {
-            runtime: FvmRuntime::default(),
+    pub fn new_fvm_helper() -> ActorRuntime<FvmSyscalls, crate::blockstore::Blockstore> {
+        ActorRuntime {
+            syscalls: FvmSyscalls::default(),
             blockstore: crate::blockstore::Blockstore::default(),
         }
     }
 
     /// Returns the address of the current actor as an ActorID
     pub fn actor_id(&self) -> ActorID {
-        self.runtime.receiver()
+        self.syscalls.receiver()
     }
 
     /// Sends a message to an actor
@@ -55,14 +58,14 @@ impl<R: Runtime, BS: Blockstore> ActorHelper<R, BS> {
         params: Option<IpldBlock>,
         value: TokenAmount,
     ) -> MessagingResult<Receipt> {
-        Ok(self.runtime.send(to, method, params, value)?)
+        Ok(self.syscalls.send(to, method, params, value)?)
     }
 
     /// Attempts to resolve the given address to its ID address form
     ///
     /// Returns MessagingError::AddressNotResolved if the address could not be resolved
     pub fn resolve_id(&self, address: &Address) -> MessagingResult<ActorID> {
-        self.runtime.resolve_address(address).ok_or(MessagingError::AddressNotResolved(*address))
+        self.syscalls.resolve_address(address).ok_or(MessagingError::AddressNotResolved(*address))
     }
 
     /// Resolves an address to an ID address, sending a message to initialize an account there if
@@ -92,7 +95,7 @@ impl<R: Runtime, BS: Blockstore> ActorHelper<R, BS> {
 
     /// Get the root cid of the actor's state
     pub fn root_cid(&self) -> ActorResult<Cid> {
-        Ok(self.runtime.root().map_err(|_err| NoStateError)?)
+        Ok(self.syscalls.root().map_err(|_err| NoStateError)?)
     }
 
     /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without
@@ -125,7 +128,7 @@ impl<R: Runtime, BS: Blockstore> ActorHelper<R, BS> {
 }
 
 /// Convenience impl encapsulating the blockstore functionality
-impl<R: Runtime, BS: Blockstore> Blockstore for ActorHelper<R, BS> {
+impl<S: Syscalls, BS: Blockstore> Blockstore for ActorRuntime<S, BS> {
     fn get(&self, k: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
         self.blockstore.get(k)
     }
@@ -135,7 +138,7 @@ impl<R: Runtime, BS: Blockstore> Blockstore for ActorHelper<R, BS> {
     }
 }
 
-impl<R: Runtime, BS: Blockstore> Messaging for ActorHelper<R, BS> {
+impl<S: Syscalls, BS: Blockstore> Messaging for ActorRuntime<S, BS> {
     fn send(
         &self,
         to: &Address,
@@ -143,7 +146,7 @@ impl<R: Runtime, BS: Blockstore> Messaging for ActorHelper<R, BS> {
         params: Option<IpldBlock>,
         value: &fvm_shared::econ::TokenAmount,
     ) -> crate::messaging::Result<Receipt> {
-        let res = self.runtime.send(to, method, params, value.clone());
+        let res = self.syscalls.send(to, method, params, value.clone());
         Ok(res?)
     }
 }
