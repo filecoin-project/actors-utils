@@ -10,8 +10,7 @@ use num_traits::Zero;
 use thiserror::Error;
 
 use crate::messaging::{Messaging, MessagingError, Result as MessagingResult};
-use crate::syscalls::FakeSyscalls;
-use crate::syscalls::FvmSyscalls;
+use crate::syscalls::fake_syscalls::FakeSyscalls;
 use crate::syscalls::NoStateError;
 use crate::syscalls::Syscalls;
 
@@ -34,15 +33,12 @@ pub struct ActorRuntime<S: Syscalls, BS: Blockstore> {
 }
 
 impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
-    pub fn new_test_helper() -> ActorRuntime<FakeSyscalls, MemoryBlockstore> {
-        ActorRuntime { syscalls: FakeSyscalls::default(), blockstore: MemoryBlockstore::default() }
+    pub fn new(syscalls: S, blockstore: BS) -> ActorRuntime<S, BS> {
+        ActorRuntime { syscalls, blockstore }
     }
 
-    pub fn new_fvm_helper() -> ActorRuntime<FvmSyscalls, crate::blockstore::Blockstore> {
-        ActorRuntime {
-            syscalls: FvmSyscalls::default(),
-            blockstore: crate::blockstore::Blockstore::default(),
-        }
+    pub fn new_test_runtime() -> ActorRuntime<FakeSyscalls, MemoryBlockstore> {
+        ActorRuntime { syscalls: FakeSyscalls::default(), blockstore: MemoryBlockstore::default() }
     }
 
     /// Returns the address of the current actor as an ActorID

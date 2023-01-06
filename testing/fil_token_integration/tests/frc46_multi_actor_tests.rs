@@ -1,4 +1,5 @@
 use frc42_dispatch::method_hash;
+use frc46_token::token;
 use frc46_token::token::{state::TokenState, types::TransferReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
@@ -9,9 +10,10 @@ mod common;
 use common::frc46_token_helpers::TokenHelper;
 use common::{construct_tester, TestHelpers};
 use frc46_test_actor::{action, ActionParams, TestAction};
+use token_impl::{ConstructorParams, FactoryToken};
 
-const BASIC_TOKEN_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/basic_token_actor/basic_token_actor.compact.wasm";
+const FACTORY_TOKEN_ACTOR_WASM: &str =
+    "../../target/debug/wbuild/frc46_factory_token/frc46_factory_token.compact.wasm";
 const TEST_ACTOR_WASM: &str =
     "../../target/debug/wbuild/frc46_test_actor/frc46_test_actor.compact.wasm";
 
@@ -26,10 +28,16 @@ fn frc46_multi_actor_tests() {
 
     let operator: [Account; 1] = tester.create_accounts().unwrap();
 
-    let initial_token_state = TokenState::new(&blockstore).unwrap();
+    let initial_token_state = FactoryToken {
+        token: TokenState::new(&blockstore).unwrap(),
+        name: String::new(),
+        symbol: String::new(),
+        granularity: 1,
+        minter: None,
+    };
 
     let token_actor =
-        tester.install_actor_with_state(BASIC_TOKEN_ACTOR_WASM, 10000, initial_token_state);
+        tester.install_actor_with_state(FACTORY_TOKEN_ACTOR_WASM, 10000, initial_token_state);
     // we'll use up to four actors for some of these tests, though most use only two
     let alice = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
     let bob = tester.install_actor_stateless(TEST_ACTOR_WASM, 10011);
@@ -39,8 +47,30 @@ fn frc46_multi_actor_tests() {
     // Instantiate machine
     tester.instantiate_machine(DummyExterns).unwrap();
 
+    // construct TEST token actor
+    {
+        let params = ConstructorParams {
+            name: "Test Token".into(),
+            symbol: "TEST".into(),
+            granularity: 1,
+            minter: token_actor,
+        };
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method(
+            operator[0].1,
+            token_actor,
+            method_hash!("Constructor"),
+            Some(params),
+        );
+        assert!(
+            ret_val.msg_receipt.exit_code.is_success(),
+            "token constructor returned {:#?}",
+            ret_val
+        );
+    }
+
     // construct actors
-    for actor in [token_actor, alice, bob, carol, dave] {
+    for actor in [alice, bob, carol, dave] {
         let ret_val = tester.call_method(operator[0].1, actor, method_hash!("Constructor"), None);
         assert!(ret_val.msg_receipt.exit_code.is_success());
     }

@@ -8,7 +8,8 @@ use frcxx_nft::{
     NFT,
 };
 use fvm_actor_utils::{
-    blockstore::Blockstore, messaging::FvmMessenger, syscalls::FvmSyscalls, util::ActorRuntime,
+    blockstore::Blockstore, messaging::FvmMessenger, syscalls::fvm_syscalls::FvmSyscalls,
+    util::ActorRuntime,
 };
 use fvm_ipld_encoding::{
     de::DeserializeOwned,
@@ -36,7 +37,7 @@ fn invoke(params: u32) -> u32 {
     // let actor_helper = FvmActor {};
     let messenger = FvmMessenger::default();
     let root_cid = sdk::sself::root().unwrap();
-    let helpers = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_helper();
+    let helpers = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
     let mut state = NFTState::load(&helpers, &root_cid).unwrap();
     let mut handle = NFT::wrap(helpers, &mut state);
 

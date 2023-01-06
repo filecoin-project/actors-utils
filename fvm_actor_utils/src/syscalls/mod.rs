@@ -5,11 +5,8 @@ use fvm_shared::{
 };
 use thiserror::Error;
 
-mod fvm_syscalls;
-pub use fvm_syscalls::FvmSyscalls;
-
-mod fake_syscalls;
-pub use fake_syscalls::FakeSyscalls;
+pub mod fake_syscalls;
+pub mod fvm_syscalls;
 
 /// Copied to avoid linking against `fvm_sdk` for non-WASM targets
 #[derive(Copy, Clone, Debug, Error)]

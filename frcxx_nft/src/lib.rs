@@ -430,7 +430,7 @@ where
 #[cfg(test)]
 mod test {
 
-    use fvm_actor_utils::{syscalls::FakeSyscalls, util::ActorRuntime};
+    use fvm_actor_utils::{syscalls::fake_syscalls::FakeSyscalls, util::ActorRuntime};
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::{address::Address, ActorID};
@@ -449,7 +449,7 @@ mod test {
 
     #[test]
     fn it_mints_tokens_incrementally() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut state = NFTState::new(&helper).unwrap();
         let mut nft = NFT::wrap(helper, &mut state);
 
@@ -518,7 +518,7 @@ mod test {
 
     #[test]
     fn it_transfers_tokens() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut state = NFTState::new(&helper).unwrap();
         let mut nft = NFT::wrap(helper, &mut state);
 
@@ -633,7 +633,7 @@ mod test {
 
     #[test]
     fn it_burns_tokens() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut state = NFTState::new(&helper).unwrap();
         let mut nft = NFT::wrap(helper, &mut state);
 
@@ -729,7 +729,7 @@ mod test {
 
     #[test]
     fn it_allows_account_level_delegation() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut state = NFTState::new(&helper).unwrap();
         let mut nft = NFT::wrap(helper, &mut state);
 
@@ -934,7 +934,7 @@ mod test {
 
     #[test]
     fn it_allows_token_level_delegation() {
-        let helpers = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helpers = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut state = NFTState::new(&helpers).unwrap();
         let mut nft = NFT::wrap(helpers, &mut state);
 

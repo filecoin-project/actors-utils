@@ -1,9 +1,11 @@
 use anyhow::Result;
+use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_sdk;
 use fvm_shared::{address::Address, MethodNum};
 
 use super::Syscalls;
+use crate::util::ActorRuntime;
 
 /// Runtime that delegates to fvm_sdk allowing actors to be deployed on-chain
 #[derive(Default, Debug, Clone, Copy)]
@@ -30,5 +32,14 @@ impl Syscalls for FvmSyscalls {
 
     fn resolve_address(&self, addr: &Address) -> Option<fvm_shared::ActorID> {
         fvm_sdk::actor::resolve_address(addr)
+    }
+}
+
+impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
+    pub fn new_fvm_runtime() -> ActorRuntime<FvmSyscalls, crate::blockstore::Blockstore> {
+        ActorRuntime {
+            syscalls: FvmSyscalls::default(),
+            blockstore: crate::blockstore::Blockstore::default(),
+        }
     }
 }

@@ -43,7 +43,7 @@ where
     BS: Blockstore,
 {
     /// Runtime services to interact with the execution environment
-    pub runtime: ActorRuntime<S, BS>,
+    runtime: ActorRuntime<S, BS>,
     /// Reference to token state that will be inspected/mutated
     state: &'st mut TokenState,
     /// Minimum granularity of token amounts.
@@ -109,6 +109,11 @@ where
     /// Get a reference to the wrapped state tree
     pub fn state(&self) -> &TokenState {
         self.state
+    }
+
+    /// Get a reference to the underlying runtime
+    pub fn runtime(&self) -> &ActorRuntime<S, BS> {
+        &self.runtime
     }
 
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
@@ -738,7 +743,7 @@ mod test {
 
     use fvm_actor_utils::messaging::{MessagingError, RECEIVER_HOOK_METHOD_NUM};
     use fvm_actor_utils::receiver::{ReceiverHookError, UniversalReceiverParams};
-    use fvm_actor_utils::syscalls::FakeSyscalls;
+    use fvm_actor_utils::syscalls::fake_syscalls::FakeSyscalls;
     use fvm_actor_utils::util::ActorRuntime;
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
@@ -803,7 +808,7 @@ mod test {
         }
 
         // simulate the token state being a node in a larger state tree
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut actor_state = ActorState {
             token_state: Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs())
                 .unwrap(),
@@ -837,7 +842,7 @@ mod test {
 
     #[test]
     fn it_instantiates_and_persists() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         // create a new token
         let mut state = Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         // wrap the token state, moving it into a TokenHandle
@@ -877,7 +882,7 @@ mod test {
 
     #[test]
     fn it_instantiates_with_variable_bit_width() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state_with_bit_width(helper.bs(), 2)
                 .unwrap();
@@ -894,7 +899,7 @@ mod test {
 
     #[test]
     fn it_mutates_externally_loaded_state() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut state = TokenState::new(&helper).unwrap();
         let mut token = Token::<FakeSyscalls, MemoryBlockstore>::wrap(helper, 1, &mut state);
 
@@ -931,7 +936,7 @@ mod test {
 
     #[test]
     fn it_provides_atomic_transactions() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -962,7 +967,7 @@ mod test {
 
     #[test]
     fn it_mints() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1197,7 +1202,7 @@ mod test {
 
     #[test]
     fn it_fails_to_mint_if_receiver_hook_aborts() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1236,7 +1241,7 @@ mod test {
 
     #[test]
     fn it_burns() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1289,7 +1294,7 @@ mod test {
 
     #[test]
     fn it_fails_to_burn_below_zero() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1312,7 +1317,7 @@ mod test {
 
     #[test]
     fn it_sets_balances() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1356,7 +1361,7 @@ mod test {
 
     #[test]
     fn it_transfers() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1384,12 +1389,15 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        let intermediate = hook.call(&token.runtime).unwrap();
+        let ret = token.transfer_return(intermediate).unwrap();
 
         // owner has 100 - 60 = 40
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(40));
+        assert_eq!(ret.from_balance, TokenAmount::from_atto(40));
         // receiver has 0 + 60 = 60
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_atto(60));
+        assert_eq!(ret.to_balance, TokenAmount::from_atto(60));
         // total supply is unchanged
         assert_eq!(token.total_supply(), TokenAmount::from_atto(100));
 
@@ -1450,7 +1458,7 @@ mod test {
 
     #[test]
     fn it_transfers_to_self() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1525,7 +1533,7 @@ mod test {
 
     #[test]
     fn it_transfers_to_uninitialized_addresses() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1580,7 +1588,7 @@ mod test {
 
     #[test]
     fn it_transfers_from_uninitialized_addresses() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1655,7 +1663,7 @@ mod test {
 
     #[test]
     fn it_fails_to_transfer_when_receiver_hook_aborts() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1723,7 +1731,7 @@ mod test {
 
     #[test]
     fn it_fails_to_transfer_when_insufficient_balance() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1760,7 +1768,7 @@ mod test {
 
     #[test]
     fn it_tracks_allowances() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1830,7 +1838,7 @@ mod test {
 
     #[test]
     fn it_sets_allowances() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1859,7 +1867,7 @@ mod test {
 
     #[test]
     fn it_allows_delegated_transfer() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -1903,12 +1911,18 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        let intermediate = hook.call(&token.runtime).unwrap();
+        let ret = token.transfer_from_return(intermediate).unwrap();
 
         // verify all balances are correct
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(40));
+        assert_eq!(ret.from_balance, TokenAmount::from_atto(40));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_atto(60));
+        assert_eq!(ret.to_balance, TokenAmount::from_atto(60));
         assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::zero());
+        // verify remaining allowance
+        assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::from_atto(40));
+        assert_eq!(ret.allowance, TokenAmount::from_atto(40));
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
@@ -1965,7 +1979,7 @@ mod test {
 
     #[test]
     fn it_allows_delegated_transfer_by_resolvable_pubkey() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -2048,7 +2062,7 @@ mod test {
 
     #[test]
     fn it_disallows_delgated_transfer_by_uninitialised_pubkey() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -2140,7 +2154,7 @@ mod test {
 
     #[test]
     fn it_allows_delegated_burns() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -2204,7 +2218,7 @@ mod test {
 
     #[test]
     fn it_allows_delegated_burns_by_resolvable_pubkeys() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -2270,7 +2284,7 @@ mod test {
 
     #[test]
     fn it_disallows_delegated_burns_by_uninitialised_pubkeys() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -2338,7 +2352,7 @@ mod test {
 
     #[test]
     fn it_fails_to_transfer_when_insufficient_allowance() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -2383,7 +2397,7 @@ mod test {
 
     #[test]
     fn it_doesnt_use_allowance_when_insufficent_balance() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);
@@ -2429,7 +2443,7 @@ mod test {
 
     #[test]
     fn it_enforces_granularity() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         // construct token with 100 granularity
@@ -2561,7 +2575,7 @@ mod test {
 
     #[test]
     fn it_doesnt_initialize_accounts_when_default_values_can_be_returned() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let token = new_token(helper, &mut token_state);
@@ -2649,7 +2663,7 @@ mod test {
             transfer: u32,
             behaviour: &str,
         ) {
-            let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+            let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
             let mut token_state = TokenState::new(&helper).unwrap();
             let mut token = setup_accounts(
                 operator,
@@ -2804,7 +2818,7 @@ mod test {
     #[test]
     fn check_invariants_returns_a_state_summary() {
         //! Simulate a delgated transfer flow and then check the invariants manually
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_helper();
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         let mut token = new_token(helper, &mut token_state);

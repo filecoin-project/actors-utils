@@ -9,7 +9,7 @@ use frc46_token::token::types::{
 };
 use frc46_token::token::Token;
 use fvm_actor_utils::blockstore::Blockstore;
-use fvm_actor_utils::syscalls::FvmSyscalls;
+use fvm_actor_utils::syscalls::fvm_syscalls::FvmSyscalls;
 use fvm_actor_utils::util::ActorRuntime;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::{RawBytes, DAG_CBOR};
@@ -31,7 +31,8 @@ struct BasicToken<'state> {
 /// Implementation of the token API in a FVM actor
 ///
 /// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
-impl FRC46Token<RuntimeError> for BasicToken<'_> {
+impl FRC46Token for BasicToken<'_> {
+    type TokenError = RuntimeError;
     fn name(&self) -> String {
         String::from("FRC-0046 Token")
     }
@@ -44,11 +45,11 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         1
     }
 
-    fn total_supply(&self) -> TotalSupplyReturn {
+    fn total_supply(&mut self) -> TotalSupplyReturn {
         self.util.total_supply()
     }
 
-    fn balance_of(&self, params: Address) -> Result<BalanceReturn, RuntimeError> {
+    fn balance_of(&mut self, params: Address) -> Result<BalanceReturn, RuntimeError> {
         Ok(self.util.balance_of(&params)?)
     }
 
@@ -65,7 +66,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let hook_ret = hook.call(&self.util.runtime)?;
+        let hook_ret = hook.call(self.util.runtime())?;
 
         self.reload(&cid)?;
         let ret = self.util.transfer_return(hook_ret)?;
@@ -90,7 +91,7 @@ impl FRC46Token<RuntimeError> for BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let hook_ret = hook.call(&self.util.runtime)?;
+        let hook_ret = hook.call(self.util.runtime())?;
 
         self.reload(&cid)?;
         let ret = self.util.transfer_from_return(hook_ret)?;
@@ -174,7 +175,7 @@ impl BasicToken<'_> {
         let cid = self.util.flush()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let hook_ret = hook.call(&self.util.runtime)?;
+        let hook_ret = hook.call(self.util.runtime())?;
 
         self.reload(&cid)?;
         let ret = self.util.mint_return(hook_ret)?;
@@ -216,7 +217,7 @@ pub fn invoke(params: u32) -> u32 {
         rest => {
             let root_cid = sdk::sself::root().unwrap();
 
-            let helper = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_helper();
+            let helper = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
             let mut token_state =
                 Token::<FvmSyscalls, Blockstore>::load_state(helper.bs(), &root_cid).unwrap();
 
@@ -317,7 +318,7 @@ pub fn invoke(params: u32) -> u32 {
 }
 
 fn constructor() -> u32 {
-    let helper = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_helper();
+    let helper = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
     let mut token_state = Token::<FvmSyscalls, Blockstore>::create_state(helper.bs()).unwrap();
     let mut token = Token::wrap(helper, 1, &mut token_state);
     let cid = token.flush().unwrap();

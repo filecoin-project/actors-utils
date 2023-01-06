@@ -102,7 +102,7 @@ impl<B: Blockstore, E: Externs> TokenHelper for Tester<B, E> {
         operator_data: RawBytes,
     ) -> ApplyRet {
         let ret = self.mint_tokens(operator, token_actor, target, amount, operator_data);
-        assert!(ret.msg_receipt.exit_code.is_success());
+        assert!(ret.msg_receipt.exit_code.is_success(), "{ret:?}");
         ret
     }
 
