@@ -22,7 +22,7 @@ cid = { version = "0.8.5", default-features = false }
 fvm = { version = "2.0.0", default-features = false }
 fvm_integration_tests = "2.0.0"
 frc46_test_actor = { path = "../testing/fil_token_integration/actors/frc46_test_actor" }
-actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "fc03ddd4df8b91171d7c262fd9f7a2eebf5f76d9" }
+actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "e3f3db964434dc354ea52d08c8778b4beabce5f7" }
 
 [build-dependencies]
 wasm-builder = "3.0"
