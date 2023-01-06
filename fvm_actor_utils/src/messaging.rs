@@ -6,7 +6,6 @@ use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::Error as IpldError;
 use fvm_sdk::{actor, message, send, sys::ErrorNumber};
 use fvm_shared::error::ExitCode;
-use fvm_shared::receipt::Receipt;
 use fvm_shared::MethodNum;
 use fvm_shared::METHOD_SEND;
 use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
@@ -51,6 +50,21 @@ impl From<&MessagingError> for ExitCode {
     }
 }
 
+/// Matches the SDK's Response type
+/// We duplicate the type here, because the Messaging trait below must be implemented
+/// by actors that shouldn't depend on the SDK
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Response {
+    pub exit_code: ExitCode,
+    pub return_data: Option<IpldBlock>,
+}
+
+impl Response {
+    pub fn new(r: send::Response) -> Self {
+        Self { exit_code: (r.exit_code), return_data: r.return_data }
+    }
+}
+
 /// An abstraction used to send messages to other actors
 pub trait Messaging {
     /// Returns the address of the current actor as an ActorID
@@ -63,7 +77,7 @@ pub trait Messaging {
         method: MethodNum,
         params: Option<IpldBlock>,
         value: &TokenAmount,
-    ) -> Result<Receipt>;
+    ) -> Result<Response>;
 
     /// Attempts to resolve the given address to its ID address form
     ///
@@ -131,8 +145,8 @@ impl Messaging for FvmMessenger {
         method: MethodNum,
         params: Option<IpldBlock>,
         value: &TokenAmount,
-    ) -> Result<Receipt> {
-        Ok(send::send(to, method, params, value.clone())?)
+    ) -> Result<Response> {
+        Ok(Response::new(send::send(to, method, params, value.clone())?))
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
@@ -200,19 +214,15 @@ impl Messaging for FakeMessenger {
         method: MethodNum,
         params: Option<IpldBlock>,
         _value: &TokenAmount,
-    ) -> Result<Receipt> {
+    ) -> Result<Response> {
         self.last_message.borrow_mut().replace(FakeMessage { params, method });
 
         if *self.abort_next_send.borrow() {
             self.abort_next_send.replace(false);
-            return Ok(Receipt {
-                exit_code: ExitCode::USR_UNSPECIFIED,
-                gas_used: 0,
-                return_data: Default::default(),
-            });
+            return Ok(Response { exit_code: ExitCode::USR_UNSPECIFIED, return_data: None });
         }
 
-        Ok(Receipt { exit_code: ExitCode::OK, return_data: Default::default(), gas_used: 0 })
+        Ok(Response { exit_code: ExitCode::OK, return_data: None })
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {

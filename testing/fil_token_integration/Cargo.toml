@@ -21,7 +21,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }
 
 [dev-dependencies]
-actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "ad37e93e525d9f6f69ec9b2eba37c27ebca120f3" }
+actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "fc03ddd4df8b91171d7c262fd9f7a2eebf5f76d9" }
 basic_nft_actor = {path = "actors/basic_nft_actor"}
 basic_receiving_actor = { path = "actors/basic_receiving_actor" }
 basic_token_actor = { path = "actors/basic_token_actor" }

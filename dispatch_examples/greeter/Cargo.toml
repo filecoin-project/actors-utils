@@ -7,14 +7,14 @@ edition = "2021"
 frc42_dispatch = { path = "../../frc42_dispatch" }
 fvm_ipld_blockstore = "0.1.1"
 fvm_ipld_encoding = "=0.2.3"
-fvm_sdk =  "=2.1.0"
+fvm_sdk =  "=2.2.0"
 fvm_shared = { version = "2.0.0" }
 
 [dev-dependencies]
 cid = { version = "0.8.5", default-features = false }
 fvm = { version = "2.0.0", default-features = false }
 fvm_integration_tests = "2.0.0-alpha.1"
-actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "ad37e93e525d9f6f69ec9b2eba37c27ebca120f3" }
+actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "fc03ddd4df8b91171d7c262fd9f7a2eebf5f76d9" }
 
 [build-dependencies]
 substrate-wasm-builder = "4.0"
