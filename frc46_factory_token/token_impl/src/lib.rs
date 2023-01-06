@@ -524,3 +524,71 @@ where
         )
     }))
 }
+
+#[cfg(test)]
+mod test {
+    use frc46_token::token::types::FRC46Token;
+    use fvm_actor_utils::{
+        shared_blockstore::SharedMemoryBlockstore, syscalls::fake_syscalls::FakeSyscalls,
+        util::ActorRuntime,
+    };
+    use fvm_ipld_encoding::RawBytes;
+    use fvm_shared::{address::Address, econ::TokenAmount};
+
+    use crate::{FactoryToken, MintParams, RuntimeError};
+
+    const ALICE: Address = Address::new_id(1);
+    const BOB: Address = Address::new_id(2);
+
+    // set up a token instance for testing
+    // fake syscalls will always return actor id 1 as the caller
+    // so we'd typically want that as the minter (unless we want to be denied)
+    fn setup_token(minter: &Address) -> FactoryToken<FakeSyscalls, SharedMemoryBlockstore> {
+        let runtime =
+            ActorRuntime::<FakeSyscalls, SharedMemoryBlockstore>::new_shared_test_runtime();
+        let actor_id = runtime.resolve_id(&minter).unwrap();
+        FactoryToken::new(
+            runtime,
+            String::from("Test Token"),
+            String::from("TEST"),
+            1,
+            Some(actor_id),
+        )
+    }
+
+    #[test]
+    fn it_mints() {
+        let mut token = setup_token(&ALICE);
+
+        let ret = token
+            .mint(MintParams {
+                initial_owner: BOB,
+                amount: TokenAmount::from_whole(10),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap();
+
+        // check balance
+        assert_eq!(ret.balance, TokenAmount::from_whole(10));
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(10));
+    }
+
+    #[test]
+    fn it_denies_unauthorised_minter() {
+        let mut token = setup_token(&BOB);
+
+        let err = token
+            .mint(MintParams {
+                initial_owner: ALICE,
+                amount: TokenAmount::from_whole(10),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap_err();
+
+        // check error
+        match err {
+            RuntimeError::AddressNotAuthorized => {}
+            _ => panic!("unexpected error"),
+        }
+    }
+}
