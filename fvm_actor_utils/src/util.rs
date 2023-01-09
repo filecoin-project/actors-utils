@@ -2,13 +2,13 @@ use cid::Cid;
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::ipld_block::IpldBlock;
-use fvm_shared::receipt::Receipt;
 use fvm_shared::MethodNum;
 use fvm_shared::METHOD_SEND;
 use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
 use num_traits::Zero;
 use thiserror::Error;
 
+use crate::messaging::Response;
 use crate::messaging::{Messaging, MessagingError, Result as MessagingResult};
 use crate::syscalls::fake_syscalls::FakeSyscalls;
 use crate::syscalls::NoStateError;
@@ -53,7 +53,7 @@ impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
         method: MethodNum,
         params: Option<IpldBlock>,
         value: TokenAmount,
-    ) -> MessagingResult<Receipt> {
+    ) -> MessagingResult<Response> {
         Ok(self.syscalls.send(to, method, params, value)?)
     }
 
@@ -140,9 +140,9 @@ impl<S: Syscalls, BS: Blockstore> Messaging for ActorRuntime<S, BS> {
         to: &Address,
         method: fvm_shared::MethodNum,
         params: Option<IpldBlock>,
-        value: &fvm_shared::econ::TokenAmount,
-    ) -> crate::messaging::Result<Receipt> {
-        let res = self.syscalls.send(to, method, params, value.clone());
+        value: fvm_shared::econ::TokenAmount,
+    ) -> crate::messaging::Result<Response> {
+        let res = self.syscalls.send(to, method, params, value);
         Ok(res?)
     }
 }

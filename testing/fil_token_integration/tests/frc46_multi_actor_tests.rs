@@ -1,5 +1,4 @@
 use frc42_dispatch::method_hash;
-use frc46_token::token;
 use frc46_token::token::{state::TokenState, types::TransferReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
@@ -53,7 +52,7 @@ fn frc46_multi_actor_tests() {
             name: "Test Token".into(),
             symbol: "TEST".into(),
             granularity: 1,
-            minter: token_actor,
+            minter: operator[0].1,
         };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method(
@@ -64,8 +63,7 @@ fn frc46_multi_actor_tests() {
         );
         assert!(
             ret_val.msg_receipt.exit_code.is_success(),
-            "token constructor returned {:#?}",
-            ret_val
+            "token constructor returned {ret_val:#?}"
         );
     }
 

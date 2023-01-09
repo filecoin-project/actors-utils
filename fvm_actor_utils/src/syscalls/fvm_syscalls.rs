@@ -5,7 +5,7 @@ use fvm_sdk;
 use fvm_shared::{address::Address, MethodNum};
 
 use super::Syscalls;
-use crate::util::ActorRuntime;
+use crate::{messaging::Response, util::ActorRuntime};
 
 /// Runtime that delegates to fvm_sdk allowing actors to be deployed on-chain
 #[derive(Default, Debug, Clone, Copy)]
@@ -26,8 +26,11 @@ impl Syscalls for FvmSyscalls {
         method: MethodNum,
         params: Option<IpldBlock>,
         value: fvm_shared::econ::TokenAmount,
-    ) -> fvm_sdk::SyscallResult<fvm_shared::receipt::Receipt> {
-        fvm_sdk::send::send(to, method, params, value)
+    ) -> fvm_sdk::SyscallResult<Response> {
+        match fvm_sdk::send::send(to, method, params, value) {
+            Ok(res) => Ok(Response { exit_code: res.exit_code, return_data: res.return_data }),
+            Err(err) => Err(err),
+        }
     }
 
     fn resolve_address(&self, addr: &Address) -> Option<fvm_shared::ActorID> {

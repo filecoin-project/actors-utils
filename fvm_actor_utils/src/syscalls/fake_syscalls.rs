@@ -1,13 +1,13 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use cid::Cid;
-use fvm_ipld_encoding::{ipld_block::IpldBlock, RawBytes};
+use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_shared::{
-    address::Address, econ::TokenAmount, error::ErrorNumber, error::ExitCode, receipt::Receipt,
-    ActorID,
+    address::Address, econ::TokenAmount, error::ErrorNumber, error::ExitCode, ActorID,
 };
 
 use super::Syscalls;
+use crate::messaging::Response;
 
 #[derive(Clone, Default, Debug)]
 pub struct TestMessage {
@@ -49,7 +49,7 @@ impl Syscalls for FakeSyscalls {
         method: fvm_shared::MethodNum,
         params: Option<fvm_ipld_encoding::ipld_block::IpldBlock>,
         value: fvm_shared::econ::TokenAmount,
-    ) -> Result<Receipt, ErrorNumber> {
+    ) -> Result<Response, ErrorNumber> {
         if *self.abort_next_send.borrow() {
             self.abort_next_send.replace(false);
             Err(ErrorNumber::AssertionFailed)
@@ -79,10 +79,7 @@ impl Syscalls for FakeSyscalls {
             let message = TestMessage { method, params: params.clone(), value };
             self.last_message.replace(Some(message));
 
-            // derive fake return data, echoing the params
-            let return_data = params.map(|b| RawBytes::from(b.data)).unwrap_or(RawBytes::default());
-
-            Ok(Receipt { exit_code: ExitCode::OK, return_data, gas_used: 0 })
+            Ok(Response { exit_code: ExitCode::OK, return_data: params })
         }
     }
 

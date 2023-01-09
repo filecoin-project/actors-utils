@@ -1,9 +1,9 @@
 use cid::Cid;
 use fvm_ipld_encoding::ipld_block::IpldBlock;
-use fvm_shared::{
-    address::Address, econ::TokenAmount, error::ErrorNumber, receipt::Receipt, ActorID, MethodNum,
-};
+use fvm_shared::{address::Address, econ::TokenAmount, error::ErrorNumber, ActorID, MethodNum};
 use thiserror::Error;
+
+use crate::messaging::Response;
 
 pub mod fake_syscalls;
 pub mod fvm_syscalls;
@@ -31,7 +31,7 @@ pub trait Syscalls {
         method: MethodNum,
         params: Option<IpldBlock>,
         value: TokenAmount,
-    ) -> Result<Receipt, ErrorNumber>;
+    ) -> Result<Response, ErrorNumber>;
 
     /// Resolves the ID address of an actor.
     ///

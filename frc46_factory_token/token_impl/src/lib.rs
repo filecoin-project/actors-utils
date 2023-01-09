@@ -100,9 +100,9 @@ pub struct ConstructorParams {
 
 pub fn construct_token(params: ConstructorParams) -> Result<u32, RuntimeError> {
     let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
-    let actor_id = runtime.actor_id();
+    let minter = runtime.resolve_id(&params.minter)?;
     let token =
-        FactoryToken::new(&runtime, params.name, params.symbol, params.granularity, Some(actor_id));
+        FactoryToken::new(&runtime, params.name, params.symbol, params.granularity, Some(minter));
 
     let cid = token.save()?;
     fvm_sdk::sself::set_root(&cid)?;
@@ -301,9 +301,7 @@ impl FactoryToken {
         let minter = self.minter.ok_or(RuntimeError::MintingDisabled)?;
         let caller_id = sdk::message::caller();
         if caller_id != minter {
-            return Err(RuntimeError::Serialization(format!(
-                "caller {caller_id:?} minter {minter:?}"
-            )));
+            return Err(RuntimeError::AddressNotAuthorized);
         }
 
         let mut hook = self.token().mint(

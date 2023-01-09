@@ -683,11 +683,11 @@ where
 
         match receipt.exit_code {
             ExitCode::OK => Ok(()),
-            abort_code => Err(ReceiverHookError::Receiver {
-                address: *token_receiver,
-                exit_code: abort_code,
-                return_data: receipt.return_data,
-            }
+            abort_code => Err(ReceiverHookError::new_receiver_error(
+                *token_receiver,
+                abort_code,
+                receipt.return_data,
+            )
             .into()),
         }
     }
