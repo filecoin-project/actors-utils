@@ -7,10 +7,10 @@ edition = "2021"
 cid = { version = "0.8.5", default-features = false }
 frc42_dispatch = { path = "../frc42_dispatch" }
 frc46_token = { path = "../frc46_token" }
-fvm_actor_utils = { version = "2.0.0", path = "../fvm_actor_utils" }
+fvm_actor_utils = { path = "../fvm_actor_utils" }
 fvm_ipld_blockstore = "0.1.1"
 fvm_ipld_encoding = "0.2.2"
-fvm_sdk = { version = "2.0.0" }
+fvm_sdk = "=2.2.0"
 fvm_shared = { version = "2.0.0" }
 serde = { version = "1.0.136", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }
