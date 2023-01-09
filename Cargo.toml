@@ -20,7 +20,3 @@ members = [
     "frc46_factory_token",
     "frc46_factory_token/token_impl"
 ]
-
-[patch.crates-io]
-# tracking issue: https://github.com/bitvecto-rs/funty/issues/7
-funty = { git = "https://github.com/bitvecto-rs/funty/", rev = "7ef0d890fbcd8b3def1635ac1a877fc298488446" }
