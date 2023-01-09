@@ -11,9 +11,8 @@ use frc46_token::token::{
     Token, TokenError,
 };
 use fvm_actor_utils::{
-    blockstore::Blockstore,
-    messaging::{FvmMessenger, Messaging, MessagingError},
-    receiver::ReceiverHookError,
+    blockstore::Blockstore, messaging::MessagingError, receiver::ReceiverHookError,
+    syscalls::fvm_syscalls::FvmSyscalls, util::ActorRuntime,
 };
 use fvm_ipld_blockstore::{Block, Blockstore as _BS};
 use fvm_ipld_encoding::{
@@ -100,11 +99,10 @@ pub struct ConstructorParams {
 }
 
 pub fn construct_token(params: ConstructorParams) -> Result<u32, RuntimeError> {
-    let bs = Blockstore::default();
-    let msg = FvmMessenger::default();
-    let actor_id = msg.resolve_id(&params.minter)?;
+    let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
+    let minter = runtime.resolve_id(&params.minter)?;
     let token =
-        FactoryToken::new(&bs, params.name, params.symbol, params.granularity, Some(actor_id));
+        FactoryToken::new(&runtime, params.name, params.symbol, params.granularity, Some(minter));
 
     let cid = token.save()?;
     fvm_sdk::sself::set_root(&cid)?;
@@ -167,7 +165,7 @@ impl FRC46Token for FactoryToken {
         let cid = self.save()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let hook_ret = hook.call(self.token().msg())?;
+        let hook_ret = hook.call(self.token().runtime())?;
 
         self.reload(&cid)?;
         let ret = self.token().transfer_return(hook_ret)?;
@@ -192,7 +190,7 @@ impl FRC46Token for FactoryToken {
         let cid = self.save()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let hook_ret = hook.call(self.token().msg())?;
+        let hook_ret = hook.call(self.token().runtime())?;
 
         self.reload(&cid)?;
         let ret = self.token().transfer_from_return(hook_ret)?;
@@ -265,10 +263,9 @@ impl FactoryToken {
         FactoryToken { token: TokenState::new(&bs).unwrap(), name, symbol, granularity, minter }
     }
 
-    pub fn token(&mut self) -> Token<'_, Blockstore, FvmMessenger> {
-        let bs = Blockstore::default();
-        let msg = FvmMessenger::default();
-        Token::wrap(bs, msg, self.granularity, &mut self.token)
+    pub fn token(&mut self) -> Token<'_, FvmSyscalls, Blockstore> {
+        let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
+        Token::wrap(runtime, self.granularity, &mut self.token)
     }
 
     pub fn load(cid: &Cid) -> Result<Self, RuntimeError> {
@@ -318,7 +315,7 @@ impl FactoryToken {
         let cid = self.save()?;
         sdk::sself::set_root(&cid).unwrap();
 
-        let hook_ret = hook.call(self.token().msg())?;
+        let hook_ret = hook.call(self.token().runtime())?;
 
         self.reload(&cid)?;
         let ret = self.token().mint_return(hook_ret)?;

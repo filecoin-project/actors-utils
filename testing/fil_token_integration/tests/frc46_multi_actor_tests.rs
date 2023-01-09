@@ -63,8 +63,7 @@ fn frc46_multi_actor_tests() {
         );
         assert!(
             ret_val.msg_receipt.exit_code.is_success(),
-            "token constructor returned {:#?}",
-            ret_val
+            "token constructor returned {ret_val:#?}"
         );
     }
 

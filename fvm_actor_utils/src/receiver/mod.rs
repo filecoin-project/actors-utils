@@ -144,7 +144,7 @@ impl<T: RecipientData> ReceiverHook<T> {
                     protocol: fvm_ipld_encoding::CodecProtocol::Cbor,
                 })
             })?,
-            &TokenAmount::zero(),
+            TokenAmount::zero(),
         )?;
 
         match ret.exit_code {
@@ -178,13 +178,13 @@ impl<T: RecipientData> std::ops::Drop for ReceiverHook<T> {
 #[cfg(test)]
 mod test {
     use frc42_dispatch::method_hash;
+    use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::address::Address;
 
     use super::{ReceiverHook, RecipientData};
-    use crate::messaging::FakeMessenger;
+    use crate::{syscalls::fake_syscalls::FakeSyscalls, util::ActorRuntime};
 
-    const TOKEN_ACTOR: Address = Address::new_id(1);
     const ALICE: Address = Address::new_id(2);
 
     struct TestReturn;
@@ -205,10 +205,10 @@ mod test {
     #[test]
     fn calls_hook() {
         let mut hook = generate_hook();
-        let msg = FakeMessenger::new(TOKEN_ACTOR.id().unwrap(), 3);
-        assert!(msg.last_message.borrow().is_none());
-        hook.call(&msg).unwrap();
-        assert!(msg.last_message.borrow().is_some());
+        let util = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
+        assert!(util.syscalls.last_message.borrow().is_none());
+        hook.call(&util).unwrap();
+        assert!(util.syscalls.last_message.borrow().is_some());
     }
 
     #[test]
