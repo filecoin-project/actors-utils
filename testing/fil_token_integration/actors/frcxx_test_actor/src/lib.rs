@@ -10,6 +10,7 @@ use fvm_ipld_encoding::{
     RawBytes, DAG_CBOR,
 };
 use fvm_sdk as sdk;
+use fvm_shared::receipt::Receipt;
 use fvm_shared::{
     address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode, sys::SendFlags,
 };
@@ -69,7 +70,7 @@ pub fn action(action: TestAction) -> RawBytes {
 /// Execute the Transfer action
 fn transfer(token: Address, to: Address, token_ids: Vec<TokenID>, operator_data: RawBytes) -> u32 {
     let transfer_params = TransferParams { to, token_ids, operator_data };
-    let receipt = sdk::send::send(
+    let ret = sdk::send::send(
         &token,
         method_hash!("Transfer"),
         IpldBlock::serialize_cbor(&transfer_params).unwrap(),
@@ -79,12 +80,17 @@ fn transfer(token: Address, to: Address, token_ids: Vec<TokenID>, operator_data:
     )
     .unwrap();
     // ignore failures at this level and return the transfer call receipt so caller can decide what to do
-    return_ipld(&receipt)
+    return_ipld(&Receipt {
+        exit_code: ret.exit_code,
+        return_data: ret.return_data.map_or(RawBytes::default(), |b| RawBytes::new(b.data)),
+        gas_used: 0,
+        events_root: None,
+    })
 }
 
 /// Execute the Burn action
 fn burn(token: Address, token_ids: Vec<TokenID>) -> u32 {
-    let receipt = sdk::send::send(
+    let ret = sdk::send::send(
         &token,
         method_hash!("Burn"),
         IpldBlock::serialize_cbor(&token_ids).unwrap(),
@@ -93,7 +99,7 @@ fn burn(token: Address, token_ids: Vec<TokenID>) -> u32 {
         SendFlags::default(),
     )
     .unwrap();
-    if !receipt.exit_code.is_success() {
+    if !ret.exit_code.is_success() {
         panic!("burn call failed");
     }
     NO_DATA_BLOCK_ID

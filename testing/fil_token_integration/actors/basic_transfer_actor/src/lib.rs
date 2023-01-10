@@ -117,12 +117,13 @@ fn invoke(input: u32) -> u32 {
 
             // get our balance
             let self_address = Address::new_id(sdk::message::receiver());
-            let balance_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("BalanceOf"), IpldBlock::serialize_cbor(&self_address).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
 
-            if !balance_receipt.exit_code.is_success() {
+            let balance_ret = sdk::send::send(&state.token_address.unwrap(), method_hash!("BalanceOf"),
+                IpldBlock::serialize_cbor(&self_address).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
+            if !balance_ret.exit_code.is_success() {
                 panic!("unable to get balance");
             }
-            let balance = balance_receipt.return_data.deserialize::<TokenAmount>().unwrap();
+            let balance = balance_ret.return_data.unwrap().deserialize::<TokenAmount>().unwrap();
 
             // transfer to target address
             let params = TransferParams {
@@ -131,8 +132,10 @@ fn invoke(input: u32) -> u32 {
                 operator_data: RawBytes::default(),
             };
 
-            let transfer_receipt = sdk::send::send(&state.token_address.unwrap(), method_hash!("Transfer"), IpldBlock::serialize_cbor(&params).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
-            if !transfer_receipt.exit_code.is_success() {
+            let transfer_ret = sdk::send::send(&state.token_address.unwrap(), method_hash!("Transfer"),
+
+                IpldBlock::serialize_cbor(&params).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
+            if !transfer_ret.exit_code.is_success() {
                 panic!("transfer call failed");
             }
 

@@ -49,6 +49,21 @@ pub enum ReceiverHookError {
     Receiver { address: Address, exit_code: ExitCode, return_data: RawBytes },
 }
 
+impl ReceiverHookError {
+    /// Construct a new ReceiverHookError::Receiver
+    pub fn new_receiver_error(
+        address: Address,
+        exit_code: ExitCode,
+        return_data: Option<IpldBlock>,
+    ) -> Self {
+        Self::Receiver {
+            address,
+            exit_code,
+            return_data: return_data.map_or(RawBytes::default(), |b| RawBytes::new(b.data)),
+        }
+    }
+}
+
 impl From<&ReceiverHookError> for ExitCode {
     fn from(error: &ReceiverHookError) -> Self {
         match error {
@@ -120,7 +135,7 @@ impl<T: RecipientData> ReceiverHook<T> {
             payload: mem::take(&mut self.token_params), // once encoded and sent, we don't need this anymore
         };
 
-        let receipt = msg.send(
+        let ret = msg.send(
             &self.address,
             RECEIVER_HOOK_METHOD_NUM,
             IpldBlock::serialize_cbor(&params).map_err(|e| {
@@ -132,16 +147,18 @@ impl<T: RecipientData> ReceiverHook<T> {
             &TokenAmount::zero(),
         )?;
 
-        match receipt.exit_code {
+        match ret.exit_code {
             ExitCode::OK => {
-                self.result_data.as_mut().unwrap().set_recipient_data(receipt.return_data);
+                self.result_data.as_mut().unwrap().set_recipient_data(
+                    ret.return_data.map_or(RawBytes::default(), |b| RawBytes::new(b.data)),
+                );
                 Ok(self.result_data.take().unwrap())
             }
-            abort_code => Err(ReceiverHookError::Receiver {
-                address: self.address,
-                exit_code: abort_code,
-                return_data: receipt.return_data,
-            }),
+            abort_code => Err(ReceiverHookError::new_receiver_error(
+                self.address,
+                abort_code,
+                ret.return_data,
+            )),
         }
     }
 }

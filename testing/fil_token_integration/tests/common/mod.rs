@@ -10,7 +10,7 @@ use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{
     address::Address, bigint::Zero, econ::TokenAmount, message::Message, state::StateTreeVersion,
-    version::NetworkVersion,
+    version::NetworkVersion, BLOCK_GAS_LIMIT,
 };
 use serde::Serialize;
 
@@ -77,7 +77,7 @@ impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {
         let message = Message {
             from,
             to,
-            gas_limit: 99999999,
+            gas_limit: BLOCK_GAS_LIMIT,
             method_num,
             sequence: unsafe { SEQUENCE },
             params: if let Some(params) = params { params } else { RawBytes::default() },

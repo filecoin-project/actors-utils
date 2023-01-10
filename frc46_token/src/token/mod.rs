@@ -670,20 +670,20 @@ where
         token_receiver: &Address,
         params: FRC46TokenReceived,
     ) -> Result<()> {
-        let receipt = self.msg.send(
+        let ret = self.msg.send(
             token_receiver,
             RECEIVER_HOOK_METHOD_NUM,
             IpldBlock::serialize_cbor(&params)?,
             &TokenAmount::zero(),
         )?;
 
-        match receipt.exit_code {
+        match ret.exit_code {
             ExitCode::OK => Ok(()),
-            abort_code => Err(ReceiverHookError::Receiver {
-                address: *token_receiver,
-                exit_code: abort_code,
-                return_data: receipt.return_data,
-            }
+            abort_code => Err(ReceiverHookError::new_receiver_error(
+                *token_receiver,
+                abort_code,
+                ret.return_data,
+            )
             .into()),
         }
     }
@@ -1355,12 +1355,15 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(token.msg()).unwrap();
+        let intermediate = hook.call(token.msg()).unwrap();
+        let ret = token.transfer_return(intermediate).unwrap();
 
         // owner has 100 - 60 = 40
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(40));
+        assert_eq!(ret.from_balance, TokenAmount::from_atto(40));
         // receiver has 0 + 60 = 60
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_atto(60));
+        assert_eq!(ret.to_balance, TokenAmount::from_atto(60));
         // total supply is unchanged
         assert_eq!(token.total_supply(), TokenAmount::from_atto(100));
 
@@ -1882,12 +1885,18 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(token.msg()).unwrap();
+        let intermediate = hook.call(token.msg()).unwrap();
+        let ret = token.transfer_from_return(intermediate).unwrap();
 
         // verify all balances are correct
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(40));
+        assert_eq!(ret.from_balance, TokenAmount::from_atto(40));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_atto(60));
+        assert_eq!(ret.to_balance, TokenAmount::from_atto(60));
         assert_eq!(token.balance_of(CAROL).unwrap(), TokenAmount::zero());
+        // verify remaining allowance
+        assert_eq!(token.allowance(ALICE, CAROL).unwrap(), TokenAmount::from_atto(40));
+        assert_eq!(ret.allowance, TokenAmount::from_atto(40));
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(

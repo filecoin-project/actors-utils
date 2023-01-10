@@ -24,7 +24,8 @@ test-coverage: install-toolchain
 		--exclude basic_nft_actor \
 		--exclude basic_transfer_actor \
 		--exclude frc46_test_actor \
-		--exclude frcxx_test_actor
+		--exclude frcxx_test_actor \
+		--exclude frc46_factory_token
 
 # separate actor testing stage to run from CI without coverage support
 test-actors: install-toolchain
@@ -40,3 +41,19 @@ clean:
 	cargo clean
 	find . -name '*.profraw' -delete
 	rm Cargo.lock
+
+# generate local coverage report in html format using grcov
+# install it with `cargo install grcov`
+# TODO: fix the output path for LLVM_PROFILE_FILE 
+local-coverage:
+	CARGO_INCREMENTAL=0 RUSTFLAGS='-Cinstrument-coverage' LLVM_PROFILE_FILE='target/coverage/raw/cargo-test-%p-%m.profraw' cargo test --workspace \
+		--exclude greeter \
+		--exclude fil_token_integration_tests \
+		--exclude basic_token_actor \
+		--exclude basic_receiving_actor \
+		--exclude basic_nft_actor \
+		--exclude basic_transfer_actor \
+		--exclude frc46_test_actor \
+		--exclude frcxx_test_actor \
+		--exclude frc46_factory_token
+	grcov . --binary-path ./target/debug/deps/ -s . -t html --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o target/coverage/html

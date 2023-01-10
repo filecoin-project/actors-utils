@@ -11,6 +11,7 @@ use fvm_ipld_encoding::{
     RawBytes, DAG_CBOR,
 };
 use fvm_sdk as sdk;
+use fvm_shared::receipt::Receipt;
 use fvm_shared::sys::SendFlags;
 use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode};
 use sdk::NO_DATA_BLOCK_ID;
@@ -69,7 +70,7 @@ pub fn action(action: TestAction) -> RawBytes {
 /// Execute the Transfer action
 fn transfer(token: Address, to: Address, amount: TokenAmount, operator_data: RawBytes) -> u32 {
     let transfer_params = TransferParams { to, amount, operator_data };
-    let receipt = sdk::send::send(
+    let ret = sdk::send::send(
         &token,
         method_hash!("Transfer"),
         IpldBlock::serialize_cbor(&transfer_params).unwrap(),
@@ -79,13 +80,18 @@ fn transfer(token: Address, to: Address, amount: TokenAmount, operator_data: Raw
     )
     .unwrap();
     // ignore failures at this level and return the transfer call receipt so caller can decide what to do
-    return_ipld(&receipt)
+    return_ipld(&Receipt {
+        exit_code: ret.exit_code,
+        return_data: ret.return_data.map_or(RawBytes::default(), |b| RawBytes::new(b.data)),
+        gas_used: 0,
+        events_root: None,
+    })
 }
 
 /// Execute the Burn action
 fn burn(token: Address, amount: TokenAmount) -> u32 {
     let burn_params = BurnParams { amount };
-    let receipt = sdk::send::send(
+    let ret = sdk::send::send(
         &token,
         method_hash!("Burn"),
         IpldBlock::serialize_cbor(&burn_params).unwrap(),
@@ -94,7 +100,7 @@ fn burn(token: Address, amount: TokenAmount) -> u32 {
         SendFlags::default(),
     )
     .unwrap();
-    if !receipt.exit_code.is_success() {
+    if !ret.exit_code.is_success() {
         panic!("burn call failed");
     }
     NO_DATA_BLOCK_ID
@@ -155,11 +161,12 @@ fn invoke(input: u32) -> u32 {
                 // get our balance
                 let get_balance = || {
                     let self_address = Address::new_id(sdk::message::receiver());
-    let balance_receipt = sdk::send::send(&params.token_address, method_hash!("BalanceOf"), IpldBlock::serialize_cbor(&self_address).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
-                    if !balance_receipt.exit_code.is_success() {
+
+    let balance_ret = sdk::send::send(&params.token_address, method_hash!("BalanceOf"), IpldBlock::serialize_cbor(&self_address).unwrap(), TokenAmount::zero(), None, SendFlags::default()).unwrap();
+                    if !balance_ret.exit_code.is_success() {
                         panic!("unable to get balance");
                     }
-                    balance_receipt.return_data.deserialize::<TokenAmount>().unwrap()
+                    balance_ret.return_data.unwrap().deserialize::<TokenAmount>().unwrap()
                 };
 
                 match params.action {

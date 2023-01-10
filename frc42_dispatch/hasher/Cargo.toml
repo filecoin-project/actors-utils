@@ -1,13 +1,13 @@
 [package]
 name = "frc42_hasher"
-version = "1.2.0"
+version = "1.3.0"
 license = "MIT OR Apache-2.0"
 description = "Filecoin FRC-0042 calling convention method hashing"
 repository = "https://github.com/helix-onchain/filecoin/"
 edition = "2021"
 
 [dependencies]
-fvm_sdk = { version = "3.0.0-alpha.19", optional = true }
+fvm_sdk = { version = "3.0.0-alpha.21", optional = true }
 fvm_shared = { version = "3.0.0-alpha.14" }
 thiserror = { version = "1.0.31" }
 

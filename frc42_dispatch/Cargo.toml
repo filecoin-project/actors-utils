@@ -1,7 +1,7 @@
 [package]
 name = "frc42_dispatch"
 description = "Filecoin FRC-0042 calling convention/dispatch support library"
-version = "2.0.0"
+version = "3.0.0"
 license = "MIT OR Apache-2.0"
 keywords = ["filecoin", "dispatch", "frc-0042"]
 repository = "https://github.com/helix-onchain/filecoin/"
@@ -10,7 +10,7 @@ edition = "2021"
 
 [dependencies]
 fvm_ipld_encoding = "=0.3.2"
-fvm_sdk = { version = "3.0.0-alpha.19", optional = true }
+fvm_sdk = { version = "3.0.0-alpha.21", optional = true }
 fvm_shared = { version = "3.0.0-alpha.14" }
 frc42_hasher = { version = "1.2.0", path = "hasher" }
 frc42_macros = { version = "1.0.0", path = "macros" }
