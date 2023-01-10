@@ -32,7 +32,7 @@ impl<T: RecipientData> FRC53ReceiverHook<T> for ReceiverHook<T> {
     }
 }
 
-/// Receive parameters for an frc53 token
+/// Receive parameters for an FRC53 token
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
 pub struct FRC53TokenReceived {
     /// The account that the tokens are being sent to (the receiver address)

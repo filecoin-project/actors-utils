@@ -29,7 +29,7 @@ fn invoke(input: u32) -> u32 {
             // Receive is passed a UniversalReceiverParams
             let params: UniversalReceiverParams = deserialize_params(input);
 
-            // reject if not an FRC46 token or an frc53 NFT
+            // reject if not an FRC46 token or an FRC53 NFT
             // we don't know how to inspect other payloads in this example
             match params.type_ {
                 FRC46_TOKEN_TYPE => {
