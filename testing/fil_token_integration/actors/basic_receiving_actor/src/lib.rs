@@ -1,6 +1,6 @@
 use frc42_dispatch::match_method;
 use frc46_token::receiver::{FRC46TokenReceived, FRC46_TOKEN_TYPE};
-use frcxx_nft::receiver::{FRCXXTokenReceived, FRCXX_TOKEN_TYPE};
+use frc53_nft::receiver::{FRC53TokenReceived, FRC53_TOKEN_TYPE};
 use fvm_actor_utils::receiver::UniversalReceiverParams;
 use fvm_ipld_encoding::{de::DeserializeOwned, RawBytes};
 use fvm_sdk as sdk;
@@ -29,7 +29,7 @@ fn invoke(input: u32) -> u32 {
             // Receive is passed a UniversalReceiverParams
             let params: UniversalReceiverParams = deserialize_params(input);
 
-            // reject if not an FRC46 token or an FRCXX NFT
+            // reject if not an FRC46 token or an FRC53 NFT
             // we don't know how to inspect other payloads in this example
             match params.type_ {
                 FRC46_TOKEN_TYPE => {
@@ -38,9 +38,9 @@ fn invoke(input: u32) -> u32 {
                     // TODO: inspect token_params and decide if we'll accept the transfer
                     // to reject it, we just abort (or panic, which does the same thing)
                 }
-                FRCXX_TOKEN_TYPE => {
+                FRC53_TOKEN_TYPE => {
                     // get token transfer data
-                    let _token_params: FRCXXTokenReceived = params.payload.deserialize().unwrap();
+                    let _token_params: FRC53TokenReceived = params.payload.deserialize().unwrap();
                     // TODO: inspect token_params and decide if we'll accept the transfer
                     // to reject it, we just abort (or panic, which does the same thing)
                 }

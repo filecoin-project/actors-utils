@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 frc46_token = { path = "../../../../frc46_token" }
 frc42_dispatch = { path = "../../../../frc42_dispatch" }
-frcxx_nft = { path = "../../../../frcxx_nft" }
+frc53_nft = { path = "../../../../frc53_nft" }
 fvm_actor_utils = { path = "../../../../fvm_actor_utils" }
 
 cid = { version = "0.8.5", default-features = false }

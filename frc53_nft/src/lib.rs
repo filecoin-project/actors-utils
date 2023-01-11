@@ -1,4 +1,4 @@
-//! This acts as the reference library for FRCXX. While remaining complaint with the
+//! This acts as the reference library for FRC53. While remaining complaint with the
 //! spec, this library is opinionated in its batching, minting and storage
 //! strategies to optimize for common usage patterns.
 //!
@@ -16,7 +16,7 @@ use fvm_actor_utils::{
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, ActorID};
-use receiver::{FRCXXReceiverHook, FRCXXTokenReceived};
+use receiver::{FRC53ReceiverHook, FRC53TokenReceived};
 use state::{StateError, StateInvariantError, StateSummary};
 use thiserror::Error;
 use types::{MintIntermediate, MintReturn, TransferIntermediate, TransferReturn};
@@ -157,7 +157,7 @@ where
         })?;
 
         // params we'll send to the receiver hook
-        let params = FRCXXTokenReceived {
+        let params = FRC53TokenReceived {
             operator,
             to: initial_owner_id,
             operator_data,
@@ -165,7 +165,7 @@ where
             token_ids: mint_intermediate.token_ids.clone(),
         };
 
-        Ok(ReceiverHook::new_frcxx(*initial_owner, params, mint_intermediate)
+        Ok(ReceiverHook::new_frc53(*initial_owner, params, mint_intermediate)
             .map_err(StateError::from)?)
     }
 
@@ -328,7 +328,7 @@ where
             })?)
         })?;
 
-        let params = FRCXXTokenReceived {
+        let params = FRC53TokenReceived {
             to: recipient_id,
             operator: owner_id,
             token_ids: token_ids.into(),
@@ -336,7 +336,7 @@ where
             token_data,
         };
 
-        Ok(ReceiverHook::new_frcxx(*recipient, params, intermediate).map_err(StateError::from)?)
+        Ok(ReceiverHook::new_frc53(*recipient, params, intermediate).map_err(StateError::from)?)
     }
 
     /// Constructs TransferReturn data from a TransferIntermediate
@@ -388,7 +388,7 @@ where
             Ok(intermediate)
         })?;
 
-        let params = FRCXXTokenReceived {
+        let params = FRC53TokenReceived {
             to: recipient_id,
             operator: owner_id,
             token_ids: token_ids.into(),
@@ -396,7 +396,7 @@ where
             token_data,
         };
 
-        Ok(ReceiverHook::new_frcxx(*recipient, params, intermediate).map_err(StateError::from)?)
+        Ok(ReceiverHook::new_frc53(*recipient, params, intermediate).map_err(StateError::from)?)
     }
 
     /// Constructs TransferReturn data from a TransferIntermediate

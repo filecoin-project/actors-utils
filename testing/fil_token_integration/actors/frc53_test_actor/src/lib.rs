@@ -1,7 +1,7 @@
 use frc42_dispatch::{match_method, method_hash};
-use frcxx_nft::receiver::FRCXXTokenReceived;
-use frcxx_nft::types::TransferParams;
-use frcxx_nft::{receiver::FRCXX_TOKEN_TYPE, state::TokenID};
+use frc53_nft::receiver::FRC53TokenReceived;
+use frc53_nft::types::TransferParams;
+use frc53_nft::{receiver::FRC53_TOKEN_TYPE, state::TokenID};
 use fvm_actor_utils::receiver::UniversalReceiverParams;
 use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::{
@@ -113,14 +113,14 @@ fn invoke(input: u32) -> u32 {
             // Received is passed a UniversalReceiverParams
             let params: UniversalReceiverParams = deserialize_params(input);
 
-            // reject if not a set of FRCXX NFTs
+            // reject if not a set of FRC53 NFTs
             // we don't know how to inspect other payloads here
-            if params.type_ != FRCXX_TOKEN_TYPE {
+            if params.type_ != FRC53_TOKEN_TYPE {
                 panic!("invalid token type, rejecting transfer");
             }
 
             // get token transfer data
-            let token_params: FRCXXTokenReceived = params.payload.deserialize().unwrap();
+            let token_params: FRC53TokenReceived = params.payload.deserialize().unwrap();
 
             // todo: examine the operator_data to determine our next move
             let action: TestAction = token_params.operator_data.deserialize().unwrap();

@@ -35,9 +35,18 @@ utilities to generate method numbers is also available:
 
 Reference library for implementing a standard fungible token in native actors
 
-| Specification                                                                     | Reference Implementation                  | Examples                                                                                                                                                                   |
-| --------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [FRC-0046](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md) | [frc42_dispatch](./frc46_token/README.md) | [basic_token](./testing/fil_token_integration/actors/basic_token_actor/README.md) [basic_receiver](./testing/fil_token_integration/actors/basic_receiving_actor/README.md) |
+| Specification                                                                     | Reference Implementation               | Examples                                                                                                                                                                   |
+| --------------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [FRC-0046](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md) | [frc46_token](./frc46_token/README.md) | [basic_token](./testing/fil_token_integration/actors/basic_token_actor/README.md) [basic_receiver](./testing/fil_token_integration/actors/basic_receiving_actor/README.md) |
+
+### frc53_nft
+
+Reference library for implementing a standard non-fungible token in native
+actors
+
+| Specification                                                                     | Reference Implementation           | Examples                                                                                                                                                               |
+| --------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [FRC-0053](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0053.md) | [frc53_nft](./frc53_nft/README.md) | [basic_nft](./testing/fil_token_integration/actors/basic_nft_actor/README.md) [basic_receiver](./testing/fil_token_integration/actors/basic_receiving_actor/README.md) |
 
 ## License
 

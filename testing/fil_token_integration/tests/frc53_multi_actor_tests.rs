@@ -1,27 +1,27 @@
 use frc42_dispatch::method_hash;
-use frcxx_nft::state::NFTState;
-use frcxx_nft::types::{MintReturn, TransferReturn};
+use frc53_nft::state::NFTState;
+use frc53_nft::types::{MintReturn, TransferReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, receipt::Receipt};
 
 mod common;
-use common::frcxx_nft_helpers::{MintParams, NFTHelper};
+use common::frc53_nft_helpers::{MintParams, NFTHelper};
 use common::{construct_tester, TestHelpers};
-use frcxx_test_actor::{action, ActionParams, TestAction};
+use frc53_test_actor::{action, ActionParams, TestAction};
 
 const BASIC_NFT_ACTOR_WASM: &str =
     "../../target/debug/wbuild/basic_nft_actor/basic_nft_actor.compact.wasm";
 const TEST_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/frcxx_test_actor/frcxx_test_actor.compact.wasm";
+    "../../target/debug/wbuild/frc53_test_actor/frc53_test_actor.compact.wasm";
 
 fn action_params(token_address: Address, action: TestAction) -> RawBytes {
     RawBytes::serialize(ActionParams { token_address, action }).unwrap()
 }
 
 #[test]
-fn frcxx_multi_actor_tests() {
+fn frc53_multi_actor_tests() {
     let blockstore = MemoryBlockstore::default();
     let mut tester = construct_tester(&blockstore);
 

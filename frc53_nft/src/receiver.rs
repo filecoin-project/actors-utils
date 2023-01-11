@@ -6,35 +6,35 @@ use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
 use crate::state::TokenID;
 
-pub const FRCXX_TOKEN_TYPE: ReceiverType = method_hash!("FRCXX") as u32;
+pub const FRC53_TOKEN_TYPE: ReceiverType = method_hash!("FRC53") as u32;
 
-pub trait FRCXXReceiverHook<T: RecipientData> {
-    fn new_frcxx(
+pub trait FRC53ReceiverHook<T: RecipientData> {
+    fn new_frc53(
         address: Address,
-        frcxx_params: FRCXXTokenReceived,
+        frc53_params: FRC53TokenReceived,
         result_data: T,
     ) -> std::result::Result<ReceiverHook<T>, ReceiverHookError>;
 }
 
-impl<T: RecipientData> FRCXXReceiverHook<T> for ReceiverHook<T> {
+impl<T: RecipientData> FRC53ReceiverHook<T> for ReceiverHook<T> {
     /// Construct a new FRC46 ReceiverHook call
-    fn new_frcxx(
+    fn new_frc53(
         address: Address,
-        frcxx_params: FRCXXTokenReceived,
+        frc53_params: FRC53TokenReceived,
         result_data: T,
     ) -> std::result::Result<ReceiverHook<T>, ReceiverHookError> {
         Ok(ReceiverHook::new(
             address,
-            RawBytes::serialize(frcxx_params)?,
-            FRCXX_TOKEN_TYPE,
+            RawBytes::serialize(frc53_params)?,
+            FRC53_TOKEN_TYPE,
             result_data,
         ))
     }
 }
 
-/// Receive parameters for an FRCXX token
+/// Receive parameters for an FRC53 token
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
-pub struct FRCXXTokenReceived {
+pub struct FRC53TokenReceived {
     /// The account that the tokens are being sent to (the receiver address)
     pub to: ActorID,
     /// Address of the operator that initiated the transfer/mint
