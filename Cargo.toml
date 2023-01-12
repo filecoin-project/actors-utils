@@ -20,3 +20,12 @@ members = [
     "testing/fil_token_integration/actors/frc46_test_actor",
     "testing/fil_token_integration/actors/frc53_test_actor"
 ]
+
+[patch.crates-io]
+fvm_shared = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/move-response-v2" }
+fvm_sdk = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/move-response-v2" }
+fvm_ipld_hamt = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/move-response-v2" }
+fvm_ipld_amt = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/move-response-v2" }
+fvm_ipld_bitfield = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/move-response-v2" }
+fvm_ipld_encoding = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/move-response-v2" }
+fvm_ipld_blockstore = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/move-response-v2" }

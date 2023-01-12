@@ -2,12 +2,12 @@ use std::{cell::RefCell, collections::HashMap};
 
 use cid::Cid;
 use fvm_ipld_encoding::ipld_block::IpldBlock;
+use fvm_shared::response::Response;
 use fvm_shared::{
     address::Address, econ::TokenAmount, error::ErrorNumber, error::ExitCode, ActorID,
 };
 
 use super::Syscalls;
-use crate::messaging::Response;
 
 #[derive(Clone, Default, Debug)]
 pub struct TestMessage {

@@ -3,6 +3,7 @@ use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::Error as IpldError;
 use fvm_sdk::{send, sys::ErrorNumber};
 use fvm_shared::error::ExitCode;
+use fvm_shared::response::Response;
 use fvm_shared::MethodNum;
 use fvm_shared::{address::Address, econ::TokenAmount};
 use thiserror::Error;
@@ -45,21 +46,6 @@ impl From<&MessagingError> for ExitCode {
     }
 }
 
-/// Matches the SDK's Response type
-/// We duplicate the type here, because the Messaging trait below must be implemented
-/// by actors that shouldn't depend on the SDK
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Response {
-    pub exit_code: ExitCode,
-    pub return_data: Option<IpldBlock>,
-}
-
-impl Response {
-    pub fn new(r: send::Response) -> Self {
-        Self { exit_code: (r.exit_code), return_data: r.return_data }
-    }
-}
-
 /// An abstraction used to send messages to other actors
 pub trait Messaging {
     /// Sends a message to an actor
@@ -87,7 +73,6 @@ impl Messaging for FvmMessenger {
         params: Option<IpldBlock>,
         value: TokenAmount,
     ) -> Result<Response> {
-        let ret = send::send(to, method, params, value)?;
-        Ok(Response { exit_code: ret.exit_code, return_data: ret.return_data })
+        Ok(send::send(to, method, params, value)?)
     }
 }
