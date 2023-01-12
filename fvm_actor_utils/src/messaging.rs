@@ -9,6 +9,7 @@ use fvm_shared::address::Payload;
 use fvm_shared::error::ExitCode;
 use fvm_shared::sys::SendFlags;
 use fvm_shared::MethodNum;
+use fvm_shared::Response;
 use fvm_shared::METHOD_SEND;
 use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
 use num_traits::Zero;
@@ -49,21 +50,6 @@ impl From<&MessagingError> for ExitCode {
             }
             MessagingError::Ipld(_) => ExitCode::USR_SERIALIZATION,
         }
-    }
-}
-
-/// Matches the SDK's Response type
-/// We duplicate the type here, because the Messaging trait below must be implemented
-/// by actors that shouldn't depend on the SDK
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Response {
-    pub exit_code: ExitCode,
-    pub return_data: Option<IpldBlock>,
-}
-
-impl Response {
-    pub fn new(r: send::Response) -> Self {
-        Self { exit_code: (r.exit_code), return_data: r.return_data }
     }
 }
 
@@ -148,14 +134,7 @@ impl Messaging for FvmMessenger {
         params: Option<IpldBlock>,
         value: &TokenAmount,
     ) -> Result<Response> {
-        Ok(Response::new(send::send(
-            to,
-            method,
-            params,
-            value.clone(),
-            None,
-            SendFlags::default(),
-        )?))
+        Ok(send::send(to, method, params, value.clone(), None, SendFlags::default())?)
     }
 
     fn resolve_id(&self, address: &Address) -> Result<ActorID> {
