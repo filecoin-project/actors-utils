@@ -17,8 +17,8 @@ fvm_ipld_blockstore = "0.1.1"
 fvm_ipld_hamt = "0.6.0"
 fvm_ipld_amt = { version = "0.5.0", features = ["go-interop"] }
 fvm_ipld_encoding = "=0.3.2"
-fvm_sdk = { version = "3.0.0-alpha.21" }
-fvm_shared = { version = "3.0.0-alpha.14" }
+fvm_sdk = { version = "=3.0.0-alpha.22" }
+fvm_shared = { version = "3.0.0-alpha.16" }
 num-traits = { version = "0.2.15" }
 serde = { version = "1.0.136", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }
