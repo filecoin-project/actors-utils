@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 mod common;
 use common::{construct_tester, TestHelpers, TokenHelpers};
-use token_impl::{ConstructorParams, FactoryToken};
+use token_impl::ConstructorParams;
 
 const FACTORY_TOKEN_ACTOR_WASM: &str =
     "../target/debug/wbuild/frc46_factory_token/frc46_factory_token.compact.wasm";
@@ -66,13 +66,8 @@ fn factory_token() {
 
     let operator: [Account; 1] = tester.create_accounts().unwrap();
 
-    let initial_token_state = FactoryToken::new(&blockstore, String::new(), String::new(), 1, None);
-
-    // install actors required for our test: a token actor and one instance of the test actor
-    let token_actor =
-        tester.install_actor_with_state(FACTORY_TOKEN_ACTOR_WASM, 10000, initial_token_state);
-
-    // create a couple test actors
+    // install actors required for our test: token actor and a couple test actors
+    let token_actor = tester.install_actor_stateless(FACTORY_TOKEN_ACTOR_WASM, 10000);
     let alice = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
     let bob = tester.install_actor_stateless(TEST_ACTOR_WASM, 10020);
 
