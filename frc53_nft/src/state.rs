@@ -732,3 +732,71 @@ pub fn actor_id_key(a: ActorID) -> BytesKey {
 pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
     u64::decode_var(key.0.as_slice()).map(|a| a.0)
 }
+
+#[cfg(test)]
+mod test {
+    use fvm_ipld_amt::Amt;
+    use fvm_ipld_blockstore::{tracking::TrackingBlockstore, MemoryBlockstore};
+
+    use super::AMT_BIT_WIDTH;
+
+    #[test]
+    fn debug_amt() {
+        let memory_bs = MemoryBlockstore::default();
+        let array_cid =
+            Amt::<(u64, u64), _>::new_with_bit_width(&memory_bs, AMT_BIT_WIDTH).flush().unwrap();
+
+        let mut array: Amt<(u64, u64), &MemoryBlockstore> =
+            Amt::load(&array_cid, &memory_bs).unwrap();
+
+        // construct a test array
+        array.set(0, (0, 0)).unwrap();
+        array.set(1, (1, 0)).unwrap();
+        array.set(2, (2, 1)).unwrap();
+        array.set(3, (3, 1)).unwrap();
+        array.set(4, (4, 1)).unwrap();
+        array.set(5, (5, 1)).unwrap();
+        array.set(6, (6, 1)).unwrap();
+        array.set(8, (8, 1)).unwrap();
+        array.set(10, (10, 1)).unwrap();
+
+        array.set(12, (12, 1)).unwrap();
+        array.set(13, (12, 1)).unwrap();
+        array.set(32, (32, 1)).unwrap();
+
+        array.set(99, (0, 2)).unwrap();
+        array.set(100, (0, 2)).unwrap();
+        array.set(101, (0, 2)).unwrap();
+        array.set(1000, (0, 3)).unwrap();
+        array.set(10000, (0, 4)).unwrap();
+        array.set(100000, (0, 5)).unwrap();
+        array.set(1000000, (0, 5)).unwrap();
+
+        let array_cid = array.flush().unwrap();
+
+        // read it normally
+        let bs = TrackingBlockstore::new(memory_bs.clone());
+        let mut array: Amt<(u64, u64), &TrackingBlockstore<MemoryBlockstore>> =
+            Amt::load(&array_cid, &bs).unwrap();
+        array
+            .for_each(|a, f| {
+                println!("{a:?}:{f:?}");
+                Ok(())
+            })
+            .unwrap();
+        println!("{:#?}", bs.stats);
+        let array_cid = array.flush().unwrap();
+
+        // read it with new method
+        let bs = TrackingBlockstore::new(memory_bs);
+        let array: Amt<(u64, u64), &TrackingBlockstore<MemoryBlockstore>> =
+            Amt::load(&array_cid, &bs).unwrap();
+        array
+            .for_each_limit(8, |a, f, stats| {
+                println!("{a:?}:{f:?}, {:?}", stats);
+                Ok(())
+            })
+            .unwrap();
+        println!("{:#?}", bs.stats);
+    }
+}
