@@ -1,10 +1,13 @@
 //! Interfaces and types for the frc53 NFT standard
 use cid::Cid;
 use fvm_actor_utils::receiver::RecipientData;
+use fvm_ipld_bitfield::BitField;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::ActorID;
+
+use crate::state::Cursor;
 
 type TokenID = u64;
 
@@ -158,4 +161,16 @@ pub struct RevokeParams {
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct RevokeForAllParams {
     pub operator: Address,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListTokensParams {
+    pub cursor: Option<Cursor>,
+    pub max: u64,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListTokensReturn {
+    pub tokens: BitField,
+    pub next_cursor: Option<Cursor>,
 }

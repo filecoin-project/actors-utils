@@ -1,6 +1,8 @@
 use frc42_dispatch::method_hash;
+use frc53_nft::types::{ListTokensParams, ListTokensReturn};
 use frc53_nft::{state::TokenID, types::MintReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
+use fvm_ipld_bitfield::bitfield;
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
 
@@ -36,7 +38,7 @@ fn test_nft_actor() {
             metadata: vec![String::from("metadata")],
             operator_data: RawBytes::default(),
         };
-        let mint_params = RawBytes::serialize(&mint_params).unwrap();
+        let mint_params = RawBytes::serialize(mint_params).unwrap();
         let ret_val = tester.call_method_ok(
             minter[0].1,
             actor_address,
@@ -69,7 +71,7 @@ fn test_nft_actor() {
             metadata: vec![String::from("metadata2")],
             operator_data: RawBytes::default(),
         };
-        let mint_params = RawBytes::serialize(&mint_params).unwrap();
+        let mint_params = RawBytes::serialize(mint_params).unwrap();
         let ret_val = tester.call_method_ok(
             minter[0].1,
             actor_address,
@@ -139,7 +141,7 @@ fn test_nft_actor() {
             metadata: vec![String::default(), String::default()],
             operator_data: RawBytes::default(),
         };
-        let mint_params = RawBytes::serialize(&mint_params).unwrap();
+        let mint_params = RawBytes::serialize(mint_params).unwrap();
         let ret_val =
             tester.call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
         assert!(ret_val.msg_receipt.exit_code.is_success(), "{ret_val:#?}");
@@ -157,5 +159,67 @@ fn test_nft_actor() {
         tester.assert_nft_owner(minter[0].1, actor_address, 2, receiver_address.id().unwrap());
         tester.assert_nft_owner(minter[0].1, actor_address, 3, receiver_address.id().unwrap());
         assert_eq!(total_supply, 4);
+    }
+
+    {
+        // List all the tokens
+        let list_tokens_params = ListTokensParams { cursor: None, max: 0 };
+        let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
+        let ret_val = tester.call_method_ok(
+            minter[0].1,
+            actor_address,
+            method_hash!("ListTokens"),
+            Some(list_tokens_params),
+        );
+        let list_tokens_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListTokensReturn>().unwrap();
+        assert_eq!(list_tokens_result.tokens, bitfield![1, 1, 1, 1]);
+    }
+
+    // List the tokens in pairs
+    {
+        // List the first two token ids
+        let list_tokens_params = ListTokensParams { cursor: None, max: 2 };
+        let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
+        let ret_val = tester.call_method_ok(
+            minter[0].1,
+            actor_address,
+            method_hash!("ListTokens"),
+            Some(list_tokens_params),
+        );
+        let list_tokens_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListTokensReturn>().unwrap();
+        assert_eq!(list_tokens_result.tokens, bitfield![1, 1]);
+        assert!(list_tokens_result.next_cursor.is_some());
+
+        // List the next two
+        let list_tokens_params =
+            ListTokensParams { cursor: list_tokens_result.next_cursor, max: 2 };
+        let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
+        let ret_val = tester.call_method_ok(
+            minter[0].1,
+            actor_address,
+            method_hash!("ListTokens"),
+            Some(list_tokens_params),
+        );
+        let list_tokens_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListTokensReturn>().unwrap();
+        assert_eq!(list_tokens_result.tokens, bitfield![0, 0, 1, 1]);
+        assert!(list_tokens_result.next_cursor.is_some());
+
+        // Show that there are no more
+        let list_tokens_params =
+            ListTokensParams { cursor: list_tokens_result.next_cursor, max: 2 };
+        let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
+        let ret_val = tester.call_method_ok(
+            minter[0].1,
+            actor_address,
+            method_hash!("ListTokens"),
+            Some(list_tokens_params),
+        );
+        let list_tokens_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListTokensReturn>().unwrap();
+        assert_eq!(list_tokens_result.tokens, bitfield![]);
+        assert!(list_tokens_result.next_cursor.is_none());
     }
 }

@@ -8,6 +8,7 @@ use cid::Cid;
 use fvm_actor_utils::receiver::ReceiverHookError;
 use fvm_ipld_amt::Amt;
 use fvm_ipld_amt::Error as AmtError;
+use fvm_ipld_amt::LeafCursor as AmtCursor;
 use fvm_ipld_bitfield::BitField;
 use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore;
@@ -29,6 +30,23 @@ use crate::types::TransferReturn;
 use crate::util::OperatorSet;
 
 pub type TokenID = u64;
+
+/// Multiple TokenIDs can be represented as a BitField, the index of each set bit corresponds to a
+/// TokenID
+pub type TokenSet = BitField;
+
+/// Opaque cursor to iterate over internal data structures
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct Cursor {
+    pub root: Cid,
+    pub leaf: AmtCursor,
+}
+
+impl Cursor {
+    fn new(cid: Cid, leaf: AmtCursor) -> Self {
+        Self { root: cid, leaf }
+    }
+}
 
 /// Each token stores its owner, approved operators etc.
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
@@ -83,6 +101,8 @@ pub enum StateError {
     NotAuthorized { actor: ActorID, token_id: TokenID },
     #[error("receiver hook error: {0}")]
     ReceiverHook(#[from] ReceiverHookError),
+    #[error("invalid cursor")]
+    InvalidCursor,
     /// This error is returned for errors that should never happen
     #[error("invariant failed: {0}")]
     InvariantFailed(String),
@@ -553,17 +573,63 @@ impl NFTState {
     }
 
     /// Get the metadata for a token
-    pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<String> {
+    pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: TokenID) -> Result<String> {
         let token_data_array = self.get_token_data_amt(bs)?;
         let token = token_data_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
         Ok(token.metadata.clone())
     }
 
     /// Get the owner of a token
-    pub fn get_owner<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<ActorID> {
+    pub fn get_owner<BS: Blockstore>(&self, bs: &BS, token_id: TokenID) -> Result<ActorID> {
         let token_data_array = self.get_token_data_amt(bs)?;
         let token = token_data_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
         Ok(token.owner)
+    }
+
+    /// List the tokens owned by an actor. This method flushes the owner data hamt prior to iteration.
+    /// Returns a bitfield of the tokens owned by the actor and a cursor to the next page of data
+    pub fn list_owned_tokens<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        _cursor: &Cursor,
+        _limit: u64,
+    ) -> Result<(BitField, Option<Cursor>)> {
+        let mut owner_data_map = self.get_owner_data_hamt(bs)?;
+        self.owner_data = owner_data_map.flush()?;
+
+        let owned_tokens = BitField::new();
+
+        Ok((owned_tokens, None))
+    }
+
+    /// List all the minted tokens
+    pub fn list_tokens<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        range_start: Option<Cursor>,
+        limit: Option<u64>,
+    ) -> Result<(TokenSet, Option<Cursor>)> {
+        let mut token_data_array = self.get_token_data_amt(bs)?;
+
+        // Check the cid matches the cached cid, check the cursor cid matches too
+        let cid = token_data_array.flush()?;
+        if self.token_data != cid || range_start.as_ref().map_or(false, |c| c.root != cid) {
+            return Err(StateError::InvalidCursor);
+        }
+
+        // Build the TokenSet
+        let mut token_ids = TokenSet::new();
+        let (_, _, leaf_cursor) = token_data_array.for_each_ranged(
+            &range_start.map_or(AmtCursor::start(), |r| r.leaf),
+            limit,
+            |i, _| {
+                token_ids.set(i);
+                Ok(true)
+            },
+        )?;
+
+        let next_cursor = leaf_cursor.map(|leaf| Cursor::new(cid, leaf));
+        Ok((token_ids, next_cursor))
     }
 }
 

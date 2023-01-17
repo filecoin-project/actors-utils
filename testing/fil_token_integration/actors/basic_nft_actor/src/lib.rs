@@ -2,8 +2,8 @@ use frc42_dispatch::match_method;
 use frc53_nft::{
     state::{NFTState, TokenID},
     types::{
-        ApproveForAllParams, ApproveParams, BurnFromParams, RevokeForAllParams, RevokeParams,
-        TransferFromParams, TransferParams,
+        ApproveForAllParams, ApproveParams, BurnFromParams, ListTokensParams, RevokeForAllParams,
+        RevokeParams, TransferFromParams, TransferParams,
     },
     NFT,
 };
@@ -156,6 +156,11 @@ fn invoke(params: u32) -> u32 {
             let cid = handle.flush().unwrap();
             sdk::sself::set_root(&cid).unwrap();
             NO_DATA_BLOCK_ID
+        }
+        "ListTokens" => {
+            let params = deserialize_params::<ListTokensParams>(params);
+            let res = handle.list_tokens(params.cursor, params.max).unwrap();
+            return_ipld(&res).unwrap()
         }
         _ => {
             sdk::vm::abort(ExitCode::USR_ILLEGAL_ARGUMENT.value(), Some(&format!("Unknown method number {method_num:?} was invoked")));
