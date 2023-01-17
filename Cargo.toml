@@ -20,3 +20,11 @@ members = [
     "testing/fil_token_integration/actors/frc46_test_actor",
     "testing/fil_token_integration/actors/frc53_test_actor"
 ]
+
+# patch hamt and amt with local development versions, which is a local copy of helix-onchain/ref-fvm
+[patch.crates-io]
+fvm_ipld_hamt = { path = "../ref-fvm/ipld/hamt" }
+fvm_ipld_amt = { path = "../ref-fvm/ipld/amt" }
+fvm_ipld_bitfield = { path = "../ref-fvm/ipld/bitfield"}
+fvm_ipld_encoding = { path = "../ref-fvm/ipld/encoding"}
+fvm_ipld_blockstore = { path = "../ref-fvm/ipld/blockstore"}
