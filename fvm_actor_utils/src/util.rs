@@ -45,6 +45,10 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> ActorRuntime<S, BS> {
         self.syscalls.receiver()
     }
 
+    pub fn caller(&self) -> ActorID {
+        self.syscalls.caller()
+    }
+
     /// Sends a message to an actor
     pub fn send(
         &self,

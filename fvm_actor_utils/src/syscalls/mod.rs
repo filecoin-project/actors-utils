@@ -24,6 +24,9 @@ pub trait Syscalls {
     /// Returns the ID address of the actor
     fn receiver(&self) -> ActorID;
 
+    /// Returns the ID address of the calling actor
+    fn caller(&self) -> ActorID;
+
     /// Sends a message to an actor
     fn send(
         &self,

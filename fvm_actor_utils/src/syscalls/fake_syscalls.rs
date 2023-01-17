@@ -42,6 +42,14 @@ impl Syscalls for FakeSyscalls {
         self.actor_id
     }
 
+    fn caller(&self) -> fvm_shared::ActorID {
+        // TODO: always return a constant value?
+        // this is for unit testing so it'll be a fixed value anyway
+        // maybe it's something we set and store in the FakeSyscalls struct though?
+        // because some methods may check that the caller ID matches a stored ID (eg: minting tokens)
+        1
+    }
+
     fn send(
         &self,
         to: &fvm_shared::address::Address,
