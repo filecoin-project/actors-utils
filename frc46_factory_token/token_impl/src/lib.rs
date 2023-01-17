@@ -11,10 +11,13 @@ use frc46_token::token::{
     Token, TokenError,
 };
 use fvm_actor_utils::{
-    blockstore::Blockstore, messaging::MessagingError, receiver::ReceiverHookError,
-    syscalls::fvm_syscalls::FvmSyscalls, util::ActorRuntime,
+    blockstore::Blockstore as RuntimeBlockstore,
+    messaging::MessagingError,
+    receiver::ReceiverHookError,
+    syscalls::{fvm_syscalls::FvmSyscalls, Syscalls},
+    util::ActorRuntime,
 };
-use fvm_ipld_blockstore::{Block, Blockstore as _BS};
+use fvm_ipld_blockstore::{Block, Blockstore};
 use fvm_ipld_encoding::{
     tuple::{Deserialize_tuple, Serialize_tuple},
     CborStore, RawBytes, DAG_CBOR,
@@ -107,10 +110,10 @@ pub struct ConstructorParams {
 }
 
 pub fn construct_token(params: ConstructorParams) -> Result<u32, RuntimeError> {
-    let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
+    let runtime = ActorRuntime::<FvmSyscalls, RuntimeBlockstore>::new_fvm_runtime();
     let minter = runtime.resolve_id(&params.minter)?;
     let token =
-        FactoryToken::new(&runtime, params.name, params.symbol, params.granularity, Some(minter));
+        FactoryToken::new(runtime, params.name, params.symbol, params.granularity, Some(minter));
 
     let cid = token.save()?;
     fvm_sdk::sself::set_root(&cid)?;
@@ -124,7 +127,7 @@ pub fn caller_address() -> Address {
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
-pub struct FactoryToken {
+pub struct FactoryTokenState {
     /// Default token helper impl
     pub token: TokenState,
     /// basic token identifier stuff, should it go here or store separately alongside the state
@@ -135,21 +138,39 @@ pub struct FactoryToken {
     pub minter: Option<ActorID>,
 }
 
+pub struct FactoryToken<S: Syscalls + Clone, BS: Blockstore + Clone> {
+    runtime: ActorRuntime<S, BS>,
+    state: FactoryTokenState,
+}
+
+impl FactoryTokenState {
+    /// Load token state from the blockstore provided in `runtime`
+    /// This is for internal use only as part of FactoryToken::load
+    fn load<BS: Blockstore>(runtime: &BS, cid: &Cid) -> Result<Self, RuntimeError> {
+        match runtime.get_cbor::<Self>(cid) {
+            Ok(Some(s)) => Ok(s),
+            // TODO: improve on these errors?
+            Ok(None) => Err(RuntimeError::Deserialization("no data found".into())),
+            Err(e) => Err(RuntimeError::Deserialization(e.to_string())),
+        }
+    }
+}
+
 /// Implementation of the token API in a FVM actor
 ///
 /// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
-impl FRC46Token for FactoryToken {
+impl<SC: Syscalls + Clone, BS: Blockstore + Clone> FRC46Token for FactoryToken<SC, BS> {
     type TokenError = RuntimeError;
     fn name(&self) -> String {
-        self.name.clone()
+        self.state.name.clone()
     }
 
     fn symbol(&self) -> String {
-        self.symbol.clone()
+        self.state.symbol.clone()
     }
 
     fn granularity(&self) -> GranularityReturn {
-        self.granularity
+        self.state.granularity
     }
 
     fn total_supply(&mut self) -> TotalSupplyReturn {
@@ -260,45 +281,48 @@ pub struct MintParams {
     pub operator_data: RawBytes,
 }
 
-impl FactoryToken {
-    pub fn new<BS: _BS>(
-        bs: &BS,
+impl<S: Syscalls + Clone, BS: Blockstore + Clone> FactoryToken<S, BS> {
+    pub fn new(
+        runtime: ActorRuntime<S, BS>,
         name: String,
         symbol: String,
         granularity: u64,
         minter: Option<ActorID>,
     ) -> Self {
-        FactoryToken { token: TokenState::new(&bs).unwrap(), name, symbol, granularity, minter }
-    }
-
-    pub fn token(&mut self) -> Token<'_, FvmSyscalls, Blockstore> {
-        let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
-        Token::wrap(runtime, self.granularity, &mut self.token)
-    }
-
-    pub fn load(cid: &Cid) -> Result<Self, RuntimeError> {
-        let bs = Blockstore::default();
-        match bs.get_cbor::<Self>(cid) {
-            Ok(Some(s)) => Ok(s),
-            // TODO: improve on these errors?
-            Ok(None) => Err(RuntimeError::Deserialization("no data found".into())),
-            Err(e) => Err(RuntimeError::Deserialization(e.to_string())),
+        FactoryToken {
+            state: FactoryTokenState {
+                token: TokenState::new(&runtime).unwrap(),
+                name,
+                symbol,
+                granularity,
+                minter,
+            },
+            runtime,
         }
     }
 
+    pub fn token(&mut self) -> Token<'_, S, BS> {
+        Token::wrap(self.runtime.clone(), self.state.granularity, &mut self.state.token)
+    }
+
+    pub fn load(runtime: ActorRuntime<S, BS>, cid: &Cid) -> Result<Self, RuntimeError> {
+        Ok(FactoryToken { state: FactoryTokenState::load(&runtime, cid)?, runtime })
+    }
+
     pub fn save(&self) -> Result<Cid, RuntimeError> {
-        let bs = Blockstore::default();
-        let serialized = fvm_ipld_encoding::to_vec(self)
+        let serialized = fvm_ipld_encoding::to_vec(&self.state)
             .map_err(|err| RuntimeError::Serialization(err.to_string()))?;
         let block = Block { codec: DAG_CBOR, data: serialized };
-        bs.put(Code::Blake2b256, &block).map_err(|err| RuntimeError::Serialization(err.to_string()))
+        self.runtime
+            .put(Code::Blake2b256, &block)
+            .map_err(|err| RuntimeError::Serialization(err.to_string()))
     }
 
     fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {
         let new_cid = sdk::sself::root()?;
         if new_cid != *initial_cid {
-            let new_state = Self::load(&new_cid)?;
-            let _old = std::mem::replace(self, new_state);
+            let new_state = FactoryTokenState::load(&self.runtime, &new_cid)?;
+            let _old = std::mem::replace(&mut self.state, new_state);
         }
         Ok(())
     }
@@ -306,8 +330,8 @@ impl FactoryToken {
     pub fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
         // check if the caller matches our authorise mint operator
         // no minter address means minting has been permanently disabled
-        let minter = self.minter.ok_or(RuntimeError::MintingDisabled)?;
-        let caller_id = sdk::message::caller();
+        let minter = self.state.minter.ok_or(RuntimeError::MintingDisabled)?;
+        let caller_id = sdk::message::caller(); // TODO: may need to add this to ActorRuntime
         if caller_id != minter {
             return Err(RuntimeError::AddressNotAuthorized);
         }
@@ -336,13 +360,13 @@ impl FactoryToken {
     pub fn disable_mint(&mut self) -> Result<(), RuntimeError> {
         // no minter means minting has already been permanently disabled
         // we return this if already disabled because it will make more sense than failing the address check below
-        let minter = self.minter.ok_or(RuntimeError::MintingDisabled)?;
-        let caller_id = sdk::message::caller();
+        let minter = self.state.minter.ok_or(RuntimeError::MintingDisabled)?;
+        let caller_id = sdk::message::caller(); // TODO: add this to ActorRuntime
         if caller_id != minter {
             return Err(RuntimeError::AddressNotAuthorized);
         }
 
-        self.minter = None;
+        self.state.minter = None;
         Ok(())
     }
 }

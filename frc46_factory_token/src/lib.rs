@@ -1,4 +1,7 @@
 use frc42_dispatch::match_method;
+use fvm_actor_utils::{
+    blockstore::Blockstore, syscalls::fvm_syscalls::FvmSyscalls, util::ActorRuntime,
+};
 use fvm_sdk::NO_DATA_BLOCK_ID;
 use fvm_shared::error::ExitCode;
 use token_impl::{
@@ -15,13 +18,15 @@ fn token_invoke(method_num: u64, params: u32) -> Result<u32, RuntimeError> {
         "Mint" => {
             let root_cid = fvm_sdk::sself::root()?;
             let params: MintParams = deserialize_params(params);
-            let mut token_actor = FactoryToken::load(&root_cid)?;
+            let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
+            let mut token_actor = FactoryToken::load(runtime, &root_cid)?;
             let res = token_actor.mint(params)?;
             return_ipld(&res)
         }
         "DisableMint" => {
             let root_cid = fvm_sdk::sself::root()?;
-            let mut token_actor = FactoryToken::load(&root_cid)?;
+            let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
+            let mut token_actor = FactoryToken::load(runtime, &root_cid)?;
             // disable minting forever
             token_actor.disable_mint()?;
             // save state
@@ -33,7 +38,8 @@ fn token_invoke(method_num: u64, params: u32) -> Result<u32, RuntimeError> {
         _ => {
             let root_cid = fvm_sdk::sself::root()?;
 
-            let mut token_actor = FactoryToken::load(&root_cid)?;
+            let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
+            let mut token_actor = FactoryToken::load(runtime, &root_cid)?;
 
             let res = frc46_invoke(method_num, params, &mut token_actor, |token| {
                 // `token` is passed through from the original token provided in the function call
