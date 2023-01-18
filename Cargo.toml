@@ -20,3 +20,13 @@ members = [
     "frc46_factory_token",
     "frc46_factory_token/token_impl"
 ]
+
+[patch.crates-io]
+fvm_shared = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/cbor-not-dag" }
+fvm_sdk = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/cbor-not-dag" }
+fvm_ipld_hamt = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/cbor-not-dag" }
+fvm_ipld_kamt = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/cbor-not-dag" }
+fvm_ipld_amt = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/cbor-not-dag" }
+fvm_ipld_bitfield = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/cbor-not-dag" }
+fvm_ipld_encoding = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/cbor-not-dag" }
+fvm_ipld_blockstore = { git = "https://github.com/filecoin-project/ref-fvm", branch = "asr/cbor-not-dag" }
