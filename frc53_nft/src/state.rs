@@ -735,16 +735,44 @@ pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
 
 #[cfg(test)]
 mod test {
-    use fvm_ipld_amt::Amt;
+    use fvm_ipld_amt::{Amt, Node};
     use fvm_ipld_blockstore::{tracking::TrackingBlockstore, MemoryBlockstore};
 
-    use super::AMT_BIT_WIDTH;
+    fn print_node(node: &Node<u64>) {
+        println!("=== NODE ===");
+        match node {
+            Node::Link { links } => println!("Link {links:#?}"),
+            Node::Leaf { vals } => println!("Vals {vals:#?}"),
+        }
+        println!("============");
+    }
+
+    #[test]
+    fn debug_amt_set() {
+        let memory_bs = MemoryBlockstore::default();
+        let array_cid = Amt::<u64, _>::new_with_bit_width(&memory_bs, 1).flush().unwrap();
+
+        let mut array: Amt<u64, &MemoryBlockstore> = Amt::load(&array_cid, &memory_bs).unwrap();
+
+        // construct a test array
+        array.set(0, 0).unwrap();
+        array.set(1, 1).unwrap();
+        print_node(&array.root.node);
+        array.set(2, 2).unwrap();
+        array.set(3, 3).unwrap();
+        print_node(&array.root.node);
+        array.set(4, 4).unwrap();
+        // array.set(5, 5).unwrap();
+        // array.set(5, 7).unwrap();
+        // array.set(6, 6).unwrap();
+        // array.set(8, 8).unwrap();
+        print_node(&array.root.node);
+    }
 
     #[test]
     fn debug_amt() {
         let memory_bs = MemoryBlockstore::default();
-        let array_cid =
-            Amt::<(u64, u64), _>::new_with_bit_width(&memory_bs, AMT_BIT_WIDTH).flush().unwrap();
+        let array_cid = Amt::<(u64, u64), _>::new_with_bit_width(&memory_bs, 5).flush().unwrap();
 
         let mut array: Amt<(u64, u64), &MemoryBlockstore> =
             Amt::load(&array_cid, &memory_bs).unwrap();
@@ -767,6 +795,10 @@ mod test {
         array.set(99, (0, 2)).unwrap();
         array.set(100, (0, 2)).unwrap();
         array.set(101, (0, 2)).unwrap();
+        array.set(511, (0, 2)).unwrap();
+        array.set(512, (0, 2)).unwrap();
+        array.set(513, (0, 2)).unwrap();
+        array.set(101, (0, 2)).unwrap();
         array.set(1000, (0, 3)).unwrap();
         array.set(10000, (0, 4)).unwrap();
         array.set(100000, (0, 5)).unwrap();
@@ -775,26 +807,40 @@ mod test {
         let array_cid = array.flush().unwrap();
 
         // read it normally
+        // let bs = TrackingBlockstore::new(memory_bs.clone());
+        // let mut array: Amt<(u64, u64), &TrackingBlockstore<MemoryBlockstore>> =
+        //     Amt::load(&array_cid, &bs).unwrap();
+        // array
+        //     .for_each(|a, f| {
+        //         println!("{a:?}:{f:?}");
+        //         Ok(())
+        //     })
+        //     .unwrap();
+        // println!("{:#?}", bs.stats);
+        // let array_cid = array.flush().unwrap();
+
+        // read it with new method
         let bs = TrackingBlockstore::new(memory_bs.clone());
-        let mut array: Amt<(u64, u64), &TrackingBlockstore<MemoryBlockstore>> =
+        let array: Amt<(u64, u64), &TrackingBlockstore<MemoryBlockstore>> =
             Amt::load(&array_cid, &bs).unwrap();
+        println!("Ranged iteration starts");
         array
-            .for_each(|a, f| {
-                println!("{a:?}:{f:?}");
-                Ok(())
+            .for_range_while(0, 1001, |a, f, stats| {
+                println!("{a:?}:{f:?}, {:?}", stats);
+                Ok(true)
             })
             .unwrap();
         println!("{:#?}", bs.stats);
-        let array_cid = array.flush().unwrap();
 
-        // read it with new method
+        // read it with new method, limited blocks
         let bs = TrackingBlockstore::new(memory_bs);
         let array: Amt<(u64, u64), &TrackingBlockstore<MemoryBlockstore>> =
             Amt::load(&array_cid, &bs).unwrap();
+        println!("Ranged iteration starts");
         array
-            .for_each_limit(8, |a, f, stats| {
+            .for_range_while(512, 1001, |a, f, stats| {
                 println!("{a:?}:{f:?}, {:?}", stats);
-                Ok(())
+                Ok(true)
             })
             .unwrap();
         println!("{:#?}", bs.stats);
