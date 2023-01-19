@@ -2,8 +2,8 @@ use frc42_dispatch::match_method;
 use frc53_nft::{
     state::{NFTState, TokenID},
     types::{
-        ApproveForAllParams, ApproveParams, BurnFromParams, ListTokensParams, ListTokensReturn,
-        RevokeForAllParams, RevokeParams, TransferFromParams, TransferParams,
+        ApproveForAllParams, ApproveParams, BurnFromParams, ListTokensParams, RevokeForAllParams,
+        RevokeParams, TransferFromParams, TransferParams,
     },
     NFT,
 };
