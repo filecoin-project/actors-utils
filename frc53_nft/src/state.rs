@@ -557,7 +557,7 @@ impl NFTState {
     }
 
     /// Get the metadata for a token
-    pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<String> {
+    pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: TokenID) -> Result<String> {
         let token_data_array = self.get_token_data_amt(bs)?;
         let token =
             token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
@@ -565,11 +565,35 @@ impl NFTState {
     }
 
     /// Get the owner of a token
-    pub fn get_owner<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<ActorID> {
+    pub fn get_owner<BS: Blockstore>(&self, bs: &BS, token_id: TokenID) -> Result<ActorID> {
         let token_data_array = self.get_token_data_amt(bs)?;
         let token =
             token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
         Ok(token.owner)
+    }
+
+    /// List all the minted tokens
+    pub fn list_tokens<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        range_start: TokenID,
+    ) -> Result<(BitField, Vec<TokenData>, TokenID)> {
+        let token_data_array = self.get_token_data_amt(bs)?;
+
+        // TODO: can derive a sensible range here from the `height` of the AMT
+        // or perhaps this should be specified by the caller
+        let end_index = range_start + (1 << AMT_BIT_WIDTH << 5); // currently this will search groups of 1024
+        let mut token_ids: BitField = BitField::new();
+        let mut data = Vec::new();
+
+        token_data_array
+            .for_range_while(range_start, end_index, |id, token_data| {
+                token_ids.set(id);
+                data.push(token_data.clone());
+                Ok(true)
+            })
+            .unwrap();
+        Ok((token_ids, data, end_index))
     }
 }
 

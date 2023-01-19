@@ -19,7 +19,7 @@ use fvm_shared::{address::Address, ActorID};
 use receiver::{FRC53ReceiverHook, FRC53TokenReceived};
 use state::{StateError, StateInvariantError, StateSummary};
 use thiserror::Error;
-use types::{MintIntermediate, MintReturn, TransferIntermediate, TransferReturn};
+use types::{ListTokensReturn, MintIntermediate, MintReturn, TransferIntermediate, TransferReturn};
 
 use self::state::{NFTState, TokenID};
 
@@ -410,6 +410,13 @@ where
     ) -> Result<TransferReturn> {
         self.reload_if_changed(prior_state_cid)?;
         Ok(self.state.transfer_return(&self.runtime, intermediate)?)
+    }
+
+    /// Enumerates token data between the specified ranges
+    pub fn list_tokens(&self, range_start: TokenID) -> Result<ListTokensReturn> {
+        let (token_ids, token_data, next_range_start) =
+            self.state.list_tokens(&self.runtime, range_start)?;
+        Ok(ListTokensReturn { token_ids, token_data, next_range_start })
     }
 
     /// Reloads the state if the current root cid has diverged (i.e. during re-entrant receiver hooks)

@@ -1,10 +1,13 @@
 //! Interfaces and types for the frc53 NFT standard
 use cid::Cid;
 use fvm_actor_utils::receiver::RecipientData;
+use fvm_ipld_bitfield::BitField;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::ActorID;
+
+use crate::state::TokenData;
 
 type TokenID = u64;
 
@@ -158,4 +161,18 @@ pub struct RevokeParams {
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct RevokeForAllParams {
     pub operator: Address,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListTokensParams {
+    pub range_start: TokenID,
+    // TODO: perhaps the FRC spec should be amended so that the range_end is specifiable by the caller
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListTokensReturn {
+    pub token_ids: BitField,
+    // This is not in the FRC spec (perhaps it should be added)
+    pub token_data: Vec<TokenData>,
+    pub next_range_start: TokenID,
 }
