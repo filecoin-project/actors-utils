@@ -10,7 +10,7 @@ use fvm_integration_tests::{bundle, tester::Tester};
 use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::{
     tuple::{Deserialize_tuple, Serialize_tuple},
-    Cbor, RawBytes,
+    RawBytes,
 };
 use fvm_shared::{
     address::Address, bigint::Zero, econ::TokenAmount, message::Message, state::StateTreeVersion,
@@ -28,8 +28,6 @@ pub struct MintParams {
     pub operator_data: RawBytes,
 }
 
-impl Cbor for MintParams {}
-
 pub fn load_actor_wasm(path: &str) -> Vec<u8> {
     let wasm_path = env::current_dir().unwrap().join(path).canonicalize().unwrap();
 
@@ -41,7 +39,7 @@ pub fn load_actor_wasm(path: &str) -> Vec<u8> {
 pub fn construct_tester<BS: Blockstore + Clone, E: Externs>(blockstore: &BS) -> Tester<BS, E> {
     let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
 
-    Tester::new(NetworkVersion::V15, StateTreeVersion::V4, bundle_root, blockstore.clone()).unwrap()
+    Tester::new(NetworkVersion::V18, StateTreeVersion::V5, bundle_root, blockstore.clone()).unwrap()
 }
 
 /// Helper routines to simplify common operations with a Tester

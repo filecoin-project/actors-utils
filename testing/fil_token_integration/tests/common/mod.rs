@@ -62,7 +62,7 @@ pub fn load_actor_wasm(path: &str) -> Vec<u8> {
 pub fn construct_tester<BS: Blockstore + Clone, E: Externs>(blockstore: &BS) -> Tester<BS, E> {
     let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
 
-    Tester::new(NetworkVersion::V15, StateTreeVersion::V4, bundle_root, blockstore.clone()).unwrap()
+    Tester::new(NetworkVersion::V18, StateTreeVersion::V5, bundle_root, blockstore.clone()).unwrap()
 }
 
 impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {

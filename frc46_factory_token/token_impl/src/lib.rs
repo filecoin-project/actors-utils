@@ -19,7 +19,8 @@ use fvm_ipld_encoding::{
     tuple::{Deserialize_tuple, Serialize_tuple},
     CborStore, RawBytes, DAG_CBOR,
 };
-use fvm_sdk::{self as sdk, error::NoStateError, sys::ErrorNumber, NO_DATA_BLOCK_ID};
+use fvm_sdk::error::{StateReadError, StateUpdateError};
+use fvm_sdk::{self as sdk, sys::ErrorNumber, NO_DATA_BLOCK_ID};
 use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode, ActorID};
 use serde::{de::DeserializeOwned, ser::Serialize};
 use thiserror::Error;
@@ -39,7 +40,9 @@ pub enum RuntimeError {
     #[error("ipld blockstore error: {0}")]
     Blockstore(#[from] ErrorNumber),
     #[error("actor state not found {0}")]
-    NoState(#[from] NoStateError),
+    NoState(#[from] StateReadError),
+    #[error("failed to update actor state {0}")]
+    StateUpdate(#[from] StateUpdateError),
     // deserialisation error when loading state
     #[error("error loading state {0}")]
     Deserialization(String),
@@ -76,6 +79,11 @@ impl From<&RuntimeError> for ExitCode {
                 _ => ExitCode::USR_UNSPECIFIED,
             },
             RuntimeError::NoState(_) => ExitCode::USR_NOT_FOUND,
+            RuntimeError::StateUpdate(e) => match e {
+                StateUpdateError::ActorDeleted => ExitCode::USR_ILLEGAL_STATE,
+                StateUpdateError::ReadOnly => ExitCode::USR_READ_ONLY,
+            },
+            // RuntimeError::StateUpdate(_) => ExitCode::USR_ILLEGAL_STATE,
             RuntimeError::Deserialization(_) | RuntimeError::Serialization(_) => {
                 ExitCode::USR_SERIALIZATION
             }

@@ -3,11 +3,10 @@ use std::{cell::RefCell, collections::HashMap};
 use cid::Cid;
 use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_shared::{
-    address::Address, econ::TokenAmount, error::ErrorNumber, error::ExitCode, ActorID,
+    address::Address, econ::TokenAmount, error::ErrorNumber, error::ExitCode, ActorID, Response,
 };
 
 use super::Syscalls;
-use crate::messaging::Response;
 
 #[derive(Clone, Default, Debug)]
 pub struct TestMessage {
@@ -66,7 +65,8 @@ impl Syscalls for FakeSyscalls {
                 }
                 // Sending to public keys should instantiate the actor
                 fvm_shared::address::Payload::Secp256k1(_)
-                | fvm_shared::address::Payload::BLS(_) => {
+                | fvm_shared::address::Payload::BLS(_)
+                | fvm_shared::address::Payload::Delegated(_) => {
                     if !map.contains_key(to) {
                         let actor_id = self.next_actor_id.replace_with(|old| *old + 1);
                         map.insert(*to, actor_id);

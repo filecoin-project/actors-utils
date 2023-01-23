@@ -20,7 +20,7 @@ impl Hasher for Blake2bSyscall {
     #[cfg(not(feature = "no_sdk"))]
     fn hash(&self, bytes: &[u8]) -> Vec<u8> {
         use fvm_shared::crypto::hash::SupportedHashes;
-        crypto::hash(SupportedHashes::Blake2b512, bytes)
+        crypto::hash_owned(SupportedHashes::Blake2b512, bytes)
     }
 
     // stub version that avoids fvm_sdk syscalls (eg: for proc macro, or built-in actor use)
