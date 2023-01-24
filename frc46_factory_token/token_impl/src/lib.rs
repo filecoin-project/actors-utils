@@ -130,11 +130,6 @@ pub fn construct_token(params: ConstructorParams) -> Result<u32, RuntimeError> {
     Ok(NO_DATA_BLOCK_ID)
 }
 
-pub fn caller_address() -> Address {
-    let caller = sdk::message::caller();
-    Address::new_id(caller)
-}
-
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct FactoryTokenState {
     /// Default token helper impl
@@ -191,7 +186,7 @@ impl<SC: Syscalls + Clone, BS: Blockstore + Clone> FRC46Token for FactoryToken<S
     }
 
     fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
-        let operator = caller_address();
+        let operator = self.caller_address();
         let mut hook = self.token().transfer(
             &operator,
             &params.to,
@@ -215,7 +210,7 @@ impl<SC: Syscalls + Clone, BS: Blockstore + Clone> FRC46Token for FactoryToken<S
         &mut self,
         params: TransferFromParams,
     ) -> Result<TransferFromReturn, RuntimeError> {
-        let operator = caller_address();
+        let operator = self.caller_address();
         let mut hook = self.token().transfer_from(
             &operator,
             &params.from,
@@ -240,7 +235,7 @@ impl<SC: Syscalls + Clone, BS: Blockstore + Clone> FRC46Token for FactoryToken<S
         &mut self,
         params: IncreaseAllowanceParams,
     ) -> Result<AllowanceReturn, RuntimeError> {
-        let owner = caller_address();
+        let owner = self.caller_address();
         let new_allowance =
             self.token().increase_allowance(&owner, &params.operator, &params.increase)?;
         Ok(new_allowance)
@@ -250,14 +245,14 @@ impl<SC: Syscalls + Clone, BS: Blockstore + Clone> FRC46Token for FactoryToken<S
         &mut self,
         params: DecreaseAllowanceParams,
     ) -> Result<AllowanceReturn, RuntimeError> {
-        let owner = caller_address();
+        let owner = self.caller_address();
         let new_allowance =
             self.token().decrease_allowance(&owner, &params.operator, &params.decrease)?;
         Ok(new_allowance)
     }
 
     fn revoke_allowance(&mut self, params: RevokeAllowanceParams) -> Result<(), RuntimeError> {
-        let owner = caller_address();
+        let owner = self.caller_address();
         self.token().revoke_allowance(&owner, &params.operator)?;
         Ok(())
     }
@@ -268,7 +263,7 @@ impl<SC: Syscalls + Clone, BS: Blockstore + Clone> FRC46Token for FactoryToken<S
     }
 
     fn burn(&mut self, params: BurnParams) -> Result<BurnReturn, RuntimeError> {
-        let caller = caller_address();
+        let caller = self.caller_address();
         let res = self.token().burn(&caller, &params.amount)?;
         Ok(res)
     }
@@ -277,7 +272,7 @@ impl<SC: Syscalls + Clone, BS: Blockstore + Clone> FRC46Token for FactoryToken<S
         &mut self,
         params: frc46_token::token::types::BurnFromParams,
     ) -> Result<BurnFromReturn, RuntimeError> {
-        let caller = caller_address();
+        let caller = self.caller_address();
         let res = self.token().burn_from(&caller, &params.owner, &params.amount)?;
         Ok(res)
     }
@@ -310,6 +305,11 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> FactoryToken<S, BS> {
         }
     }
 
+    pub fn caller_address(&self) -> Address {
+        let caller = self.runtime.caller();
+        Address::new_id(caller)
+    }
+
     pub fn token(&mut self) -> Token<'_, S, BS> {
         Token::wrap(self.runtime.clone(), self.state.granularity, &mut self.state.token)
     }
@@ -340,7 +340,7 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> FactoryToken<S, BS> {
         // check if the caller matches our authorise mint operator
         // no minter address means minting has been permanently disabled
         let minter = self.state.minter.ok_or(RuntimeError::MintingDisabled)?;
-        let caller_id = sdk::message::caller(); // TODO: may need to add this to ActorRuntime
+        let caller_id = self.runtime.caller(); // TODO: may need to add this to ActorRuntime
         if caller_id != minter {
             return Err(RuntimeError::AddressNotAuthorized);
         }
@@ -370,7 +370,7 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> FactoryToken<S, BS> {
         // no minter means minting has already been permanently disabled
         // we return this if already disabled because it will make more sense than failing the address check below
         let minter = self.state.minter.ok_or(RuntimeError::MintingDisabled)?;
-        let caller_id = sdk::message::caller(); // TODO: add this to ActorRuntime
+        let caller_id = self.runtime.caller(); // TODO: add this to ActorRuntime
         if caller_id != minter {
             return Err(RuntimeError::AddressNotAuthorized);
         }
