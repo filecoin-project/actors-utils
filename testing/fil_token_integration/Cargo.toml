@@ -12,16 +12,16 @@ token_impl = { path = "../../frc46_factory_token/token_impl" }
 
 anyhow = { version = "1.0.63", features = ["backtrace"] }
 cid = { version = "0.8.5", default-features = false }
-fvm = { version = "2.0.0", default-features = false }
-fvm_integration_tests = "2.0.0-alpha.1"
+fvm = { version = "3.0.0-alpha.21", default-features = false }
+fvm_integration_tests = "=3.0.0-alpha.1"
 fvm_ipld_blockstore = "0.1.1"
-fvm_ipld_encoding = "=0.2.3"
-fvm_shared = { version = "2.0.0" }
+fvm_ipld_encoding = "=0.3.3"
+fvm_shared = { version = "=3.0.0-alpha.17" }
 serde = { version = "1.0", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }
 
 [dev-dependencies]
-actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "e3f3db964434dc354ea52d08c8778b4beabce5f7" }
+actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "09aa10f082565565b08572532b245236525f778c" }
 basic_nft_actor = {path = "actors/basic_nft_actor"}
 basic_receiving_actor = { path = "actors/basic_receiving_actor" }
 basic_token_actor = { path = "actors/basic_token_actor" }

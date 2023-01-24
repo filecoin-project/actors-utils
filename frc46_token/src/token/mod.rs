@@ -2641,7 +2641,7 @@ mod test {
             // fresh token state
             let mut token = new_token(runtime, state);
             // set allowance if not zero (avoiding unecessary account instantiation)
-            if !allowance.is_zero() && !(from == operator) {
+            if !allowance.is_zero() && from != operator {
                 token.increase_allowance(from, operator, allowance).unwrap();
             }
             // set balance if not zero (avoiding unecessary account insantiation)

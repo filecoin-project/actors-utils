@@ -96,8 +96,7 @@ fn factory_token() {
         );
         assert!(
             ret_val.msg_receipt.exit_code.is_success(),
-            "token constructor returned {:#?}",
-            ret_val
+            "token constructor returned {ret_val:#?}",
         );
     }
 
@@ -108,8 +107,7 @@ fn factory_token() {
                 tester.call_method(operator[0].1, actor, method_hash!("Constructor"), None);
             assert!(
                 ret_val.msg_receipt.exit_code.is_success(),
-                "actor constructor returned {:#?}",
-                ret_val
+                "actor constructor returned {ret_val:#?}",
             );
         }
     }
@@ -123,7 +121,7 @@ fn factory_token() {
             TokenAmount::from_atto(100),
             action(TestAction::Accept),
         );
-        assert!(ret_val.msg_receipt.exit_code.is_success(), "minting returned {:#?}", ret_val);
+        assert!(ret_val.msg_receipt.exit_code.is_success(), "minting returned {ret_val:#?}");
 
         // check balance of test actor, should be zero
         tester.assert_token_balance(operator[0].1, token_actor, alice, TokenAmount::from_atto(100));
@@ -152,11 +150,7 @@ fn factory_token() {
             TokenAmount::from_atto(100),
             action(TestAction::Burn),
         );
-        assert!(
-            ret_val.msg_receipt.exit_code.is_success(),
-            "second minting returned {:#?}",
-            ret_val
-        );
+        assert!(ret_val.msg_receipt.exit_code.is_success(), "second minting returned {ret_val:#?}",);
 
         // check balance of test actor, should be zero
         tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
@@ -168,8 +162,7 @@ fn factory_token() {
             tester.call_method(operator[0].1, token_actor, method_hash!("DisableMint"), None);
         assert!(
             ret_val.msg_receipt.exit_code.is_success(),
-            "actor constructor returned {:#?}",
-            ret_val
+            "actor constructor returned {ret_val:#?}",
         );
 
         // try minting some tokens, which should fail
@@ -183,8 +176,7 @@ fn factory_token() {
         assert_eq!(
             ret_val.msg_receipt.exit_code,
             ExitCode::USR_FORBIDDEN,
-            "third (disabled) minting returned {:#?}",
-            ret_val
+            "third (disabled) minting returned {ret_val:#?}",
         );
 
         // check balance of test actor, should be zero

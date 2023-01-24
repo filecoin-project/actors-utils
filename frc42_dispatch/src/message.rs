@@ -1,8 +1,8 @@
 use fvm_ipld_encoding::ipld_block::IpldBlock;
 #[cfg(not(feature = "no_sdk"))]
 use fvm_sdk::send;
-use fvm_sdk::send::Response;
-use fvm_shared::{address::Address, econ::TokenAmount, error::ErrorNumber};
+use fvm_shared::sys::SendFlags;
+use fvm_shared::{address::Address, econ::TokenAmount, error::ErrorNumber, Response};
 use thiserror::Error;
 
 use crate::hash::{Hasher, MethodNameErr, MethodResolver};
@@ -38,7 +38,8 @@ impl<T: Hasher> MethodMessenger<T> {
         value: TokenAmount,
     ) -> Result<Response, MethodMessengerError> {
         let method = self.method_resolver.method_number(method)?;
-        send::send(to, method, params, value).map_err(MethodMessengerError::from)
+        send::send(to, method, params, value, None, SendFlags::empty())
+            .map_err(MethodMessengerError::from)
     }
 
     #[cfg(feature = "no_sdk")]

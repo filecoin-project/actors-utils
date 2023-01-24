@@ -11,6 +11,7 @@ use fvm_ipld_encoding::{
 };
 use fvm_sdk as sdk;
 use fvm_shared::receipt::Receipt;
+use fvm_shared::sys::SendFlags;
 use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode};
 use sdk::NO_DATA_BLOCK_ID;
 use serde::{Deserialize, Serialize};
@@ -73,6 +74,8 @@ fn transfer(token: Address, to: Address, token_ids: Vec<TokenID>, operator_data:
         method_hash!("Transfer"),
         IpldBlock::serialize_cbor(&transfer_params).unwrap(),
         TokenAmount::zero(),
+        None,
+        SendFlags::empty(),
     )
     .unwrap();
     // ignore failures at this level and return the transfer call receipt so caller can decide what to do
@@ -80,6 +83,7 @@ fn transfer(token: Address, to: Address, token_ids: Vec<TokenID>, operator_data:
         exit_code: ret.exit_code,
         return_data: ret.return_data.map_or(RawBytes::default(), |b| RawBytes::new(b.data)),
         gas_used: 0,
+        events_root: None,
     })
 }
 
@@ -90,6 +94,8 @@ fn burn(token: Address, token_ids: Vec<TokenID>) -> u32 {
         method_hash!("Burn"),
         IpldBlock::serialize_cbor(&token_ids).unwrap(),
         TokenAmount::zero(),
+        None,
+        SendFlags::empty(),
     )
     .unwrap();
     if !ret.exit_code.is_success() {

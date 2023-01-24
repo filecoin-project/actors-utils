@@ -14,7 +14,7 @@ fvm_shared = { version = "2.0.0" }
 cid = { version = "0.8.5", default-features = false }
 fvm = { version = "2.0.0", default-features = false }
 fvm_integration_tests = "2.0.0-alpha.1"
-actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "e3f3db964434dc354ea52d08c8778b4beabce5f7" }
+actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "09aa10f082565565b08572532b245236525f778c" }
 
 [build-dependencies]
 substrate-wasm-builder = "4.0"

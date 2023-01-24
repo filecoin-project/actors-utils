@@ -1,12 +1,12 @@
 use cid::Cid;
 use fvm_sdk as sdk;
-use sdk::error::NoStateError;
+use fvm_sdk::error::StateReadError;
 use thiserror::Error;
 
 #[derive(Error, Clone, Debug)]
 pub enum ActorError {
     #[error("root state not found {0}")]
-    NoState(#[from] NoStateError),
+    NoState(#[from] StateReadError),
 }
 
 type Result<T> = std::result::Result<T, ActorError>;
