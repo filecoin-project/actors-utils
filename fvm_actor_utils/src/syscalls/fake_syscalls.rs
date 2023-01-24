@@ -22,6 +22,9 @@ pub struct FakeSyscalls {
     /// The f0 ID of the calling actor
     pub actor_id: ActorID,
 
+    /// Actor ID to return as caller
+    pub caller_id: RefCell<ActorID>,
+
     /// A map of addresses that were instantiated in this runtime
     pub addresses: RefCell<HashMap<Address, ActorID>>,
     /// The next-to-allocate f0 address
@@ -31,6 +34,13 @@ pub struct FakeSyscalls {
     pub last_message: RefCell<Option<TestMessage>>,
     /// Flag to control message success
     pub abort_next_send: RefCell<bool>,
+}
+
+impl FakeSyscalls {
+    /// Set the ActorID returned as caller
+    pub fn set_caller_id(&self, new_id: ActorID) {
+        self.caller_id.replace(new_id);
+    }
 }
 
 impl Syscalls for FakeSyscalls {
@@ -48,11 +58,7 @@ impl Syscalls for FakeSyscalls {
     }
 
     fn caller(&self) -> fvm_shared::ActorID {
-        // TODO: always return a constant value?
-        // this is for unit testing so it'll be a fixed value anyway
-        // maybe it's something we set and store in the FakeSyscalls struct though?
-        // because some methods may check that the caller ID matches a stored ID (eg: minting tokens)
-        1
+        *self.caller_id.borrow()
     }
 
     fn send(
