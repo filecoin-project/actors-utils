@@ -9,6 +9,7 @@ use num_traits::Zero;
 use thiserror::Error;
 
 use crate::messaging::{Messaging, MessagingError, Result as MessagingResult};
+use crate::shared_blockstore::SharedMemoryBlockstore;
 use crate::syscalls::fake_syscalls::FakeSyscalls;
 use crate::syscalls::NoStateError;
 use crate::syscalls::Syscalls;
@@ -36,8 +37,18 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> ActorRuntime<S, BS> {
         ActorRuntime { syscalls, blockstore }
     }
 
+    /// Creates a runtime suitable for tests, using mock syscalls and a memory blockstore
     pub fn new_test_runtime() -> ActorRuntime<FakeSyscalls, MemoryBlockstore> {
         ActorRuntime { syscalls: FakeSyscalls::default(), blockstore: MemoryBlockstore::default() }
+    }
+
+    /// Creates a runtime suitable for more complex tests, using mock syscalls and a shared memory blockstore
+    /// Clones of this runtime will reference the same blockstore
+    pub fn new_shared_test_runtime() -> ActorRuntime<FakeSyscalls, SharedMemoryBlockstore> {
+        ActorRuntime {
+            syscalls: FakeSyscalls::default(),
+            blockstore: SharedMemoryBlockstore::new(),
+        }
     }
 
     /// Returns the address of the current actor as an ActorID
