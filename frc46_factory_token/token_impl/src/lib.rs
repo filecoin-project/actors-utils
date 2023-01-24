@@ -603,4 +603,58 @@ mod test {
             _ => panic!("unexpected error"),
         }
     }
+
+    #[test]
+    fn it_disables_minting() {
+        let mut token = setup_token(&ALICE);
+
+        // first, we mint successfully
+        let ret = token
+            .mint(MintParams {
+                initial_owner: BOB,
+                amount: TokenAmount::from_whole(10),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap();
+
+        // check balance
+        assert_eq!(ret.balance, TokenAmount::from_whole(10));
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(10));
+
+        // now disable minting
+        token.disable_mint().unwrap();
+
+        // and try minting again (should fail)
+        let err = token
+            .mint(MintParams {
+                initial_owner: BOB,
+                amount: TokenAmount::from_whole(10),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap_err();
+
+        // balance should remain unchanged
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(10));
+
+        // check for the expected error type
+        match err {
+            RuntimeError::MintingDisabled => {}
+            _ => panic!("unexpected error"),
+        }
+    }
+
+    #[test]
+    fn it_denies_unauthorised_caller_from_disabling_mint() {
+        // set up a token with BOB as the minter
+        let mut token = setup_token(&BOB);
+
+        // now disable minting (which will use ALICE with ID = 1 as caller)
+        let err = token.disable_mint().unwrap_err();
+
+        // check error
+        match err {
+            RuntimeError::AddressNotAuthorized => {}
+            _ => panic!("unexpected error"),
+        }
+    }
 }
