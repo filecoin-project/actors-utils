@@ -97,6 +97,11 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> ActorRuntime<S, BS> {
         Ok(self.syscalls.root().map_err(|_err| NoStateError)?)
     }
 
+    // Set the root cid of the actor's state
+    pub fn set_root(&self, cid: &Cid) -> ActorResult<()> {
+        Ok(self.syscalls.set_root(cid).map_err(|_err| NoStateError)?)
+    }
+
     /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without
     /// actually instantiating accounts for them
     ///

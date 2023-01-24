@@ -21,6 +21,14 @@ pub trait Syscalls {
     /// `set_root` and after actor deletion).
     fn root(&self) -> Result<Cid, NoStateError>;
 
+    /// Set the actor's state-tree root.
+    ///
+    /// Fails if:
+    ///
+    /// - The new root is not in the actor's "reachable" set.
+    /// - Fails if the actor has been deleted.
+    fn set_root(&self, cid: &Cid) -> Result<(), NoStateError>;
+
     /// Returns the ID address of the actor
     fn receiver(&self) -> ActorID;
 

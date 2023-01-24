@@ -14,7 +14,7 @@ use fvm_actor_utils::{
     blockstore::Blockstore as RuntimeBlockstore,
     messaging::MessagingError,
     receiver::ReceiverHookError,
-    syscalls::{fvm_syscalls::FvmSyscalls, Syscalls},
+    syscalls::{fvm_syscalls::FvmSyscalls, NoStateError, Syscalls},
     util::ActorRuntime,
 };
 use fvm_ipld_blockstore::{Block, Blockstore};
@@ -22,7 +22,10 @@ use fvm_ipld_encoding::{
     tuple::{Deserialize_tuple, Serialize_tuple},
     CborStore, RawBytes, DAG_CBOR,
 };
+<<<<<<< HEAD
 use fvm_sdk::error::{StateReadError, StateUpdateError};
+=======
+>>>>>>> 8b45b3e (Add set_root to ActorRuntime)
 use fvm_sdk::{self as sdk, sys::ErrorNumber, NO_DATA_BLOCK_ID};
 use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode, ActorID};
 use serde::{de::DeserializeOwned, ser::Serialize};
@@ -60,6 +63,12 @@ pub enum RuntimeError {
     AddressNotAuthorized,
     #[error("minting has been permanently disabled")]
     MintingDisabled,
+}
+
+impl From<sdk::error::NoStateError> for RuntimeError {
+    fn from(_: sdk::error::NoStateError) -> Self {
+        RuntimeError::NoState(NoStateError)
+    }
 }
 
 impl From<&RuntimeError> for ExitCode {
@@ -116,7 +125,7 @@ pub fn construct_token(params: ConstructorParams) -> Result<u32, RuntimeError> {
         FactoryToken::new(runtime, params.name, params.symbol, params.granularity, Some(minter));
 
     let cid = token.save()?;
-    fvm_sdk::sself::set_root(&cid)?;
+    fvm_sdk::sself::set_root(&cid).map_err(|_| NoStateError)?;
 
     Ok(NO_DATA_BLOCK_ID)
 }
@@ -192,7 +201,7 @@ impl<SC: Syscalls + Clone, BS: Blockstore + Clone> FRC46Token for FactoryToken<S
         )?;
 
         let cid = self.save()?;
-        sdk::sself::set_root(&cid).unwrap();
+        self.runtime.set_root(&cid).map_err(|_| NoStateError)?;
 
         let hook_ret = hook.call(self.token().runtime())?;
 
@@ -217,7 +226,7 @@ impl<SC: Syscalls + Clone, BS: Blockstore + Clone> FRC46Token for FactoryToken<S
         )?;
 
         let cid = self.save()?;
-        sdk::sself::set_root(&cid).unwrap();
+        self.runtime.set_root(&cid).map_err(|_| NoStateError)?;
 
         let hook_ret = hook.call(self.token().runtime())?;
 
@@ -319,7 +328,7 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> FactoryToken<S, BS> {
     }
 
     fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {
-        let new_cid = sdk::sself::root()?;
+        let new_cid = self.runtime.root_cid().map_err(|_| RuntimeError::NoState(NoStateError))?;
         if new_cid != *initial_cid {
             let new_state = FactoryTokenState::load(&self.runtime, &new_cid)?;
             let _old = std::mem::replace(&mut self.state, new_state);
@@ -345,7 +354,7 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> FactoryToken<S, BS> {
         )?;
 
         let cid = self.save()?;
-        sdk::sself::set_root(&cid).unwrap();
+        self.runtime.set_root(&cid).map_err(|_| NoStateError)?;
 
         let hook_ret = hook.call(self.token().runtime())?;
 
