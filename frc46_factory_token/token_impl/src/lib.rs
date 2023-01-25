@@ -539,7 +539,13 @@ where
 
 #[cfg(test)]
 mod test {
-    use frc46_token::token::{types::{FRC46Token, TransferParams, GetAllowanceParams, IncreaseAllowanceParams, TransferFromParams}, TokenError};
+    use frc46_token::token::{
+        types::{
+            FRC46Token, GetAllowanceParams, IncreaseAllowanceParams, TransferFromParams,
+            TransferParams,
+        },
+        TokenError,
+    };
     use fvm_actor_utils::{
         shared_blockstore::SharedMemoryBlockstore, syscalls::fake_syscalls::FakeSyscalls,
         util::ActorRuntime,
@@ -746,11 +752,13 @@ mod test {
         assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
 
         // now transfer half of them from ALICE to BOB
-        let ret = token.transfer(TransferParams {
-            to: BOB,
-            amount: TokenAmount::from_whole(5),
-            operator_data: RawBytes::default(),
-        }).unwrap();
+        let ret = token
+            .transfer(TransferParams {
+                to: BOB,
+                amount: TokenAmount::from_whole(5),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap();
 
         assert_eq!(ret.from_balance, TokenAmount::from_whole(5));
         assert_eq!(ret.to_balance, TokenAmount::from_whole(5));
@@ -780,20 +788,24 @@ mod test {
         // set caller ID to BOB so we can set ALICE as an operator on that account
         token.runtime.syscalls.set_caller_id(token.runtime.resolve_id(&BOB).unwrap());
         // set allowance
-        token.increase_allowance(IncreaseAllowanceParams {
-            operator: ALICE,
-            increase: TokenAmount::from_whole(10),
-        }).unwrap();
+        token
+            .increase_allowance(IncreaseAllowanceParams {
+                operator: ALICE,
+                increase: TokenAmount::from_whole(10),
+            })
+            .unwrap();
         // set caller ID back to alice to make the transfer
         token.runtime.syscalls.set_caller_id(token.runtime.resolve_id(&ALICE).unwrap());
 
         // now transfer half of them from ALICE to BOB
-        let ret = token.transfer_from(TransferFromParams {
-            from: BOB,
-            to: ALICE,
-            amount: TokenAmount::from_whole(5),
-            operator_data: RawBytes::default(),
-        }).unwrap();
+        let ret = token
+            .transfer_from(TransferFromParams {
+                from: BOB,
+                to: ALICE,
+                amount: TokenAmount::from_whole(5),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap();
 
         // check balances and supply
         assert_eq!(ret.from_balance, TokenAmount::from_whole(5));
@@ -802,7 +814,10 @@ mod test {
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(5));
         // check allowance
         assert_eq!(ret.allowance, TokenAmount::from_whole(5));
-        assert_eq!(token.allowance(GetAllowanceParams { owner: BOB, operator: ALICE }).unwrap(), TokenAmount::from_whole(5));
+        assert_eq!(
+            token.allowance(GetAllowanceParams { owner: BOB, operator: ALICE }).unwrap(),
+            TokenAmount::from_whole(5)
+        );
         assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
     }
 }
