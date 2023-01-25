@@ -541,8 +541,8 @@ where
 mod test {
     use frc46_token::token::{
         types::{
-            FRC46Token, GetAllowanceParams, IncreaseAllowanceParams, TransferFromParams,
-            TransferParams,
+            BurnFromParams, BurnParams, DecreaseAllowanceParams, FRC46Token, GetAllowanceParams,
+            IncreaseAllowanceParams, RevokeAllowanceParams, TransferFromParams, TransferParams,
         },
         TokenError,
     };
@@ -551,7 +551,7 @@ mod test {
         util::ActorRuntime,
     };
     use fvm_ipld_encoding::RawBytes;
-    use fvm_shared::{address::Address, econ::TokenAmount};
+    use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount};
 
     use crate::{FactoryToken, MintParams, RuntimeError};
 
@@ -768,7 +768,7 @@ mod test {
     }
 
     #[test]
-    fn it_transfers_with_allowance() {
+    fn it_transfers_from_allowance() {
         let mut token = setup_token(&ALICE);
 
         // first, we mint some tokens to send
@@ -819,5 +819,132 @@ mod test {
             TokenAmount::from_whole(5)
         );
         assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+    }
+
+    #[test]
+    fn it_changes_allowances() {
+        let mut token = setup_token(&ALICE);
+
+        {
+            // set an allowance for user BOB
+            let ret = token
+                .increase_allowance(IncreaseAllowanceParams {
+                    operator: BOB,
+                    increase: TokenAmount::from_whole(20),
+                })
+                .unwrap();
+
+            assert_eq!(ret, TokenAmount::from_whole(20));
+            assert_eq!(
+                token.allowance(GetAllowanceParams { owner: ALICE, operator: BOB }).unwrap(),
+                TokenAmount::from_whole(20)
+            );
+        }
+
+        // decrease BOB's allowance from 20 to 10
+        {
+            let ret = token
+                .decrease_allowance(DecreaseAllowanceParams {
+                    operator: BOB,
+                    decrease: TokenAmount::from_whole(10),
+                })
+                .unwrap();
+
+            assert_eq!(ret, TokenAmount::from_whole(10));
+            assert_eq!(
+                token.allowance(GetAllowanceParams { owner: ALICE, operator: BOB }).unwrap(),
+                TokenAmount::from_whole(10)
+            );
+        }
+
+        // revoke BOB's allowance entirely
+        {
+            token.revoke_allowance(RevokeAllowanceParams { operator: BOB }).unwrap();
+
+            assert_eq!(
+                token.allowance(GetAllowanceParams { owner: ALICE, operator: BOB }).unwrap(),
+                TokenAmount::zero()
+            );
+        }
+    }
+
+    #[test]
+    fn it_burns() {
+        let mut token = setup_token(&ALICE);
+
+        // mint some tokens
+        {
+            let ret = token
+                .mint(MintParams {
+                    initial_owner: ALICE,
+                    amount: TokenAmount::from_whole(10),
+                    operator_data: RawBytes::default(),
+                })
+                .unwrap();
+
+            // check balance and supply
+            assert_eq!(ret.balance, TokenAmount::from_whole(10));
+            assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_whole(10));
+            assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+        }
+
+        // burn some tokens
+        {
+            let ret = token.burn(BurnParams { amount: TokenAmount::from_whole(5) }).unwrap();
+
+            assert_eq!(ret.balance, TokenAmount::from_whole(5));
+            assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_whole(5));
+            assert_eq!(token.total_supply(), TokenAmount::from_whole(5));
+        }
+    }
+
+    #[test]
+    fn it_burns_from_allowance() {
+        let mut token = setup_token(&ALICE);
+
+        // first, we mint some tokens to use
+        {
+            let ret = token
+                .mint(MintParams {
+                    initial_owner: BOB,
+                    amount: TokenAmount::from_whole(10),
+                    operator_data: RawBytes::default(),
+                })
+                .unwrap();
+
+            // check balance
+            assert_eq!(ret.balance, TokenAmount::from_whole(10));
+            assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(10));
+            assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+        }
+
+        // set caller ID to BOB so we can set ALICE as an operator on that account
+        token.runtime.syscalls.set_caller_id(token.runtime.resolve_id(&BOB).unwrap());
+        // set allowance
+        token
+            .increase_allowance(IncreaseAllowanceParams {
+                operator: ALICE,
+                increase: TokenAmount::from_whole(10),
+            })
+            .unwrap();
+
+        // set caller ID back to alice to make the transfer
+        token.runtime.syscalls.set_caller_id(token.runtime.resolve_id(&ALICE).unwrap());
+
+        {
+            let ret = token
+                .burn_from(BurnFromParams { owner: BOB, amount: TokenAmount::from_whole(5) })
+                .unwrap();
+
+            assert_eq!(ret.balance, TokenAmount::from_whole(5));
+            assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(5));
+            assert_eq!(token.total_supply(), TokenAmount::from_whole(5));
+
+            assert_eq!(ret.allowance, TokenAmount::from_whole(5));
+            assert_eq!(
+                token.allowance(GetAllowanceParams { owner: BOB, operator: ALICE }).unwrap(),
+                TokenAmount::from_whole(5)
+            );
+        }
     }
 }
