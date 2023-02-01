@@ -221,7 +221,7 @@ pub fn invoke(params: u32) -> u32 {
             let mut token_state =
                 Token::<FvmSyscalls, Blockstore>::load_state(helper.bs(), &root_cid).unwrap();
 
-            let mut token_actor = BasicToken { util: Token::wrap(helper, 1, &mut token_state) };
+            let mut token_actor = BasicToken { util: Token::wrap(&helper, 1, &mut token_state) };
 
             // Method numbers calculated via fvm_dispatch_tools using CamelCase names derived from
             // the corresponding FRC46Token trait methods.
@@ -320,7 +320,7 @@ pub fn invoke(params: u32) -> u32 {
 fn constructor() -> u32 {
     let helper = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
     let mut token_state = Token::<FvmSyscalls, Blockstore>::create_state(helper.bs()).unwrap();
-    let mut token = Token::wrap(helper, 1, &mut token_state);
+    let mut token = Token::wrap(&helper, 1, &mut token_state);
     let cid = token.flush().unwrap();
     sdk::sself::set_root(&cid).unwrap();
     NO_DATA_BLOCK_ID

@@ -311,10 +311,7 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> FactoryToken<S, BS> {
     }
 
     pub fn token(&mut self) -> Token<'_, S, BS> {
-        // NOTE: cloning an ActorRuntime when using a MemoryBlockstore will lead to changes disappearing as it spawns a new, separate blockstore.
-        // use SharedMemoryBlockstore from fvm_actor_utils for unit testing as it shares a single store between cloned instances
-        // fvm_actor_utils::Blockstore is fine too as it's a syscall wrapper that holds no state (so every instance operates on the one underlying store)
-        Token::wrap(self.runtime.clone(), self.state.granularity, &mut self.state.token)
+        Token::wrap(&self.runtime, self.state.granularity, &mut self.state.token)
     }
 
     pub fn load(runtime: ActorRuntime<S, BS>, cid: &Cid) -> Result<Self, RuntimeError> {

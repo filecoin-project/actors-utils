@@ -43,7 +43,7 @@ where
     BS: Blockstore + Clone,
 {
     /// Runtime services to interact with the execution environment
-    runtime: ActorRuntime<S, BS>,
+    runtime: &'st ActorRuntime<S, BS>,
     /// Reference to token state that will be inspected/mutated
     state: &'st mut TokenState,
     /// Minimum granularity of token amounts.
@@ -76,7 +76,7 @@ where
 
     /// Wrap an existing token state
     pub fn wrap(
-        runtime: ActorRuntime<S, BS>,
+        runtime: &'st ActorRuntime<S, BS>,
         granularity: u64,
         state: &'st mut TokenState,
     ) -> Self {
@@ -113,7 +113,7 @@ where
 
     /// Get a reference to the underlying runtime
     pub fn runtime(&self) -> &ActorRuntime<S, BS> {
-        &self.runtime
+        self.runtime
     }
 
     /// Opens an atomic transaction on TokenState which allows a closure to make multiple
@@ -126,7 +126,7 @@ where
         F: FnOnce(&mut TokenState, &ActorRuntime<S, BS>) -> Result<Res>,
     {
         let mut mutable_state = self.state.clone();
-        let res = f(&mut mutable_state, &self.runtime)?;
+        let res = f(&mut mutable_state, self.runtime)?;
         // if closure didn't error, save state
         *self.state = mutable_state;
         Ok(res)
@@ -781,10 +781,10 @@ mod test {
     const BOB: &Address = &Address::new_id(4);
     const CAROL: &Address = &Address::new_id(5);
 
-    fn new_token(
-        runtime: ActorRuntime<FakeSyscalls, MemoryBlockstore>,
-        state: &mut TokenState,
-    ) -> Token<FakeSyscalls, MemoryBlockstore> {
+    fn new_token<'st>(
+        runtime: &'st ActorRuntime<FakeSyscalls, MemoryBlockstore>,
+        state: &'st mut TokenState,
+    ) -> Token<'st, FakeSyscalls, MemoryBlockstore> {
         Token::wrap(runtime, 1, state)
     }
 
@@ -814,7 +814,7 @@ mod test {
                 .unwrap(),
         };
         // wrap the token state, moving it into a TokenHandle
-        let mut token = new_token(helper, &mut actor_state.token_state);
+        let mut token = new_token(&helper, &mut actor_state.token_state);
 
         let mut hook = token
             .mint(
@@ -826,7 +826,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         let state = token.state();
         // gets a read-only state
@@ -846,7 +846,7 @@ mod test {
         // create a new token
         let mut state = Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         // wrap the token state, moving it into a TokenHandle
-        let mut token = new_token(helper, &mut state);
+        let mut token = new_token(&helper, &mut state);
 
         // state exists but is empty
         assert_eq!(token.total_supply(), TokenAmount::zero());
@@ -862,7 +862,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         assert_eq!(token.total_supply(), TokenAmount::from_atto(100));
 
@@ -870,13 +870,9 @@ mod test {
         let cid = token.flush().unwrap();
 
         // the returned cid can be used to reference the same token state
-        let helper = ActorRuntime {
-            blockstore: token.runtime.blockstore,
-            syscalls: FakeSyscalls::default(),
-        };
         let mut state =
             Token::<FakeSyscalls, MemoryBlockstore>::load_state(helper.bs(), &cid).unwrap();
-        let token2 = Token::wrap(helper, 1, &mut state);
+        let token2 = Token::wrap(token.runtime, 1, &mut state);
         assert_eq!(token2.total_supply(), TokenAmount::from_atto(100));
     }
 
@@ -901,7 +897,7 @@ mod test {
     fn it_mutates_externally_loaded_state() {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut state = TokenState::new(&helper).unwrap();
-        let mut token = Token::<FakeSyscalls, MemoryBlockstore>::wrap(helper, 1, &mut state);
+        let mut token = Token::<FakeSyscalls, MemoryBlockstore>::wrap(&helper, 1, &mut state);
 
         // mutate state via the handle
         let mut hook = token
@@ -914,16 +910,12 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // visible via the handle
         assert_eq!(token.total_supply(), TokenAmount::from_atto(100));
 
         // the underlying state was mutated
-        let helper = ActorRuntime {
-            blockstore: token.runtime.blockstore,
-            syscalls: FakeSyscalls::default(),
-        };
         assert_eq!(state.supply, TokenAmount::from_atto(100));
         assert_eq!(
             state.get_balance(&helper, ALICE.id().unwrap()).unwrap(),
@@ -939,7 +931,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // entire transaction succeeds
         token
@@ -967,11 +959,12 @@ mod test {
 
     #[test]
     fn it_mints() {
-        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
+        let mut helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
+        helper.syscalls.actor_id = TOKEN_ACTOR.id().unwrap(); // minting relies on runtime to determine the token actor's id
+
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
-        token.runtime.syscalls.actor_id = TOKEN_ACTOR.id().unwrap(); // minting relies on runtime to determine the token actor's id
+        let mut token = new_token(&helper, &mut token_state);
 
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::zero());
         let mut hook = token
@@ -984,7 +977,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let hook_ret = hook.call(&token.runtime).unwrap();
+        let hook_ret = hook.call(token.runtime).unwrap();
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
@@ -1027,7 +1020,7 @@ mod test {
             .mint(TOKEN_ACTOR, ALICE, &TokenAmount::zero(), Default::default(), Default::default())
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
@@ -1057,7 +1050,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let hook_ret = hook.call(&token.runtime).unwrap();
+        let hook_ret = hook.call(token.runtime).unwrap();
         let result = token.mint_return(hook_ret).unwrap();
         assert_eq!(TokenAmount::from_atto(2_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(2_000_000), result.supply);
@@ -1090,7 +1083,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let hook_ret = hook.call(&token.runtime).unwrap();
+        let hook_ret = hook.call(token.runtime).unwrap();
         let result = token.mint_return(hook_ret).unwrap();
         assert_eq!(TokenAmount::from_atto(1_000_000), result.balance);
         assert_eq!(TokenAmount::from_atto(3_000_000), result.supply);
@@ -1130,7 +1123,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
@@ -1160,7 +1153,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(1_000_000));
         assert_eq!(token.balance_of(TREASURY).unwrap(), TokenAmount::from_atto(2_000_000));
         assert_eq!(token.balance_of(&secp_address).unwrap(), TokenAmount::from_atto(1_000_000));
@@ -1205,7 +1198,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // force hook to abort
         token.runtime.syscalls.abort_next_send.replace(true);
@@ -1220,7 +1213,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let err = hook.call(&token.runtime).unwrap_err();
+        let err = hook.call(token.runtime).unwrap_err();
 
         // messaging error as we told to abort
         if let ReceiverHookError::Messaging(MessagingError::Syscall(e)) = err {
@@ -1244,7 +1237,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         let mint_amount = TokenAmount::from_atto(1_000_000);
         let burn_amount = TokenAmount::from_atto(600_000);
@@ -1252,7 +1245,7 @@ mod test {
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         token.burn(TREASURY, &burn_amount).unwrap();
 
@@ -1297,7 +1290,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         let mint_amount = TokenAmount::from_atto(1_000_000);
         let burn_amount = TokenAmount::from_atto(2_000_000);
@@ -1305,7 +1298,7 @@ mod test {
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         token.burn(TREASURY, &burn_amount).unwrap_err();
 
@@ -1320,7 +1313,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // check that it obeys granularity
         token.granularity = 50;
@@ -1364,7 +1357,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // mint 100 for owner
         let mut hook = token
@@ -1377,7 +1370,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
         // transfer 60 from owner -> receiver
         let mut hook = token
             .transfer(
@@ -1389,7 +1382,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let intermediate = hook.call(&token.runtime).unwrap();
+        let intermediate = hook.call(token.runtime).unwrap();
         let ret = token.transfer_return(intermediate).unwrap();
 
         // owner has 100 - 60 = 40
@@ -1435,7 +1428,7 @@ mod test {
             .transfer(ALICE, BOB, &TokenAmount::zero(), RawBytes::default(), RawBytes::default())
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(40));
         assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_atto(60));
@@ -1461,7 +1454,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // mint 100 for owner
         let mut hook = token
@@ -1474,13 +1467,13 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
         // transfer zero to self
         let mut hook = token
             .transfer(ALICE, ALICE, &TokenAmount::zero(), RawBytes::default(), RawBytes::default())
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(100));
@@ -1511,7 +1504,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
         // balances are unchanged
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(100));
         // total supply is unchanged
@@ -1536,7 +1529,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         let mut hook = token
             .mint(
@@ -1548,7 +1541,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // transfer to an uninitialized pubkey
         let secp_address = &secp_address();
@@ -1563,7 +1556,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // balances changed
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(90));
@@ -1591,7 +1584,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         let secp_address = &secp_address();
         // non-zero transfer should fail
@@ -1621,7 +1614,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // balances unchanged
         assert_eq!(token.balance_of(secp_address).unwrap(), TokenAmount::zero());
@@ -1666,7 +1659,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // mint 100 for owner
         let mut hook = token
@@ -1679,7 +1672,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // transfer 60 from owner -> receiver, but simulate receiver aborting the hook
         let _ = token.runtime.syscalls.abort_next_send.replace(true);
@@ -1694,7 +1687,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap_err();
+        hook.call(token.runtime).unwrap_err();
 
         // restore original pre-mint state
         // in actor code, we'd just abort and let the VM handle this
@@ -1717,7 +1710,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap_err();
+        hook.call(token.runtime).unwrap_err();
 
         // restore original pre-mint state
         // in actor code, we'd just abort and let the VM handle this
@@ -1734,7 +1727,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // mint 50 for the owner
         let mut hook = token
@@ -1747,7 +1740,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // attempt transfer 51 from owner -> receiver
         token
@@ -1771,7 +1764,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // set allowance between Alice and Carol as 100
         let new_allowance =
@@ -1841,7 +1834,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // set allowance between Alice and Carol as 100
         token.set_allowance(ALICE, CAROL, &TokenAmount::from_atto(100)).unwrap();
@@ -1870,7 +1863,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // mint 100 for the owner
         let mut hook = token
@@ -1883,7 +1876,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // operator can't transfer without allowance, even if amount is zero
         token
@@ -1911,7 +1904,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        let intermediate = hook.call(&token.runtime).unwrap();
+        let intermediate = hook.call(token.runtime).unwrap();
         let ret = token.transfer_from_return(intermediate).unwrap();
 
         // verify all balances are correct
@@ -1953,7 +1946,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // verify all balances are correct
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::zero());
@@ -1982,7 +1975,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
         // mint 100 for owner
         let mut hook = token
             .mint(
@@ -1994,7 +1987,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         let initialised_address = &secp_address();
         let _ = token.runtime.initialize_account(initialised_address).unwrap();
@@ -2047,7 +2040,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // balances and allowance changed
         assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_atto(99));
@@ -2065,7 +2058,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // mint 100 for owner
         let mut hook = token
@@ -2078,7 +2071,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // non-zero transfer by an uninitialized pubkey
         let secp_address = &secp_address();
@@ -2157,7 +2150,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         let mint_amount = TokenAmount::from_atto(1_000_000);
         let approval_amount = TokenAmount::from_atto(600_000);
@@ -2168,7 +2161,7 @@ mod test {
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // approve the burner to spend the allowance
         token.increase_allowance(TREASURY, ALICE, &approval_amount).unwrap();
@@ -2221,7 +2214,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         let mint_amount = TokenAmount::from_atto(1_000_000);
         let approval_amount = TokenAmount::from_atto(600_000);
@@ -2236,7 +2229,7 @@ mod test {
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // approve the burner to spend the allowance
         token.increase_allowance(TREASURY, secp_address, &approval_amount).unwrap();
@@ -2287,7 +2280,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         let mint_amount = TokenAmount::from_atto(1_000_000);
         let burn_amount = TokenAmount::from_atto(600_000);
@@ -2300,7 +2293,7 @@ mod test {
             .mint(TOKEN_ACTOR, TREASURY, &mint_amount, Default::default(), Default::default())
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // cannot burn non-zero
         let err = token.burn_from(secp_address, TREASURY, &burn_amount).unwrap_err();
@@ -2355,7 +2348,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // mint 100 for the owner
         let mut hook = token
@@ -2368,7 +2361,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // approve only 40 spending allowance for operator
         token.increase_allowance(ALICE, CAROL, &TokenAmount::from_atto(40)).unwrap();
@@ -2400,7 +2393,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // mint 50 for the owner
         let mut hook = token
@@ -2413,7 +2406,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // allow 100 to be spent by operator
         token.increase_allowance(ALICE, BOB, &TokenAmount::from_atto(100)).unwrap();
@@ -2448,7 +2441,7 @@ mod test {
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
         // construct token with 100 granularity
         let mut token =
-            Token::<FakeSyscalls, MemoryBlockstore>::wrap(helper, 100, &mut token_state);
+            Token::<FakeSyscalls, MemoryBlockstore>::wrap(&helper, 100, &mut token_state);
 
         assert_eq!(token.granularity(), 100);
 
@@ -2499,7 +2492,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
         let mut hook = token
             .mint(
                 TOKEN_ACTOR,
@@ -2510,7 +2503,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
         let mut hook = token
             .mint(
                 TOKEN_ACTOR,
@@ -2521,7 +2514,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
         let mut hook = token
             .mint(
                 TOKEN_ACTOR,
@@ -2532,7 +2525,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // Burn
         token.burn(ALICE, &TokenAmount::from_atto(1)).expect_err("burned below granularity");
@@ -2559,7 +2552,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
         let mut hook = token
             .transfer(
                 ALICE,
@@ -2570,7 +2563,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
     }
 
     #[test]
@@ -2578,7 +2571,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let token = new_token(helper, &mut token_state);
+        let token = new_token(&helper, &mut token_state);
 
         let secp = &secp_address();
         let bls = &bls_address();
@@ -2635,11 +2628,11 @@ mod test {
             from: &Address,
             allowance: &TokenAmount,
             balance: &TokenAmount,
-            runtime: ActorRuntime<FakeSyscalls, MemoryBlockstore>,
+            runtime: &'st ActorRuntime<FakeSyscalls, MemoryBlockstore>,
             state: &'st mut TokenState,
         ) -> Token<'st, FakeSyscalls, MemoryBlockstore> {
             // fresh token state
-            let mut token = new_token(runtime, state);
+            let mut token = new_token(&runtime, state);
             // set allowance if not zero (avoiding unecessary account instantiation)
             if !allowance.is_zero() && from != operator {
                 token.increase_allowance(from, operator, allowance).unwrap();
@@ -2650,7 +2643,7 @@ mod test {
                     .mint(from, from, balance, Default::default(), Default::default())
                     .unwrap();
                 token.flush().unwrap();
-                hook.call(&token.runtime).unwrap();
+                hook.call(token.runtime).unwrap();
             }
             token
         }
@@ -2670,7 +2663,7 @@ mod test {
                 from,
                 &TokenAmount::from_atto(allowance),
                 &TokenAmount::from_atto(balance),
-                helper,
+                &helper,
                 &mut token_state,
             );
 
@@ -2731,7 +2724,7 @@ mod test {
                     assert_error(res.unwrap_err(), token);
                 } else {
                     let mut hook = res.expect("expect transfer to succeed");
-                    hook.call(&token.runtime).expect("receiver hook should succeed");
+                    hook.call(token.runtime).expect("receiver hook should succeed");
                 }
             } else {
                 let res = token.transfer_from(
@@ -2747,7 +2740,7 @@ mod test {
                     assert_error(res.unwrap_err(), token);
                 } else {
                     let mut hook = res.expect("expect transfer to succeed");
-                    hook.call(&token.runtime).expect("receiver hook should succeed");
+                    hook.call(token.runtime).expect("receiver hook should succeed");
                 }
             }
         }
@@ -2821,7 +2814,7 @@ mod test {
         let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
         let mut token_state =
             Token::<FakeSyscalls, MemoryBlockstore>::create_state(helper.bs()).unwrap();
-        let mut token = new_token(helper, &mut token_state);
+        let mut token = new_token(&helper, &mut token_state);
 
         // mint 100 for the owner
         let mut hook = token
@@ -2834,7 +2827,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         // approve 100 spending allowance for operator
         token.increase_allowance(ALICE, CAROL, &TokenAmount::from_atto(100)).unwrap();
@@ -2850,7 +2843,7 @@ mod test {
             )
             .unwrap();
         token.flush().unwrap();
-        hook.call(&token.runtime).unwrap();
+        hook.call(token.runtime).unwrap();
 
         let summary = token.assert_invariants().unwrap();
         // remaining balance 100 - 60
