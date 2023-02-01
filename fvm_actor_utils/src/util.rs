@@ -27,12 +27,12 @@ type ActorResult<T> = std::result::Result<T, ActorError>;
 /// It provides higher level utilities than raw syscalls for actors to use to interact with the
 /// IPLD layer and the FVM runtime (e.g. messaging other actors)
 #[derive(Clone, Debug)]
-pub struct ActorRuntime<S: Syscalls + Clone, BS: Blockstore + Clone> {
+pub struct ActorRuntime<S: Syscalls, BS: Blockstore> {
     pub syscalls: S,
     pub blockstore: BS,
 }
 
-impl<S: Syscalls + Clone, BS: Blockstore + Clone> ActorRuntime<S, BS> {
+impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
     pub fn new(syscalls: S, blockstore: BS) -> ActorRuntime<S, BS> {
         ActorRuntime { syscalls, blockstore }
     }
@@ -143,7 +143,7 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> ActorRuntime<S, BS> {
 }
 
 /// Convenience impl encapsulating the blockstore functionality
-impl<S: Syscalls + Clone, BS: Blockstore + Clone> Blockstore for ActorRuntime<S, BS> {
+impl<S: Syscalls, BS: Blockstore> Blockstore for ActorRuntime<S, BS> {
     fn get(&self, k: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
         self.blockstore.get(k)
     }
@@ -153,7 +153,7 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> Blockstore for ActorRuntime<S,
     }
 }
 
-impl<S: Syscalls + Clone, BS: Blockstore + Clone> Messaging for ActorRuntime<S, BS> {
+impl<S: Syscalls, BS: Blockstore> Messaging for ActorRuntime<S, BS> {
     fn send(
         &self,
         to: &Address,

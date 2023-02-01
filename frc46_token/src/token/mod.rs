@@ -39,8 +39,8 @@ type Result<T> = std::result::Result<T, TokenError>;
 /// Holds injectable services to access/interface with IPLD/FVM layer.
 pub struct Token<'st, S, BS>
 where
-    S: Syscalls + Clone,
-    BS: Blockstore + Clone,
+    S: Syscalls,
+    BS: Blockstore,
 {
     /// Runtime services to interact with the execution environment
     runtime: &'st ActorRuntime<S, BS>,
@@ -55,8 +55,8 @@ where
 
 impl<'st, S, BS> Token<'st, S, BS>
 where
-    S: Syscalls + Clone,
-    BS: Blockstore + Clone,
+    S: Syscalls,
+    BS: Blockstore,
 {
     /// Creates a new clean token state instance
     ///
@@ -135,8 +135,8 @@ where
 
 impl<'st, S, BS> Token<'st, S, BS>
 where
-    S: Syscalls + Clone,
-    BS: Blockstore + Clone,
+    S: Syscalls,
+    BS: Blockstore,
 {
     /// Returns the smallest amount of tokens which is indivisible
     ///
@@ -665,8 +665,8 @@ where
 
 impl<'st, S, BS> Token<'st, S, BS>
 where
-    S: Syscalls + Clone,
-    BS: Blockstore + Clone,
+    S: Syscalls,
+    BS: Blockstore,
 {
     /// Calls the receiver hook, returning the result
     pub fn call_receiver_hook(

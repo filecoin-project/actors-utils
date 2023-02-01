@@ -43,8 +43,8 @@ pub type Result<T> = std::result::Result<T, NFTError>;
 /// A helper handle for NFTState that injects services into the state-level operations
 pub struct NFT<'st, S, BS>
 where
-    S: Syscalls + Clone,
-    BS: Blockstore + Clone,
+    S: Syscalls,
+    BS: Blockstore,
 {
     runtime: ActorRuntime<S, BS>,
     state: &'st mut NFTState,
@@ -52,8 +52,8 @@ where
 
 impl<'st, S, BS> NFT<'st, S, BS>
 where
-    S: Syscalls + Clone,
-    BS: Blockstore + Clone,
+    S: Syscalls,
+    BS: Blockstore,
 {
     /// Wrap an instance of the state-tree in a handle for higher-level operations
     pub fn wrap(runtime: ActorRuntime<S, BS>, state: &'st mut NFTState) -> Self {
@@ -106,8 +106,8 @@ where
 
 impl<'st, S, BS> NFT<'st, S, BS>
 where
-    S: Syscalls + Clone,
-    BS: Blockstore + Clone,
+    S: Syscalls,
+    BS: Blockstore,
 {
     /// Return the total number of NFTs in circulation from this collection
     pub fn total_supply(&self) -> u64 {
