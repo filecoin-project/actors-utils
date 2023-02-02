@@ -22,16 +22,16 @@ members = [
 ]
 
 # patch hamt and amt with local development versions, which is a local copy of helix-onchain/ref-fvm
-# [patch.crates-io]
-# fvm_ipld_hamt = { path = "../ref-fvm/ipld/hamt" }
-# fvm_ipld_amt = { path = "../ref-fvm/ipld/amt" }
-# fvm_ipld_bitfield = { path = "../ref-fvm/ipld/bitfield"}
-# fvm_ipld_encoding = { path = "../ref-fvm/ipld/encoding"}
-# fvm_ipld_blockstore = { path = "../ref-fvm/ipld/blockstore"}
-
 [patch.crates-io]
-fvm_ipld_hamt = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/amt-2" }
-fvm_ipld_amt = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/amt-2" }
-fvm_ipld_bitfield = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/amt-2" }
-fvm_ipld_encoding = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/amt-2" }
-fvm_ipld_blockstore = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/amt-2" }
+fvm_ipld_hamt = { path = "../ref-fvm/ipld/hamt" }
+fvm_ipld_amt = { path = "../ref-fvm/ipld/amt" }
+fvm_ipld_bitfield = { path = "../ref-fvm/ipld/bitfield"}
+fvm_ipld_encoding = { path = "../ref-fvm/ipld/encoding"}
+fvm_ipld_blockstore = { path = "../ref-fvm/ipld/blockstore"}
+
+# [patch.crates-io]
+# fvm_ipld_hamt = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/amt-2" }
+# fvm_ipld_amt = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/amt-2" }
+# fvm_ipld_bitfield = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/amt-2" }
+# fvm_ipld_encoding = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/amt-2" }
+# fvm_ipld_blockstore = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/amt-2" }

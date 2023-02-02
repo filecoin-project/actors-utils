@@ -586,13 +586,8 @@ impl NFTState {
         let mut token_ids: BitField = BitField::new();
         let mut data = Vec::new();
 
-        token_data_array
-            .for_range_while(range_start, end_index, |id, token_data| {
-                token_ids.set(id);
-                data.push(token_data.clone());
-                Ok(true)
-            })
-            .unwrap();
+        // FIXME
+
         Ok((token_ids, data, end_index))
     }
 }
