@@ -340,7 +340,7 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> FactoryToken<S, BS> {
         // check if the caller matches our authorise mint operator
         // no minter address means minting has been permanently disabled
         let minter = self.state.minter.ok_or(RuntimeError::MintingDisabled)?;
-        let caller_id = self.runtime.caller(); // TODO: may need to add this to ActorRuntime
+        let caller_id = self.runtime.caller();
         if caller_id != minter {
             return Err(RuntimeError::AddressNotAuthorized);
         }
@@ -370,7 +370,7 @@ impl<S: Syscalls + Clone, BS: Blockstore + Clone> FactoryToken<S, BS> {
         // no minter means minting has already been permanently disabled
         // we return this if already disabled because it will make more sense than failing the address check below
         let minter = self.state.minter.ok_or(RuntimeError::MintingDisabled)?;
-        let caller_id = self.runtime.caller(); // TODO: add this to ActorRuntime
+        let caller_id = self.runtime.caller();
         if caller_id != minter {
             return Err(RuntimeError::AddressNotAuthorized);
         }
