@@ -13,7 +13,8 @@ fn token_invoke(method_num: u64, params: u32) -> Result<u32, RuntimeError> {
     match_method!(method_num, {
         "Constructor" => {
             let params = deserialize_params(params);
-            construct_token(params)
+            let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
+            construct_token(runtime, params)
         }
         "Mint" => {
             let root_cid = fvm_sdk::sself::root()?;

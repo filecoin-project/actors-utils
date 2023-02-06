@@ -11,10 +11,9 @@ use frc46_token::token::{
     Token, TokenError,
 };
 use fvm_actor_utils::{
-    blockstore::Blockstore as RuntimeBlockstore,
     messaging::MessagingError,
     receiver::ReceiverHookError,
-    syscalls::{fvm_syscalls::FvmSyscalls, NoStateError, Syscalls},
+    syscalls::{NoStateError, Syscalls},
     util::ActorRuntime,
 };
 use fvm_ipld_blockstore::{Block, Blockstore};
@@ -118,8 +117,10 @@ pub struct ConstructorParams {
     pub minter: Address,
 }
 
-pub fn construct_token(params: ConstructorParams) -> Result<u32, RuntimeError> {
-    let runtime = ActorRuntime::<FvmSyscalls, RuntimeBlockstore>::new_fvm_runtime();
+pub fn construct_token<S: Syscalls, BS: Blockstore>(
+    runtime: ActorRuntime<S, BS>,
+    params: ConstructorParams,
+) -> Result<u32, RuntimeError> {
     let minter = runtime.resolve_id(&params.minter)?;
     let token =
         FactoryToken::new(runtime, params.name, params.symbol, params.granularity, Some(minter));
