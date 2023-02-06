@@ -17,12 +17,12 @@ pub struct TestMessage {
 
 #[derive(Clone, Default, Debug)]
 pub struct FakeSyscalls {
-    /// The root of the calling actor
+    /// The root of the receiving actor
     pub root: RefCell<Cid>,
-    /// The f0 ID of the calling actor
+    /// The f0 ID of the receiving actor
     pub actor_id: ActorID,
 
-    /// Actor ID to return as caller
+    /// Actor ID to return as caller ID
     pub caller_id: RefCell<ActorID>,
 
     /// A map of addresses that were instantiated in this runtime
