@@ -20,7 +20,7 @@ fn test_greeter() {
     let blockstore = MemoryBlockstore::default();
     let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
     let mut tester =
-        Tester::new(NetworkVersion::V15, StateTreeVersion::V4, bundle_root, blockstore).unwrap();
+        Tester::new(NetworkVersion::V18, StateTreeVersion::V5, bundle_root, blockstore).unwrap();
 
     let wasm_path =
         std::env::current_dir().unwrap().join(DISPATCH_EXAMPLE_WASM).canonicalize().unwrap();
