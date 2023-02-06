@@ -21,10 +21,7 @@ use fvm_ipld_encoding::{
     tuple::{Deserialize_tuple, Serialize_tuple},
     CborStore, RawBytes, DAG_CBOR,
 };
-<<<<<<< HEAD
 use fvm_sdk::error::{StateReadError, StateUpdateError};
-=======
->>>>>>> 8b45b3e (Add set_root to ActorRuntime)
 use fvm_sdk::{self as sdk, sys::ErrorNumber, NO_DATA_BLOCK_ID};
 use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode, ActorID};
 use serde::{de::DeserializeOwned, ser::Serialize};
@@ -45,9 +42,11 @@ pub enum RuntimeError {
     #[error("ipld blockstore error: {0}")]
     Blockstore(#[from] ErrorNumber),
     #[error("actor state not found {0}")]
-    NoState(#[from] StateReadError),
+    NoState(#[from] NoStateError),
     #[error("failed to update actor state {0}")]
     StateUpdate(#[from] StateUpdateError),
+    #[error("failed to read actor state {0}")]
+    StateRead(#[from] StateReadError),
     // deserialisation error when loading state
     #[error("error loading state {0}")]
     Deserialization(String),
@@ -62,12 +61,6 @@ pub enum RuntimeError {
     AddressNotAuthorized,
     #[error("minting has been permanently disabled")]
     MintingDisabled,
-}
-
-impl From<sdk::error::NoStateError> for RuntimeError {
-    fn from(_: sdk::error::NoStateError) -> Self {
-        RuntimeError::NoState(NoStateError)
-    }
 }
 
 impl From<&RuntimeError> for ExitCode {
@@ -89,7 +82,7 @@ impl From<&RuntimeError> for ExitCode {
                 }
                 _ => ExitCode::USR_UNSPECIFIED,
             },
-            RuntimeError::NoState(_) => ExitCode::USR_NOT_FOUND,
+            RuntimeError::NoState(_) | RuntimeError::StateRead(_) => ExitCode::USR_NOT_FOUND,
             RuntimeError::StateUpdate(e) => match e {
                 StateUpdateError::ActorDeleted => ExitCode::USR_ILLEGAL_STATE,
                 StateUpdateError::ReadOnly => ExitCode::USR_READ_ONLY,
@@ -329,7 +322,7 @@ impl<S: Syscalls, BS: Blockstore> FactoryToken<S, BS> {
     }
 
     fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {
-        let new_cid = self.runtime.root_cid().map_err(|_| RuntimeError::NoState(NoStateError))?;
+        let new_cid = self.runtime.root_cid().map_err(|_| NoStateError)?;
         if new_cid != *initial_cid {
             let new_state = FactoryTokenState::load(&self.runtime, &new_cid)?;
             let _old = std::mem::replace(&mut self.state, new_state);
