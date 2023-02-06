@@ -142,7 +142,7 @@ pub struct FactoryTokenState {
     pub minter: Option<ActorID>,
 }
 
-pub struct FactoryToken<S: Syscalls + Clone, BS: Blockstore + Clone> {
+pub struct FactoryToken<S: Syscalls, BS: Blockstore> {
     runtime: ActorRuntime<S, BS>,
     state: FactoryTokenState,
 }
@@ -285,7 +285,7 @@ pub struct MintParams {
     pub operator_data: RawBytes,
 }
 
-impl<S: Syscalls + Clone, BS: Blockstore + Clone> FactoryToken<S, BS> {
+impl<S: Syscalls, BS: Blockstore> FactoryToken<S, BS> {
     pub fn new(
         runtime: ActorRuntime<S, BS>,
         name: String,
