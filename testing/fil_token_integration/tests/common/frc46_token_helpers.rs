@@ -65,6 +65,17 @@ pub trait TokenHelper {
         token_actor: Address,
         target: Address,
     );
+
+    /// Get total supply of tokens
+    fn total_supply(&mut self, operator: Address, token_actor: Address) -> TokenAmount;
+
+    /// Check total supply, asserting that it matches the given amount
+    fn assert_total_supply(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        total_supply: TokenAmount,
+    );
 }
 
 impl<B: Blockstore, E: Externs> TokenHelper for Tester<B, E> {
@@ -125,5 +136,20 @@ impl<B: Blockstore, E: Externs> TokenHelper for Tester<B, E> {
     ) {
         let balance = self.token_balance(operator, token_actor, target);
         assert_eq!(balance, TokenAmount::zero());
+    }
+
+    fn total_supply(&mut self, operator: Address, token_actor: Address) -> TokenAmount {
+        let ret_val = self.call_method(operator, token_actor, method_hash!("TotalSupply"), None);
+        ret_val.msg_receipt.return_data.deserialize::<TokenAmount>().unwrap()
+    }
+
+    fn assert_total_supply(
+        &mut self,
+        operator: Address,
+        token_actor: Address,
+        total_supply: TokenAmount,
+    ) {
+        let supply = self.total_supply(operator, token_actor);
+        assert_eq!(supply, total_supply);
     }
 }
