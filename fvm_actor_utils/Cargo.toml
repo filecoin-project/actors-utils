@@ -14,8 +14,8 @@ anyhow = "1.0.56"
 cid = { version = "0.8.3", default-features = false, features = ["serde-codec"] }
 fvm_ipld_blockstore = "0.1.1"
 fvm_ipld_encoding = "=0.3.3"
-fvm_shared = "=3.0.0-alpha.17"
-fvm_sdk = "=3.0.0-alpha.22"
+fvm_shared = "=3.0.0-alpha.20"
+fvm_sdk = "=3.0.0-alpha.24"
 num-traits = { version = "0.2.15" }
 serde = { version = "1.0.136", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }
