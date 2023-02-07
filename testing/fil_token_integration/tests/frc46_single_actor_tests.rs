@@ -208,4 +208,27 @@ fn frc46_single_actor_tests() {
             TokenAmount::from_atto(100),
         );
     }
+
+    // TEST: test actor transfers to self (non-zero amount) and rejects
+    {
+        let test_action = ActionParams {
+            token_address: token_actor,
+            action: TestAction::Transfer(frc46_test_actor, action(TestAction::Reject)),
+        };
+        let params = RawBytes::serialize(test_action).unwrap();
+        tester.call_method_ok(
+            operator[0].1,
+            frc46_test_actor,
+            method_hash!("Action"),
+            Some(params),
+        );
+
+        // check that our test actor balance hasn't changed
+        tester.assert_token_balance(
+            operator[0].1,
+            token_actor,
+            frc46_test_actor,
+            TokenAmount::from_atto(100),
+        );
+    }
 }
