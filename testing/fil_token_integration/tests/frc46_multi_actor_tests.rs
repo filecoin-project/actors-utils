@@ -351,4 +351,41 @@ fn frc46_multi_actor_tests() {
         // total supply should be 500 - 100 each for alice and carol, 300 for bob
         tester.assert_total_supply(operator[0].1, token_actor, TokenAmount::from_atto(500));
     }
+
+    // TEST: alice transfers to bob, bob hook transfers to carol (who rejects), bob then transfers to dave as a fallback (who accepts)
+    {
+        let params = action_params(
+            token_actor,
+            TestAction::Transfer(
+                bob,
+                action(TestAction::TransferWithFallback {
+                    to: carol,
+                    instructions: action(TestAction::Reject),
+                    fallback: action(TestAction::Transfer(dave, action(TestAction::Accept))),
+                }),
+            ),
+        );
+        let ret_val =
+            tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
+        // check the receipt we got in return data
+        let receipt: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
+        assert!(receipt.exit_code.is_success());
+        // check the transfer result (from alice to bob)
+        let bob_transfer: TransferReturn = receipt.return_data.deserialize().unwrap();
+        assert_eq!(bob_transfer.from_balance, TokenAmount::zero());
+        assert_eq!(bob_transfer.to_balance, TokenAmount::from_atto(300));
+        // now extract the fallback transfer receipt and transfer data contained within
+        let bob_receipt: Receipt = bob_transfer.recipient_data.deserialize().unwrap();
+        let fallback_transfer: TransferReturn = bob_receipt.return_data.deserialize().unwrap();
+        assert_eq!(fallback_transfer.from_balance, TokenAmount::from_atto(300));
+        assert_eq!(fallback_transfer.to_balance, TokenAmount::from_atto(100));
+
+        // check balances - alice should have nothing, bob should keep 300, carol and dave should each have 100 (carol from previous tests, dave from this one)
+        tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
+        tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(300));
+        tester.assert_token_balance(operator[0].1, token_actor, carol, TokenAmount::from_atto(100));
+        tester.assert_token_balance(operator[0].1, token_actor, dave, TokenAmount::from_atto(100));
+        // total supply should remain at 500
+        tester.assert_total_supply(operator[0].1, token_actor, TokenAmount::from_atto(500));
+    }
 }
