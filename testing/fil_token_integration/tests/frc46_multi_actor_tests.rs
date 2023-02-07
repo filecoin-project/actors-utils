@@ -295,4 +295,34 @@ fn frc46_multi_actor_tests() {
         tester.assert_token_balance_zero(operator[0].1, token_actor, alice);
         tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(300));
     }
+
+    // TEST: alice transfers to bob, bob's hook burns but then aborts
+    {
+        // mint some more to alice first
+        tester.mint_tokens_ok(
+            operator[0].1,
+            token_actor,
+            alice,
+            TokenAmount::from_atto(100),
+            action(TestAction::Accept),
+        );
+        let params = action_params(
+            token_actor,
+            TestAction::Transfer(
+                bob,
+                action(TestAction::ActionThenAbort(action(TestAction::Burn))),
+            ),
+        );
+        let ret_val =
+            tester.call_method_ok(operator[0].1, alice, method_hash!("Action"), Some(params));
+        // check the receipt we got in return data
+        let receipt: Receipt = ret_val.msg_receipt.return_data.deserialize().unwrap();
+        assert_eq!(receipt.exit_code, ExitCode::USR_UNSPECIFIED);
+
+        // check balances - alice should keep the 100 we just minted, bob remains at 300
+        tester.assert_token_balance(operator[0].1, token_actor, alice, TokenAmount::from_atto(100));
+        tester.assert_token_balance(operator[0].1, token_actor, bob, TokenAmount::from_atto(300));
+        // total supply should be 500 - 100 each for alice and carol, 300 for bob
+        tester.assert_total_supply(operator[0].1, token_actor, TokenAmount::from_atto(500));
+    }
 }
