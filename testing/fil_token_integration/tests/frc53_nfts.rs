@@ -1,4 +1,5 @@
 use frc42_dispatch::method_hash;
+use frc53_nft::state::Cursor;
 use frc53_nft::types::{ListTokensParams, ListTokensReturn};
 use frc53_nft::{state::TokenID, types::MintReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
@@ -163,7 +164,7 @@ fn test_nft_actor() {
 
     {
         // List all the tokens
-        let list_tokens_params = ListTokensParams { range_start: 0 };
+        let list_tokens_params = ListTokensParams { range_start: None, limit: None };
         let list_tokens_params = RawBytes::serialize(&list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
             minter[0].1,

@@ -8,6 +8,7 @@ use cid::Cid;
 use fvm_actor_utils::receiver::ReceiverHookError;
 use fvm_ipld_amt::Amt;
 use fvm_ipld_amt::Error as AmtError;
+use fvm_ipld_amt::LeafCursor as AmtCursor;
 use fvm_ipld_bitfield::BitField;
 use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore;
@@ -18,7 +19,6 @@ use fvm_ipld_encoding::DAG_CBOR;
 use fvm_ipld_hamt::BytesKey;
 use fvm_ipld_hamt::Error as HamtError;
 use fvm_ipld_hamt::Hamt;
-use fvm_ipld_hamt::LeafCursor;
 use fvm_shared::ActorID;
 use integer_encoding::VarInt;
 use thiserror::Error;
@@ -39,7 +39,7 @@ pub type TokenSet = BitField;
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct Cursor {
     pub root: Cid,
-    pub leaf: LeafCursor,
+    pub leaf: AmtCursor,
 }
 
 /// Each token stores its owner, approved operators etc.
@@ -591,43 +591,48 @@ impl NFTState {
     pub fn list_owned_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
-        cursor: &Cursor,
-        limit: u64,
+        _cursor: &Cursor,
+        _limit: u64,
     ) -> Result<(BitField, Option<Cursor>)> {
         let mut owner_data_map = self.get_owner_data_hamt(bs)?;
         self.owner_data = owner_data_map.flush()?;
 
-        if self. != cursor.root {
-            return Err(StateError::InvalidCursor);
-        }
+        let owned_tokens = BitField::new();
 
-        let mut owned_tokens = BitField::new();
-
-        let (traversed, leaf_cursor) =
-            owner_data_map.for_each_ranged(&cursor.leaf, limit, |owner, owner_data| Ok(()))?;
-
-        let cursor = leaf_cursor.map(|leaf| Cursor { leaf, root: cid });
-
-        Ok((owned_tokens, cursor))
+        Ok((owned_tokens, None))
     }
 
     /// List all the minted tokens
     pub fn list_tokens<BS: Blockstore>(
         &self,
         bs: &BS,
-        range_start: TokenID,
-    ) -> Result<(BitField, Vec<TokenData>, TokenID)> {
-        let token_data_array = self.get_token_data_amt(bs)?;
+        range_start: Option<Cursor>,
+        limit: Option<u64>,
+    ) -> Result<(BitField, Vec<TokenData>, Option<Cursor>)> {
+        let mut token_data_array = self.get_token_data_amt(bs)?;
+
+        // TODO check cid matches
+        let cid = token_data_array.flush()?;
+        if self.token_data != cid || range_start.as_ref().map_or(false, |c| c.root != cid) {
+            return Err(StateError::InvalidCursor);
+        }
 
         // TODO: can derive a sensible range here from the `height` of the AMT
         // or perhaps this should be specified by the caller
-        let end_index = range_start + (1 << AMT_BIT_WIDTH << 5); // currently this will search groups of 1024
         let mut token_ids: BitField = BitField::new();
         let mut data = Vec::new();
 
-        // FIXME
+        token_data_array.for_each_ranged(
+            &range_start.map_or(AmtCursor::start(), |r| r.leaf),
+            limit,
+            |i, token_data| {
+                token_ids.set(i);
+                data.push(token_data.clone());
+                Ok(true)
+            },
+        )?;
 
-        Ok((token_ids, data, end_index))
+        Ok((token_ids, data, None))
     }
 }
 

@@ -159,7 +159,7 @@ fn invoke(params: u32) -> u32 {
         }
         "ListTokens" => {
             let params = deserialize_params::<ListTokensParams>(params);
-            let res = handle.list_tokens(params.range_start).unwrap();
+            let res = handle.list_tokens(params.range_start, params.limit).unwrap();
             return_ipld(&res).unwrap()
         }
         _ => {

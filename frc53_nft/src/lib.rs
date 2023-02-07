@@ -17,7 +17,7 @@ use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, ActorID};
 use receiver::{FRC53ReceiverHook, FRC53TokenReceived};
-use state::{StateError, StateInvariantError, StateSummary};
+use state::{Cursor, StateError, StateInvariantError, StateSummary};
 use thiserror::Error;
 use types::{ListTokensReturn, MintIntermediate, MintReturn, TransferIntermediate, TransferReturn};
 
@@ -413,9 +413,13 @@ where
     }
 
     /// Enumerates token data between the specified ranges
-    pub fn list_tokens(&self, range_start: TokenID) -> Result<ListTokensReturn> {
+    pub fn list_tokens(
+        &self,
+        range_start: Option<Cursor>,
+        limit: Option<u64>,
+    ) -> Result<ListTokensReturn> {
         let (token_ids, token_data, next_range_start) =
-            self.state.list_tokens(&self.runtime, range_start)?;
+            self.state.list_tokens(&self.runtime, range_start, limit)?;
         Ok(ListTokensReturn { token_ids, token_data, next_range_start })
     }
 
