@@ -18,6 +18,7 @@ use fvm_ipld_encoding::DAG_CBOR;
 use fvm_ipld_hamt::BytesKey;
 use fvm_ipld_hamt::Error as HamtError;
 use fvm_ipld_hamt::Hamt;
+use fvm_ipld_hamt::LeafCursor;
 use fvm_shared::ActorID;
 use integer_encoding::VarInt;
 use thiserror::Error;
@@ -29,6 +30,17 @@ use crate::types::TransferReturn;
 use crate::util::OperatorSet;
 
 pub type TokenID = u64;
+
+/// Multiple TokenIDs can be represented as a BitField, the index of each set bit corresponds to a
+/// TokenID
+pub type TokenSet = BitField;
+
+/// Opaque cursor to iterate over internal data structures
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct Cursor {
+    pub root: Cid,
+    pub leaf: LeafCursor,
+}
 
 /// Each token stores its owner, approved operators etc.
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
@@ -83,6 +95,8 @@ pub enum StateError {
     NotAuthorized { actor: ActorID, token_id: TokenID },
     #[error("receiver hook error: {0}")]
     ReceiverHook(#[from] ReceiverHookError),
+    #[error("invalid cursor")]
+    InvalidCursor,
     /// This error is returned for errors that should never happen
     #[error("invariant failed: {0}")]
     InvariantFailed(String),
@@ -570,6 +584,31 @@ impl NFTState {
         let token =
             token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
         Ok(token.owner)
+    }
+
+    /// List the tokens owned by an actor. This method flushes the owner data hamt prior to iteration.
+    /// Returns a bitfield of the tokens owned by the actor and a cursor to the next page of data
+    pub fn list_owned_tokens<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        cursor: &Cursor,
+        limit: u64,
+    ) -> Result<(BitField, Option<Cursor>)> {
+        let mut owner_data_map = self.get_owner_data_hamt(bs)?;
+        self.owner_data = owner_data_map.flush()?;
+
+        if self. != cursor.root {
+            return Err(StateError::InvalidCursor);
+        }
+
+        let mut owned_tokens = BitField::new();
+
+        let (traversed, leaf_cursor) =
+            owner_data_map.for_each_ranged(&cursor.leaf, limit, |owner, owner_data| Ok(()))?;
+
+        let cursor = leaf_cursor.map(|leaf| Cursor { leaf, root: cid });
+
+        Ok((owned_tokens, cursor))
     }
 
     /// List all the minted tokens
