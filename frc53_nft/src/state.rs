@@ -8,7 +8,6 @@ use cid::Cid;
 use fvm_actor_utils::receiver::ReceiverHookError;
 use fvm_ipld_amt::Amt;
 use fvm_ipld_amt::Error as AmtError;
-use fvm_ipld_amt::LeafCursor as AmtCursor;
 use fvm_ipld_bitfield::BitField;
 use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore;
@@ -23,6 +22,7 @@ use fvm_shared::ActorID;
 use integer_encoding::VarInt;
 use thiserror::Error;
 
+use crate::types::ListOperatorTokensReturn;
 use crate::types::MintIntermediate;
 use crate::types::MintReturn;
 use crate::types::TransferIntermediate;
@@ -37,14 +37,14 @@ pub type TokenSet = BitField;
 
 /// Opaque cursor to iterate over internal data structures
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
-pub struct Cursor {
+pub struct AmtCursor {
     pub root: Cid,
-    pub leaf: AmtCursor,
+    pub index: u64,
 }
 
-impl Cursor {
-    fn new(cid: Cid, leaf: AmtCursor) -> Self {
-        Self { root: cid, leaf }
+impl AmtCursor {
+    fn new(cid: Cid, index: u64) -> Self {
+        Self { root: cid, index }
     }
 }
 
@@ -163,10 +163,11 @@ impl NFTState {
         Ok(res)
     }
 
-    pub fn get_token_data_amt_with_cursor<'bs, BS: Blockstore>(
+    /// Retrieves the token data Amt, first asserting that the root cid matches the expected root
+    pub fn get_token_amt_at_cursor<'bs, BS: Blockstore>(
         &self,
         store: &'bs BS,
-        cursor: &Cursor,
+        cursor: &AmtCursor,
     ) -> Result<Amt<TokenData, &'bs BS>> {
         if cursor.root != self.token_data {
             return Err(StateError::InvalidCursor);
@@ -597,6 +598,30 @@ impl NFTState {
         Ok(token.owner)
     }
 
+    /// List all the minted tokens
+    pub fn list_tokens<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        range_start: Option<AmtCursor>,
+        limit: Option<u64>,
+    ) -> Result<(TokenSet, Option<AmtCursor>)> {
+        let token_data_array = match &range_start {
+            Some(cursor) => self.get_token_amt_at_cursor(bs, cursor)?,
+            None => self.get_token_data_amt(bs)?,
+        };
+
+        // Build the TokenSet
+        let mut token_ids = TokenSet::new();
+        let (_, next_key) =
+            token_data_array.for_each_ranged(range_start.map(|r| r.index), limit, |i, _| {
+                token_ids.set(i);
+                Ok(())
+            })?;
+
+        let next_cursor = next_key.map(|key| AmtCursor::new(self.token_data, key));
+        Ok((token_ids, next_cursor))
+    }
+
     /// List the tokens owned by an actor. In the reference implementation this is may be a
     /// prohibitievly expensive operation as it involves iterating over the entire token set.
     /// Returns a bitfield of the tokens owned by the actor and a cursor to the next page of data.
@@ -604,62 +629,107 @@ impl NFTState {
         &self,
         bs: &BS,
         owner: ActorID,
-        range_start: Option<Cursor>,
+        range_start: Option<AmtCursor>,
         limit: Option<u64>,
-    ) -> Result<(TokenSet, Option<Cursor>)> {
+    ) -> Result<(TokenSet, Option<AmtCursor>)> {
         let token_data_array = match &range_start {
-            Some(cursor) => self.get_token_data_amt_with_cursor(bs, cursor)?,
+            Some(cursor) => self.get_token_amt_at_cursor(bs, cursor)?,
             None => self.get_token_data_amt(bs)?,
         };
 
         // Build the TokenSet
         let mut token_ids = TokenSet::new();
-        let (_, _, leaf_cursor) = token_data_array.for_each_ranged(
-            &range_start.map_or(AmtCursor::start(), |r| r.leaf),
-            None,
-            |i, data| {
+        let (_, next_key) =
+            token_data_array.for_each_ranged(range_start.map(|r| r.index), limit, |i, data| {
                 if data.owner == owner {
                     token_ids.set(i);
                 }
+                Ok(())
+            })?;
 
-                // stop iteration if the limit was reached
-                if token_ids.len() == limit.unwrap_or(u64::MAX) {
-                    return Ok(false);
-                }
-
-                Ok(true)
-            },
-        )?;
-
-        let next_cursor = leaf_cursor.map(|leaf| Cursor::new(self.token_data, leaf));
+        let next_cursor = next_key.map(|key| AmtCursor::new(self.token_data, key));
         Ok((token_ids, next_cursor))
     }
 
-    /// List all the minted tokens
-    pub fn list_tokens<BS: Blockstore>(
+    /// List all the token operators for a given token_id
+    pub fn list_token_operators<BS: Blockstore>(
         &self,
         bs: &BS,
-        range_start: Option<Cursor>,
-        limit: Option<u64>,
-    ) -> Result<(TokenSet, Option<Cursor>)> {
-        let token_data_array = match &range_start {
-            Some(cursor) => self.get_token_data_amt_with_cursor(bs, cursor)?,
-            None => self.get_token_data_amt(bs)?,
-        };
+        token_id: TokenID,
+    ) -> Result<Vec<ActorID>> {
+        let token_data_array = self.get_token_data_amt(bs)?;
+        let token_data =
+            token_data_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
 
-        // Build the TokenSet
-        let mut token_ids = TokenSet::new();
-        let (_, _, leaf_cursor) = token_data_array.for_each_ranged(
-            &range_start.map_or(AmtCursor::start(), |r| r.leaf),
-            limit,
-            |i, _| {
-                token_ids.set(i);
-                Ok(true)
-            },
-        )?;
+        let mut operators = Vec::new();
+        for id in 0..=u64::MAX {
+            if token_data.operators.get(id) {
+                operators.push(id);
+            }
+        }
 
-        let next_cursor = leaf_cursor.map(|leaf| Cursor::new(self.token_data, leaf));
-        Ok((token_ids, next_cursor))
+        Ok(operators)
+    }
+
+    /// Enumerates tokens for which an account is an operator for a given owner
+    pub fn list_operator_tokens<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        owner: ActorID,
+        operator: ActorID,
+        cursor: Option<AmtCursor>,
+        max: Option<u64>,
+    ) -> Result<ListOperatorTokensReturn> {
+        // Check if the operator is an account-level operator for the owner
+        let owner_map = self.get_owner_data_hamt(bs)?;
+        if Self::is_account_operator(&owner_map, owner, operator)? {
+            // If so, return all tokens owned by the owner
+            let (tokens, next_cursor) = self.list_owned_tokens(bs, owner, cursor, max)?;
+            Ok(ListOperatorTokensReturn { tokens, next_cursor })
+        } else {
+            // Otherwise, iterate over the owner's tokens and find those where the operator is approved
+            // Note that this may be less than max even if max are available
+            let mut operatable_tokens = TokenSet::new();
+            let token_array = self.get_token_data_amt(bs)?;
+            let (tokens, next_cursor) = self.list_owned_tokens(bs, owner, cursor, max)?;
+            for token_id in 0..=u64::MAX {
+                if tokens.get(token_id) {
+                    let token_data = token_array.get(token_id)?.ok_or_else(|| {
+                        StateError::InvariantFailed(format!(
+                            "token {token_id} owned by {owner} not found in token amt",
+                        ))
+                    })?;
+
+                    if token_data.operators.get(operator) {
+                        operatable_tokens.set(token_id)
+                    }
+                }
+            }
+            Ok(ListOperatorTokensReturn { tokens: operatable_tokens, next_cursor })
+        }
+    }
+
+    /// List all the token operators for a given account
+    pub fn list_account_operators<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        actor_id: ActorID,
+    ) -> Result<Vec<ActorID>> {
+        let owner_data_map = self.get_owner_data_hamt(bs)?;
+        let account = owner_data_map.get(&actor_id_key(actor_id))?;
+        match account {
+            Some(account) => {
+                let mut operators = Vec::new();
+                for id in 0..=u64::MAX {
+                    if account.operators.get(id) {
+                        operators.push(id);
+                    }
+                }
+
+                Ok(operators)
+            }
+            None => Ok(vec![]),
+        }
     }
 }
 

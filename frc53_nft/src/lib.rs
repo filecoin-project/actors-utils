@@ -17,9 +17,12 @@ use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, ActorID};
 use receiver::{FRC53ReceiverHook, FRC53TokenReceived};
-use state::{Cursor, StateError, StateInvariantError, StateSummary};
+use state::{AmtCursor, StateError, StateInvariantError, StateSummary};
 use thiserror::Error;
-use types::{ListTokensReturn, MintIntermediate, MintReturn, TransferIntermediate, TransferReturn};
+use types::{
+    ListOperatorTokensReturn, ListTokensReturn, MintIntermediate, MintReturn, TransferIntermediate,
+    TransferReturn,
+};
 
 use self::state::{NFTState, TokenID};
 
@@ -413,7 +416,7 @@ where
     }
 
     /// Enumerates a page of TokenIDs
-    pub fn list_tokens(&self, cursor: Option<Cursor>, max: u64) -> Result<ListTokensReturn> {
+    pub fn list_tokens(&self, cursor: Option<AmtCursor>, max: u64) -> Result<ListTokensReturn> {
         let limit = match max {
             0 => None,
             _ => Some(max),
@@ -426,7 +429,7 @@ where
     pub fn list_owned_tokens(
         &self,
         owner: &Address,
-        cursor: Option<Cursor>,
+        cursor: Option<AmtCursor>,
         max: u64,
     ) -> Result<ListTokensReturn> {
         let owner_id = self.runtime.resolve_id(owner)?;
@@ -437,6 +440,35 @@ where
         let (tokens, next_cursor) =
             self.state.list_owned_tokens(&self.runtime, owner_id, cursor, limit)?;
         Ok(ListTokensReturn { tokens, next_cursor })
+    }
+
+    /// Returns all the operators approved by an owner for a token
+    pub fn list_token_operators(&self, owner: &Address, token_id: TokenID) -> Result<Vec<ActorID>> {
+        let _owner_id = self.runtime.resolve_id(owner)?;
+        Ok(self.state.list_token_operators(&self.runtime, token_id)?)
+    }
+
+    /// Enumerates tokens for which an account is an operator for an owner
+    pub fn list_operator_tokens(
+        &self,
+        owner: &Address,
+        operator: &Address,
+        cursor: Option<AmtCursor>,
+        max: u64,
+    ) -> Result<ListOperatorTokensReturn> {
+        let owner_id = self.runtime.resolve_id(owner)?;
+        let operator_id = self.runtime.resolve_id(operator)?;
+        let limit = match max {
+            0 => None,
+            _ => Some(max),
+        };
+        Ok(self.state.list_operator_tokens(&self.runtime, owner_id, operator_id, cursor, limit)?)
+    }
+
+    /// Returns all the account-level operators approved by an owner
+    pub fn list_account_operators(&self, owner: &Address) -> Result<Vec<ActorID>> {
+        let owner_id = self.runtime.resolve_id(owner)?;
+        Ok(self.state.list_account_operators(&self.runtime, owner_id)?)
     }
 
     /// Reloads the state if the current root cid has diverged (i.e. during re-entrant receiver hooks)

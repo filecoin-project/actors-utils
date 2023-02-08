@@ -2,8 +2,9 @@ use frc42_dispatch::match_method;
 use frc53_nft::{
     state::{NFTState, TokenID},
     types::{
-        ApproveForAllParams, ApproveParams, BurnFromParams, ListOwnedTokensParams,
-        ListTokensParams, RevokeForAllParams, RevokeParams, TransferFromParams, TransferParams,
+        ApproveForAllParams, ApproveParams, BurnFromParams, ListOperatorTokensParams,
+        ListOwnedTokensParams, ListTokenOperatorsParams, ListTokensParams, RevokeForAllParams,
+        RevokeParams, TransferFromParams, TransferParams,
     },
     NFT,
 };
@@ -165,6 +166,21 @@ fn invoke(params: u32) -> u32 {
         "ListOwnedTokens" => {
             let params = deserialize_params::<ListOwnedTokensParams>(params);
             let res = handle.list_owned_tokens(&params.owner, params.cursor, params.max).unwrap();
+            return_ipld(&res).unwrap()
+        }
+        "ListTokenOperators" => {
+            let params = deserialize_params::<ListTokenOperatorsParams>(params);
+            let res = handle.list_token_operators(&params.owner, params.token_id).unwrap();
+            return_ipld(&res).unwrap()
+        }
+        "ListOperatorTokens" => {
+            let params = deserialize_params::<ListOperatorTokensParams>(params);
+            let res = handle.list_operator_tokens(&params.owner, &params.operator, params.cursor, params.max).unwrap();
+            return_ipld(&res).unwrap()
+        }
+        "ListAccountOperators" => {
+            let params = deserialize_params::<Address>(params);
+            let res = handle.list_account_operators(&params).unwrap();
             return_ipld(&res).unwrap()
         }
         _ => {

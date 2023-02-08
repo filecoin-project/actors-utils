@@ -195,7 +195,7 @@ fn test_nft_actor() {
         assert_eq!(list_tokens_result.tokens, bitfield![1, 1]);
         assert!(list_tokens_result.next_cursor.is_some());
 
-        // List the next two
+        // List the next (final) two
         let list_tokens_params =
             ListTokensParams { cursor: list_tokens_result.next_cursor, max: 2 };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
@@ -208,21 +208,7 @@ fn test_nft_actor() {
         let list_tokens_result =
             ret_val.msg_receipt.return_data.deserialize::<ListTokensReturn>().unwrap();
         assert_eq!(list_tokens_result.tokens, bitfield![0, 0, 1, 1]);
-        assert!(list_tokens_result.next_cursor.is_some());
-
-        // Show that there are no more
-        let list_tokens_params =
-            ListTokensParams { cursor: list_tokens_result.next_cursor, max: 2 };
-        let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
-        let ret_val = tester.call_method_ok(
-            minter[0].1,
-            actor_address,
-            method_hash!("ListTokens"),
-            Some(list_tokens_params),
-        );
-        let list_tokens_result =
-            ret_val.msg_receipt.return_data.deserialize::<ListTokensReturn>().unwrap();
-        assert_eq!(list_tokens_result.tokens, bitfield![]);
+        // There are no more
         assert!(list_tokens_result.next_cursor.is_none());
     }
 
@@ -240,6 +226,7 @@ fn test_nft_actor() {
         let list_tokens_result =
             ret_val.msg_receipt.return_data.deserialize::<ListOwnedTokensReturn>().unwrap();
         assert_eq!(list_tokens_result.tokens, bitfield![1, 1, 1, 1]);
+        assert!(list_tokens_result.next_cursor.is_none());
 
         // Check that another address doesn't enumerate any tokens
         let params = ListOwnedTokensParams { owner: other_address, cursor: None, max: 0 };

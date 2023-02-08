@@ -7,7 +7,7 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::ActorID;
 
-use crate::state::Cursor;
+use crate::state::AmtCursor;
 
 type TokenID = u64;
 
@@ -165,25 +165,45 @@ pub struct RevokeForAllParams {
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ListTokensParams {
-    pub cursor: Option<Cursor>,
+    pub cursor: Option<AmtCursor>,
     pub max: u64,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ListTokensReturn {
     pub tokens: BitField,
-    pub next_cursor: Option<Cursor>,
+    pub next_cursor: Option<AmtCursor>,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ListOwnedTokensParams {
     pub owner: Address,
-    pub cursor: Option<Cursor>,
+    pub cursor: Option<AmtCursor>,
     pub max: u64,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ListOwnedTokensReturn {
     pub tokens: BitField,
-    pub next_cursor: Option<Cursor>,
+    pub next_cursor: Option<AmtCursor>,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListTokenOperatorsParams {
+    pub owner: Address,
+    pub token_id: TokenID,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListOperatorTokensParams {
+    pub owner: Address,
+    pub operator: Address,
+    pub cursor: Option<AmtCursor>,
+    pub max: u64,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListOperatorTokensReturn {
+    pub tokens: BitField,
+    pub next_cursor: Option<AmtCursor>,
 }
