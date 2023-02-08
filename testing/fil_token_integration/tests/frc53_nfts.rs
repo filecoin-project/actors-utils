@@ -1,5 +1,7 @@
 use frc42_dispatch::method_hash;
-use frc53_nft::types::{ListTokensParams, ListTokensReturn};
+use frc53_nft::types::{
+    ListOwnedTokensParams, ListOwnedTokensReturn, ListTokensParams, ListTokensReturn,
+};
 use frc53_nft::{state::TokenID, types::MintReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_bitfield::bitfield;
@@ -23,6 +25,7 @@ fn test_nft_actor() {
 
     let actor_address = tester.install_actor_stateless(BASIC_NFT_ACTOR_WASM, 10_000);
     let receiver_address = tester.install_actor_stateless(BASIC_RECEIVER_ACTOR_WASM, 10_001);
+    let other_address = tester.install_actor_stateless(BASIC_RECEIVER_ACTOR_WASM, 10_002);
 
     // Instantiate machine
     tester.instantiate_machine(DummyExterns).unwrap();
@@ -221,5 +224,70 @@ fn test_nft_actor() {
             ret_val.msg_receipt.return_data.deserialize::<ListTokensReturn>().unwrap();
         assert_eq!(list_tokens_result.tokens, bitfield![]);
         assert!(list_tokens_result.next_cursor.is_none());
+    }
+
+    // List owned tokens
+    {
+        // List all the tokens minted to the receiver address
+        let params = ListOwnedTokensParams { owner: receiver_address, cursor: None, max: 0 };
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method_ok(
+            minter[0].1,
+            actor_address,
+            method_hash!("ListOwnedTokens"),
+            Some(params),
+        );
+        let list_tokens_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListOwnedTokensReturn>().unwrap();
+        assert_eq!(list_tokens_result.tokens, bitfield![1, 1, 1, 1]);
+
+        // Check that another address doesn't enumerate any tokens
+        let params = ListOwnedTokensParams { owner: other_address, cursor: None, max: 0 };
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method_ok(
+            minter[0].1,
+            actor_address,
+            method_hash!("ListOwnedTokens"),
+            Some(params),
+        );
+        let list_tokens_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListOwnedTokensReturn>().unwrap();
+        assert_eq!(list_tokens_result.tokens, bitfield![]);
+    }
+
+    // List owned tokens in pairs
+    {
+        // List first two tokens
+        let params = ListOwnedTokensParams { owner: receiver_address, cursor: None, max: 2 };
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method_ok(
+            minter[0].1,
+            actor_address,
+            method_hash!("ListOwnedTokens"),
+            Some(params),
+        );
+        let call_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListOwnedTokensReturn>().unwrap();
+        assert_eq!(call_result.tokens, bitfield![1, 1]);
+        assert!(call_result.next_cursor.is_some());
+
+        // Attempt to list the next four
+        let params = ListOwnedTokensParams {
+            owner: receiver_address,
+            cursor: call_result.next_cursor,
+            max: 4,
+        };
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method_ok(
+            minter[0].1,
+            actor_address,
+            method_hash!("ListOwnedTokens"),
+            Some(params),
+        );
+        // Should only receive two and an empty cursor
+        let call_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListOwnedTokensReturn>().unwrap();
+        assert_eq!(call_result.tokens, bitfield![0, 0, 1, 1]);
+        assert!(call_result.next_cursor.is_none());
     }
 }

@@ -2,8 +2,8 @@ use frc42_dispatch::match_method;
 use frc53_nft::{
     state::{NFTState, TokenID},
     types::{
-        ApproveForAllParams, ApproveParams, BurnFromParams, ListTokensParams, RevokeForAllParams,
-        RevokeParams, TransferFromParams, TransferParams,
+        ApproveForAllParams, ApproveParams, BurnFromParams, ListOwnedTokensParams,
+        ListTokensParams, RevokeForAllParams, RevokeParams, TransferFromParams, TransferParams,
     },
     NFT,
 };
@@ -160,6 +160,11 @@ fn invoke(params: u32) -> u32 {
         "ListTokens" => {
             let params = deserialize_params::<ListTokensParams>(params);
             let res = handle.list_tokens(params.cursor, params.max).unwrap();
+            return_ipld(&res).unwrap()
+        }
+        "ListOwnedTokens" => {
+            let params = deserialize_params::<ListOwnedTokensParams>(params);
+            let res = handle.list_owned_tokens(&params.owner, params.cursor, params.max).unwrap();
             return_ipld(&res).unwrap()
         }
         _ => {

@@ -162,6 +162,17 @@ impl NFTState {
         let res = OwnerMap::load_with_bit_width(&self.owner_data, store, HAMT_BIT_WIDTH)?;
         Ok(res)
     }
+
+    pub fn get_token_data_amt_with_cursor<'bs, BS: Blockstore>(
+        &self,
+        store: &'bs BS,
+        cursor: &Cursor,
+    ) -> Result<Amt<TokenData, &'bs BS>> {
+        if cursor.root != self.token_data {
+            return Err(StateError::InvalidCursor);
+        }
+        self.get_token_data_amt(store)
+    }
 }
 
 impl NFTState {
@@ -586,20 +597,42 @@ impl NFTState {
         Ok(token.owner)
     }
 
-    /// List the tokens owned by an actor. This method flushes the owner data hamt prior to iteration.
-    /// Returns a bitfield of the tokens owned by the actor and a cursor to the next page of data
+    /// List the tokens owned by an actor. In the reference implementation this is may be a
+    /// prohibitievly expensive operation as it involves iterating over the entire token set.
+    /// Returns a bitfield of the tokens owned by the actor and a cursor to the next page of data.
     pub fn list_owned_tokens<BS: Blockstore>(
-        &mut self,
+        &self,
         bs: &BS,
-        _cursor: &Cursor,
-        _limit: u64,
-    ) -> Result<(BitField, Option<Cursor>)> {
-        let mut owner_data_map = self.get_owner_data_hamt(bs)?;
-        self.owner_data = owner_data_map.flush()?;
+        owner: ActorID,
+        range_start: Option<Cursor>,
+        limit: Option<u64>,
+    ) -> Result<(TokenSet, Option<Cursor>)> {
+        let token_data_array = match &range_start {
+            Some(cursor) => self.get_token_data_amt_with_cursor(bs, cursor)?,
+            None => self.get_token_data_amt(bs)?,
+        };
 
-        let owned_tokens = BitField::new();
+        // Build the TokenSet
+        let mut token_ids = TokenSet::new();
+        let (_, _, leaf_cursor) = token_data_array.for_each_ranged(
+            &range_start.map_or(AmtCursor::start(), |r| r.leaf),
+            None,
+            |i, data| {
+                if data.owner == owner {
+                    token_ids.set(i);
+                }
 
-        Ok((owned_tokens, None))
+                // stop iteration if the limit was reached
+                if token_ids.len() == limit.unwrap_or(u64::MAX) {
+                    return Ok(false);
+                }
+
+                Ok(true)
+            },
+        )?;
+
+        let next_cursor = leaf_cursor.map(|leaf| Cursor::new(self.token_data, leaf));
+        Ok((token_ids, next_cursor))
     }
 
     /// List all the minted tokens
@@ -609,13 +642,10 @@ impl NFTState {
         range_start: Option<Cursor>,
         limit: Option<u64>,
     ) -> Result<(TokenSet, Option<Cursor>)> {
-        let mut token_data_array = self.get_token_data_amt(bs)?;
-
-        // Check the cid matches the cached cid, check the cursor cid matches too
-        let cid = token_data_array.flush()?;
-        if self.token_data != cid || range_start.as_ref().map_or(false, |c| c.root != cid) {
-            return Err(StateError::InvalidCursor);
-        }
+        let token_data_array = match &range_start {
+            Some(cursor) => self.get_token_data_amt_with_cursor(bs, cursor)?,
+            None => self.get_token_data_amt(bs)?,
+        };
 
         // Build the TokenSet
         let mut token_ids = TokenSet::new();
@@ -628,7 +658,7 @@ impl NFTState {
             },
         )?;
 
-        let next_cursor = leaf_cursor.map(|leaf| Cursor::new(cid, leaf));
+        let next_cursor = leaf_cursor.map(|leaf| Cursor::new(self.token_data, leaf));
         Ok((token_ids, next_cursor))
     }
 }

@@ -412,13 +412,30 @@ where
         Ok(self.state.transfer_return(&self.runtime, intermediate)?)
     }
 
-    /// Enumerates token data between the specified ranges
+    /// Enumerates a page of TokenIDs
     pub fn list_tokens(&self, cursor: Option<Cursor>, max: u64) -> Result<ListTokensReturn> {
         let limit = match max {
             0 => None,
             _ => Some(max),
         };
         let (tokens, next_cursor) = self.state.list_tokens(&self.runtime, cursor, limit)?;
+        Ok(ListTokensReturn { tokens, next_cursor })
+    }
+
+    /// Enumerates a page of TokenIDs owned by a specific address
+    pub fn list_owned_tokens(
+        &self,
+        owner: &Address,
+        cursor: Option<Cursor>,
+        max: u64,
+    ) -> Result<ListTokensReturn> {
+        let owner_id = self.runtime.resolve_id(owner)?;
+        let limit = match max {
+            0 => None,
+            _ => Some(max),
+        };
+        let (tokens, next_cursor) =
+            self.state.list_owned_tokens(&self.runtime, owner_id, cursor, limit)?;
         Ok(ListTokensReturn { tokens, next_cursor })
     }
 

@@ -174,3 +174,16 @@ pub struct ListTokensReturn {
     pub tokens: BitField,
     pub next_cursor: Option<Cursor>,
 }
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListOwnedTokensParams {
+    pub owner: Address,
+    pub cursor: Option<Cursor>,
+    pub max: u64,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListOwnedTokensReturn {
+    pub tokens: BitField,
+    pub next_cursor: Option<Cursor>,
+}
