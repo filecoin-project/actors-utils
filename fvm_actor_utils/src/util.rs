@@ -3,7 +3,7 @@ use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_shared::METHOD_SEND;
-use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
+use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode, ActorID};
 use fvm_shared::{MethodNum, Response};
 use num_traits::Zero;
 use thiserror::Error;
@@ -21,6 +21,14 @@ pub enum ActorError {
 }
 
 type ActorResult<T> = std::result::Result<T, ActorError>;
+
+impl From<&ActorError> for ExitCode {
+    fn from(error: &ActorError) -> Self {
+        match error {
+            ActorError::NoState(_) => ExitCode::USR_NOT_FOUND,
+        }
+    }
+}
 
 /// ActorRuntime provides access to system resources via Syscalls and the Blockstore
 ///
