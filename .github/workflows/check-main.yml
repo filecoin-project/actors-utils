@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+env:
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
 jobs:
   check-build:
     runs-on: ubuntu-latest
