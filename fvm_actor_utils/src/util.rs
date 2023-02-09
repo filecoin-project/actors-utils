@@ -116,7 +116,7 @@ impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
         Ok(self.syscalls.root().map_err(|_err| NoStateError)?)
     }
 
-    // Set the root cid of the actor's state
+    /// Set the root cid of the actor's state
     pub fn set_root(&self, cid: &Cid) -> ActorResult<()> {
         Ok(self.syscalls.set_root(cid).map_err(|_err| NoStateError)?)
     }

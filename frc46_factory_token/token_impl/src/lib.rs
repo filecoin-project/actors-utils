@@ -157,7 +157,7 @@ impl FactoryTokenState {
 /// Implementation of the token API in a FVM actor
 ///
 /// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
-impl<SC: Syscalls + Clone, BS: Blockstore + Clone> FRC46Token for FactoryToken<SC, BS> {
+impl<SC: Syscalls, BS: Blockstore> FRC46Token for FactoryToken<SC, BS> {
     type TokenError = RuntimeError;
     fn name(&self) -> String {
         self.state.name.clone()
