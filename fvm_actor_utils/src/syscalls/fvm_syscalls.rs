@@ -17,8 +17,16 @@ impl Syscalls for FvmSyscalls {
         fvm_sdk::sself::root().map_err(|_| super::NoStateError)
     }
 
+    fn set_root(&self, cid: &cid::Cid) -> Result<(), super::NoStateError> {
+        fvm_sdk::sself::set_root(cid).map_err(|_| super::NoStateError)
+    }
+
     fn receiver(&self) -> fvm_shared::ActorID {
         fvm_sdk::message::receiver()
+    }
+
+    fn caller(&self) -> fvm_shared::ActorID {
+        fvm_sdk::message::caller()
     }
 
     fn send(
@@ -39,7 +47,7 @@ impl Syscalls for FvmSyscalls {
     }
 }
 
-impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
+impl<S: Syscalls + Clone, BS: Blockstore + Clone> ActorRuntime<S, BS> {
     pub fn new_fvm_runtime() -> ActorRuntime<FvmSyscalls, crate::blockstore::Blockstore> {
         ActorRuntime {
             syscalls: FvmSyscalls::default(),

@@ -1,4 +1,7 @@
 use frc42_dispatch::match_method;
+use fvm_actor_utils::{
+    blockstore::Blockstore, syscalls::fvm_syscalls::FvmSyscalls, util::ActorRuntime,
+};
 use fvm_sdk::NO_DATA_BLOCK_ID;
 use fvm_shared::error::ExitCode;
 use token_impl::{
@@ -7,39 +10,39 @@ use token_impl::{
 };
 
 fn token_invoke(method_num: u64, params: u32) -> Result<u32, RuntimeError> {
+    let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
     match_method!(method_num, {
         "Constructor" => {
             let params = deserialize_params(params);
-            construct_token(params)
+            construct_token(runtime, params)
         }
         "Mint" => {
-            let root_cid = fvm_sdk::sself::root()?;
+            let root_cid = runtime.root_cid()?;
             let params: MintParams = deserialize_params(params);
-            let mut token_actor = FactoryToken::load(&root_cid)?;
+            let mut token_actor = FactoryToken::load(runtime, &root_cid)?;
             let res = token_actor.mint(params)?;
             return_ipld(&res)
         }
         "DisableMint" => {
-            let root_cid = fvm_sdk::sself::root()?;
-            let mut token_actor = FactoryToken::load(&root_cid)?;
+            let root_cid = runtime.root_cid()?;
+            let mut token_actor = FactoryToken::load(runtime, &root_cid)?;
             // disable minting forever
             token_actor.disable_mint()?;
             // save state
             let cid = token_actor.save()?;
-            fvm_sdk::sself::set_root(&cid)?;
+            token_actor.runtime().set_root(&cid)?;
             // no return
             Ok(NO_DATA_BLOCK_ID)
         }
         _ => {
-            let root_cid = fvm_sdk::sself::root()?;
-
-            let mut token_actor = FactoryToken::load(&root_cid)?;
+            let root_cid = runtime.root_cid()?;
+            let mut token_actor = FactoryToken::load(runtime, &root_cid)?;
 
             let res = frc46_invoke(method_num, params, &mut token_actor, |token| {
                 // `token` is passed through from the original token provided in the function call
                 // so it won't break mutable borrow rules when used here (trying to use token_actor directly won't work)
                 let cid = token.save()?;
-                fvm_sdk::sself::set_root(&cid)?;
+                token.runtime().set_root(&cid)?;
                 Ok(())
             })?;
             match res {

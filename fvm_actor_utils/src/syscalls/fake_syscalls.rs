@@ -17,10 +17,13 @@ pub struct TestMessage {
 
 #[derive(Clone, Default, Debug)]
 pub struct FakeSyscalls {
-    /// The root of the calling actor
-    pub root: Cid,
-    /// The f0 ID of the calling actor
+    /// The root of the receiving actor
+    pub root: RefCell<Cid>,
+    /// The f0 ID of the receiving actor
     pub actor_id: ActorID,
+
+    /// Actor ID to return as caller ID
+    pub caller_id: RefCell<ActorID>,
 
     /// A map of addresses that were instantiated in this runtime
     pub addresses: RefCell<HashMap<Address, ActorID>>,
@@ -33,13 +36,29 @@ pub struct FakeSyscalls {
     pub abort_next_send: RefCell<bool>,
 }
 
+impl FakeSyscalls {
+    /// Set the ActorID returned as caller
+    pub fn set_caller_id(&self, new_id: ActorID) {
+        self.caller_id.replace(new_id);
+    }
+}
+
 impl Syscalls for FakeSyscalls {
     fn root(&self) -> Result<Cid, super::NoStateError> {
-        Ok(self.root)
+        Ok(*self.root.borrow())
+    }
+
+    fn set_root(&self, cid: &Cid) -> Result<(), super::NoStateError> {
+        self.root.replace(*cid);
+        Ok(())
     }
 
     fn receiver(&self) -> fvm_shared::ActorID {
         self.actor_id
+    }
+
+    fn caller(&self) -> fvm_shared::ActorID {
+        *self.caller_id.borrow()
     }
 
     fn send(

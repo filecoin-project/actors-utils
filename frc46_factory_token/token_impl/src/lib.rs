@@ -11,10 +11,12 @@ use frc46_token::token::{
     Token, TokenError,
 };
 use fvm_actor_utils::{
-    blockstore::Blockstore, messaging::MessagingError, receiver::ReceiverHookError,
-    syscalls::fvm_syscalls::FvmSyscalls, util::ActorRuntime,
+    messaging::MessagingError,
+    receiver::ReceiverHookError,
+    syscalls::Syscalls,
+    util::{ActorError, ActorRuntime},
 };
-use fvm_ipld_blockstore::{Block, Blockstore as _BS};
+use fvm_ipld_blockstore::{Block, Blockstore};
 use fvm_ipld_encoding::{
     tuple::{Deserialize_tuple, Serialize_tuple},
     CborStore, RawBytes, DAG_CBOR,
@@ -40,9 +42,11 @@ pub enum RuntimeError {
     #[error("ipld blockstore error: {0}")]
     Blockstore(#[from] ErrorNumber),
     #[error("actor state not found {0}")]
-    NoState(#[from] StateReadError),
+    StateRead(#[from] StateReadError),
     #[error("failed to update actor state {0}")]
     StateUpdate(#[from] StateUpdateError),
+    #[error("actor runtime error: {0}")]
+    ActorRuntime(#[from] ActorError),
     // deserialisation error when loading state
     #[error("error loading state {0}")]
     Deserialization(String),
@@ -78,11 +82,12 @@ impl From<&RuntimeError> for ExitCode {
                 }
                 _ => ExitCode::USR_UNSPECIFIED,
             },
-            RuntimeError::NoState(_) => ExitCode::USR_NOT_FOUND,
+            RuntimeError::StateRead(_) => ExitCode::USR_NOT_FOUND,
             RuntimeError::StateUpdate(e) => match e {
                 StateUpdateError::ActorDeleted => ExitCode::USR_ILLEGAL_STATE,
                 StateUpdateError::ReadOnly => ExitCode::USR_READ_ONLY,
             },
+            RuntimeError::ActorRuntime(e) => e.into(),
             // RuntimeError::StateUpdate(_) => ExitCode::USR_ILLEGAL_STATE,
             RuntimeError::Deserialization(_) | RuntimeError::Serialization(_) => {
                 ExitCode::USR_SERIALIZATION
@@ -106,25 +111,22 @@ pub struct ConstructorParams {
     pub minter: Address,
 }
 
-pub fn construct_token(params: ConstructorParams) -> Result<u32, RuntimeError> {
-    let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
+pub fn construct_token<S: Syscalls, BS: Blockstore>(
+    runtime: ActorRuntime<S, BS>,
+    params: ConstructorParams,
+) -> Result<u32, RuntimeError> {
     let minter = runtime.resolve_id(&params.minter)?;
     let token =
-        FactoryToken::new(&runtime, params.name, params.symbol, params.granularity, Some(minter));
+        FactoryToken::new(runtime, params.name, params.symbol, params.granularity, Some(minter));
 
     let cid = token.save()?;
-    fvm_sdk::sself::set_root(&cid)?;
+    token.runtime.set_root(&cid)?;
 
     Ok(NO_DATA_BLOCK_ID)
 }
 
-pub fn caller_address() -> Address {
-    let caller = sdk::message::caller();
-    Address::new_id(caller)
-}
-
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
-pub struct FactoryToken {
+pub struct FactoryTokenState {
     /// Default token helper impl
     pub token: TokenState,
     /// basic token identifier stuff, should it go here or store separately alongside the state
@@ -135,21 +137,39 @@ pub struct FactoryToken {
     pub minter: Option<ActorID>,
 }
 
+pub struct FactoryToken<S: Syscalls, BS: Blockstore> {
+    runtime: ActorRuntime<S, BS>,
+    state: FactoryTokenState,
+}
+
+impl FactoryTokenState {
+    /// Load token state from the blockstore provided in `runtime`
+    /// This is for internal use only as part of FactoryToken::load
+    fn load<BS: Blockstore>(runtime: &BS, cid: &Cid) -> Result<Self, RuntimeError> {
+        match runtime.get_cbor::<Self>(cid) {
+            Ok(Some(s)) => Ok(s),
+            // TODO: improve on these errors?
+            Ok(None) => Err(RuntimeError::Deserialization("no data found".into())),
+            Err(e) => Err(RuntimeError::Deserialization(e.to_string())),
+        }
+    }
+}
+
 /// Implementation of the token API in a FVM actor
 ///
 /// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
-impl FRC46Token for FactoryToken {
+impl<SC: Syscalls, BS: Blockstore> FRC46Token for FactoryToken<SC, BS> {
     type TokenError = RuntimeError;
     fn name(&self) -> String {
-        self.name.clone()
+        self.state.name.clone()
     }
 
     fn symbol(&self) -> String {
-        self.symbol.clone()
+        self.state.symbol.clone()
     }
 
     fn granularity(&self) -> GranularityReturn {
-        self.granularity
+        self.state.granularity
     }
 
     fn total_supply(&mut self) -> TotalSupplyReturn {
@@ -161,7 +181,7 @@ impl FRC46Token for FactoryToken {
     }
 
     fn transfer(&mut self, params: TransferParams) -> Result<TransferReturn, RuntimeError> {
-        let operator = caller_address();
+        let operator = self.caller_address();
         let mut hook = self.token().transfer(
             &operator,
             &params.to,
@@ -171,7 +191,7 @@ impl FRC46Token for FactoryToken {
         )?;
 
         let cid = self.save()?;
-        sdk::sself::set_root(&cid).unwrap();
+        self.runtime.set_root(&cid)?;
 
         let hook_ret = hook.call(self.token().runtime())?;
 
@@ -185,7 +205,7 @@ impl FRC46Token for FactoryToken {
         &mut self,
         params: TransferFromParams,
     ) -> Result<TransferFromReturn, RuntimeError> {
-        let operator = caller_address();
+        let operator = self.caller_address();
         let mut hook = self.token().transfer_from(
             &operator,
             &params.from,
@@ -196,7 +216,7 @@ impl FRC46Token for FactoryToken {
         )?;
 
         let cid = self.save()?;
-        sdk::sself::set_root(&cid).unwrap();
+        self.runtime.set_root(&cid)?;
 
         let hook_ret = hook.call(self.token().runtime())?;
 
@@ -210,7 +230,7 @@ impl FRC46Token for FactoryToken {
         &mut self,
         params: IncreaseAllowanceParams,
     ) -> Result<AllowanceReturn, RuntimeError> {
-        let owner = caller_address();
+        let owner = self.caller_address();
         let new_allowance =
             self.token().increase_allowance(&owner, &params.operator, &params.increase)?;
         Ok(new_allowance)
@@ -220,14 +240,14 @@ impl FRC46Token for FactoryToken {
         &mut self,
         params: DecreaseAllowanceParams,
     ) -> Result<AllowanceReturn, RuntimeError> {
-        let owner = caller_address();
+        let owner = self.caller_address();
         let new_allowance =
             self.token().decrease_allowance(&owner, &params.operator, &params.decrease)?;
         Ok(new_allowance)
     }
 
     fn revoke_allowance(&mut self, params: RevokeAllowanceParams) -> Result<(), RuntimeError> {
-        let owner = caller_address();
+        let owner = self.caller_address();
         self.token().revoke_allowance(&owner, &params.operator)?;
         Ok(())
     }
@@ -238,7 +258,7 @@ impl FRC46Token for FactoryToken {
     }
 
     fn burn(&mut self, params: BurnParams) -> Result<BurnReturn, RuntimeError> {
-        let caller = caller_address();
+        let caller = self.caller_address();
         let res = self.token().burn(&caller, &params.amount)?;
         Ok(res)
     }
@@ -247,7 +267,7 @@ impl FRC46Token for FactoryToken {
         &mut self,
         params: frc46_token::token::types::BurnFromParams,
     ) -> Result<BurnFromReturn, RuntimeError> {
-        let caller = caller_address();
+        let caller = self.caller_address();
         let res = self.token().burn_from(&caller, &params.owner, &params.amount)?;
         Ok(res)
     }
@@ -260,54 +280,66 @@ pub struct MintParams {
     pub operator_data: RawBytes,
 }
 
-impl FactoryToken {
-    pub fn new<BS: _BS>(
-        bs: &BS,
+impl<S: Syscalls, BS: Blockstore> FactoryToken<S, BS> {
+    pub fn new(
+        runtime: ActorRuntime<S, BS>,
         name: String,
         symbol: String,
         granularity: u64,
         minter: Option<ActorID>,
     ) -> Self {
-        FactoryToken { token: TokenState::new(&bs).unwrap(), name, symbol, granularity, minter }
-    }
-
-    pub fn token(&mut self) -> Token<'_, FvmSyscalls, Blockstore> {
-        let runtime = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();
-        Token::wrap(runtime, self.granularity, &mut self.token)
-    }
-
-    pub fn load(cid: &Cid) -> Result<Self, RuntimeError> {
-        let bs = Blockstore::default();
-        match bs.get_cbor::<Self>(cid) {
-            Ok(Some(s)) => Ok(s),
-            // TODO: improve on these errors?
-            Ok(None) => Err(RuntimeError::Deserialization("no data found".into())),
-            Err(e) => Err(RuntimeError::Deserialization(e.to_string())),
+        FactoryToken {
+            state: FactoryTokenState {
+                token: TokenState::new(&runtime).unwrap(),
+                name,
+                symbol,
+                granularity,
+                minter,
+            },
+            runtime,
         }
+    }
+
+    pub fn caller_address(&self) -> Address {
+        let caller = self.runtime.caller();
+        Address::new_id(caller)
+    }
+
+    pub fn token(&mut self) -> Token<'_, S, BS> {
+        Token::wrap(&self.runtime, self.state.granularity, &mut self.state.token)
+    }
+
+    pub fn load(runtime: ActorRuntime<S, BS>, cid: &Cid) -> Result<Self, RuntimeError> {
+        Ok(FactoryToken { state: FactoryTokenState::load(&runtime, cid)?, runtime })
     }
 
     pub fn save(&self) -> Result<Cid, RuntimeError> {
-        let bs = Blockstore::default();
-        let serialized = fvm_ipld_encoding::to_vec(self)
+        let serialized = fvm_ipld_encoding::to_vec(&self.state)
             .map_err(|err| RuntimeError::Serialization(err.to_string()))?;
         let block = Block { codec: DAG_CBOR, data: serialized };
-        bs.put(Code::Blake2b256, &block).map_err(|err| RuntimeError::Serialization(err.to_string()))
+        self.runtime
+            .put(Code::Blake2b256, &block)
+            .map_err(|err| RuntimeError::Serialization(err.to_string()))
     }
 
     fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {
-        let new_cid = sdk::sself::root()?;
+        let new_cid = self.runtime.root_cid()?;
         if new_cid != *initial_cid {
-            let new_state = Self::load(&new_cid)?;
-            let _old = std::mem::replace(self, new_state);
+            let new_state = FactoryTokenState::load(&self.runtime, &new_cid)?;
+            let _old = std::mem::replace(&mut self.state, new_state);
         }
         Ok(())
+    }
+
+    pub fn runtime(&self) -> &ActorRuntime<S, BS> {
+        &self.runtime
     }
 
     pub fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
         // check if the caller matches our authorise mint operator
         // no minter address means minting has been permanently disabled
-        let minter = self.minter.ok_or(RuntimeError::MintingDisabled)?;
-        let caller_id = sdk::message::caller();
+        let minter = self.state.minter.ok_or(RuntimeError::MintingDisabled)?;
+        let caller_id = self.runtime.caller();
         if caller_id != minter {
             return Err(RuntimeError::AddressNotAuthorized);
         }
@@ -321,7 +353,7 @@ impl FactoryToken {
         )?;
 
         let cid = self.save()?;
-        sdk::sself::set_root(&cid).unwrap();
+        self.runtime.set_root(&cid)?;
 
         let hook_ret = hook.call(self.token().runtime())?;
 
@@ -336,13 +368,13 @@ impl FactoryToken {
     pub fn disable_mint(&mut self) -> Result<(), RuntimeError> {
         // no minter means minting has already been permanently disabled
         // we return this if already disabled because it will make more sense than failing the address check below
-        let minter = self.minter.ok_or(RuntimeError::MintingDisabled)?;
-        let caller_id = sdk::message::caller();
+        let minter = self.state.minter.ok_or(RuntimeError::MintingDisabled)?;
+        let caller_id = self.runtime.caller();
         if caller_id != minter {
             return Err(RuntimeError::AddressNotAuthorized);
         }
 
-        self.minter = None;
+        self.state.minter = None;
         Ok(())
     }
 }
@@ -499,4 +531,416 @@ where
             Some(format!("failed to serialise return data {e}").as_str()),
         )
     }))
+}
+
+#[cfg(test)]
+mod test {
+    use frc46_token::token::{
+        types::{
+            BurnFromParams, BurnParams, DecreaseAllowanceParams, FRC46Token, GetAllowanceParams,
+            IncreaseAllowanceParams, RevokeAllowanceParams, TransferFromParams, TransferParams,
+        },
+        TokenError,
+    };
+    use fvm_actor_utils::{
+        shared_blockstore::SharedMemoryBlockstore, syscalls::fake_syscalls::FakeSyscalls,
+        util::ActorRuntime,
+    };
+    use fvm_ipld_encoding::RawBytes;
+    use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount};
+
+    use crate::{FactoryToken, MintParams, RuntimeError};
+
+    const ALICE: Address = Address::new_id(1);
+    const BOB: Address = Address::new_id(2);
+
+    // set up a token instance for testing
+    // fake syscalls allow us to set the ActorID of the caller, which we'll normally set to 1
+    fn setup_token(minter: &Address) -> FactoryToken<FakeSyscalls, SharedMemoryBlockstore> {
+        let runtime =
+            ActorRuntime::<FakeSyscalls, SharedMemoryBlockstore>::new_shared_test_runtime();
+        let actor_id = runtime.resolve_id(&minter).unwrap();
+
+        // set the minter as the message caller so calls to mint() will succeed
+        runtime.syscalls.set_caller_id(actor_id);
+
+        FactoryToken::new(
+            runtime,
+            String::from("Test Token"),
+            String::from("TEST"),
+            1,
+            Some(actor_id),
+        )
+    }
+
+    #[test]
+    fn it_mints() {
+        let mut token = setup_token(&ALICE);
+
+        let ret = token
+            .mint(MintParams {
+                initial_owner: BOB,
+                amount: TokenAmount::from_whole(10),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap();
+
+        // check balance and supply
+        assert_eq!(ret.balance, TokenAmount::from_whole(10));
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(10));
+        assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+    }
+
+    #[test]
+    fn it_denies_unauthorised_minter() {
+        let mut token = setup_token(&BOB);
+
+        token.runtime.syscalls.set_caller_id(token.runtime.resolve_id(&ALICE).unwrap());
+        let err = token
+            .mint(MintParams {
+                initial_owner: ALICE,
+                amount: TokenAmount::from_whole(10),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap_err();
+
+        // check error
+        match err {
+            RuntimeError::AddressNotAuthorized => {}
+            _ => panic!("unexpected error"),
+        }
+    }
+
+    #[test]
+    fn it_disables_minting() {
+        let mut token = setup_token(&ALICE);
+
+        // first, we mint successfully
+        let ret = token
+            .mint(MintParams {
+                initial_owner: BOB,
+                amount: TokenAmount::from_whole(10),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap();
+
+        // check balance
+        assert_eq!(ret.balance, TokenAmount::from_whole(10));
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(10));
+        assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+
+        // now disable minting
+        token.disable_mint().unwrap();
+
+        // and try minting again (should fail)
+        let err = token
+            .mint(MintParams {
+                initial_owner: BOB,
+                amount: TokenAmount::from_whole(10),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap_err();
+
+        // balance and supply should remain unchanged
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(10));
+        assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+
+        // check for the expected error type
+        match err {
+            RuntimeError::MintingDisabled => {}
+            _ => panic!("unexpected error"),
+        }
+    }
+
+    #[test]
+    fn it_denies_unauthorised_caller_from_disabling_mint() {
+        // set up a token with BOB as the minter
+        let mut token = setup_token(&BOB);
+
+        // now disable minting (which will use ALICE with ID = 1 as caller)
+        token.runtime.syscalls.set_caller_id(token.runtime.resolve_id(&ALICE).unwrap());
+        let err = token.disable_mint().unwrap_err();
+
+        // check error
+        match err {
+            RuntimeError::AddressNotAuthorized => {}
+            _ => panic!("unexpected error"),
+        }
+    }
+
+    #[test]
+    fn it_has_name_and_symbol() {
+        let token = setup_token(&ALICE);
+        assert_eq!(token.name(), "Test Token");
+        assert_eq!(token.symbol(), "TEST");
+    }
+
+    #[test]
+    fn it_enforces_granularity() {
+        // set up a token with granularity of 10
+        let runtime =
+            ActorRuntime::<FakeSyscalls, SharedMemoryBlockstore>::new_shared_test_runtime();
+        let actor_id = runtime.resolve_id(&ALICE).unwrap();
+        runtime.syscalls.set_caller_id(actor_id);
+        let mut token = FactoryToken::new(
+            runtime,
+            String::from("Test Token"),
+            String::from("TEST"),
+            10,
+            Some(actor_id),
+        );
+
+        {
+            let ret = token
+                .mint(MintParams {
+                    initial_owner: BOB,
+                    amount: TokenAmount::from_atto(10),
+                    operator_data: RawBytes::default(),
+                })
+                .unwrap();
+
+            // check balance and supply
+            assert_eq!(ret.balance, TokenAmount::from_atto(10));
+            assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_atto(10));
+            assert_eq!(token.total_supply(), TokenAmount::from_atto(10));
+        }
+
+        // now try that minting process again with different amounts
+        {
+            let err = token
+                .mint(MintParams {
+                    initial_owner: BOB,
+                    amount: TokenAmount::from_atto(5),
+                    operator_data: RawBytes::default(),
+                })
+                .unwrap_err();
+
+            // check balance and supply are unchanged
+            assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_atto(10));
+            assert_eq!(token.total_supply(), TokenAmount::from_atto(10));
+
+            // check error type
+            match err {
+                RuntimeError::Token(TokenError::InvalidGranularity { granularity, .. }) => {
+                    assert_eq!(granularity, token.granularity());
+                }
+                _ => panic!("unexpected error"),
+            }
+        }
+    }
+
+    #[test]
+    fn it_transfers() {
+        let mut token = setup_token(&ALICE);
+
+        // first, we mint some tokens to send
+        let ret = token
+            .mint(MintParams {
+                initial_owner: ALICE,
+                amount: TokenAmount::from_whole(10),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap();
+
+        // check balance
+        assert_eq!(ret.balance, TokenAmount::from_whole(10));
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_whole(10));
+        assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+
+        // now transfer half of them from ALICE to BOB
+        let ret = token
+            .transfer(TransferParams {
+                to: BOB,
+                amount: TokenAmount::from_whole(5),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap();
+
+        assert_eq!(ret.from_balance, TokenAmount::from_whole(5));
+        assert_eq!(ret.to_balance, TokenAmount::from_whole(5));
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_whole(5));
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(5));
+        assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+    }
+
+    #[test]
+    fn it_transfers_from_allowance() {
+        let mut token = setup_token(&ALICE);
+
+        // first, we mint some tokens to send
+        let ret = token
+            .mint(MintParams {
+                initial_owner: BOB,
+                amount: TokenAmount::from_whole(10),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap();
+
+        // check balance
+        assert_eq!(ret.balance, TokenAmount::from_whole(10));
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(10));
+        assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+
+        // set caller ID to BOB so we can set ALICE as an operator on that account
+        token.runtime.syscalls.set_caller_id(token.runtime.resolve_id(&BOB).unwrap());
+        // set allowance
+        token
+            .increase_allowance(IncreaseAllowanceParams {
+                operator: ALICE,
+                increase: TokenAmount::from_whole(10),
+            })
+            .unwrap();
+        // set caller ID back to alice to make the transfer
+        token.runtime.syscalls.set_caller_id(token.runtime.resolve_id(&ALICE).unwrap());
+
+        // now transfer half of them from ALICE to BOB
+        let ret = token
+            .transfer_from(TransferFromParams {
+                from: BOB,
+                to: ALICE,
+                amount: TokenAmount::from_whole(5),
+                operator_data: RawBytes::default(),
+            })
+            .unwrap();
+
+        // check balances and supply
+        assert_eq!(ret.from_balance, TokenAmount::from_whole(5));
+        assert_eq!(ret.to_balance, TokenAmount::from_whole(5));
+        assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_whole(5));
+        assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(5));
+        // check allowance
+        assert_eq!(ret.allowance, TokenAmount::from_whole(5));
+        assert_eq!(
+            token.allowance(GetAllowanceParams { owner: BOB, operator: ALICE }).unwrap(),
+            TokenAmount::from_whole(5)
+        );
+        assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+    }
+
+    #[test]
+    fn it_changes_allowances() {
+        let mut token = setup_token(&ALICE);
+
+        {
+            // set an allowance for user BOB
+            let ret = token
+                .increase_allowance(IncreaseAllowanceParams {
+                    operator: BOB,
+                    increase: TokenAmount::from_whole(20),
+                })
+                .unwrap();
+
+            assert_eq!(ret, TokenAmount::from_whole(20));
+            assert_eq!(
+                token.allowance(GetAllowanceParams { owner: ALICE, operator: BOB }).unwrap(),
+                TokenAmount::from_whole(20)
+            );
+        }
+
+        // decrease BOB's allowance from 20 to 10
+        {
+            let ret = token
+                .decrease_allowance(DecreaseAllowanceParams {
+                    operator: BOB,
+                    decrease: TokenAmount::from_whole(10),
+                })
+                .unwrap();
+
+            assert_eq!(ret, TokenAmount::from_whole(10));
+            assert_eq!(
+                token.allowance(GetAllowanceParams { owner: ALICE, operator: BOB }).unwrap(),
+                TokenAmount::from_whole(10)
+            );
+        }
+
+        // revoke BOB's allowance entirely
+        {
+            token.revoke_allowance(RevokeAllowanceParams { operator: BOB }).unwrap();
+
+            assert_eq!(
+                token.allowance(GetAllowanceParams { owner: ALICE, operator: BOB }).unwrap(),
+                TokenAmount::zero()
+            );
+        }
+    }
+
+    #[test]
+    fn it_burns() {
+        let mut token = setup_token(&ALICE);
+
+        // mint some tokens
+        {
+            let ret = token
+                .mint(MintParams {
+                    initial_owner: ALICE,
+                    amount: TokenAmount::from_whole(10),
+                    operator_data: RawBytes::default(),
+                })
+                .unwrap();
+
+            // check balance and supply
+            assert_eq!(ret.balance, TokenAmount::from_whole(10));
+            assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_whole(10));
+            assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+        }
+
+        // burn some tokens
+        {
+            let ret = token.burn(BurnParams { amount: TokenAmount::from_whole(5) }).unwrap();
+
+            assert_eq!(ret.balance, TokenAmount::from_whole(5));
+            assert_eq!(token.balance_of(ALICE).unwrap(), TokenAmount::from_whole(5));
+            assert_eq!(token.total_supply(), TokenAmount::from_whole(5));
+        }
+    }
+
+    #[test]
+    fn it_burns_from_allowance() {
+        let mut token = setup_token(&ALICE);
+
+        // first, we mint some tokens to use
+        {
+            let ret = token
+                .mint(MintParams {
+                    initial_owner: BOB,
+                    amount: TokenAmount::from_whole(10),
+                    operator_data: RawBytes::default(),
+                })
+                .unwrap();
+
+            // check balance
+            assert_eq!(ret.balance, TokenAmount::from_whole(10));
+            assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(10));
+            assert_eq!(token.total_supply(), TokenAmount::from_whole(10));
+        }
+
+        // set caller ID to BOB so we can set ALICE as an operator on that account
+        token.runtime.syscalls.set_caller_id(token.runtime.resolve_id(&BOB).unwrap());
+        // set allowance
+        token
+            .increase_allowance(IncreaseAllowanceParams {
+                operator: ALICE,
+                increase: TokenAmount::from_whole(10),
+            })
+            .unwrap();
+
+        // set caller ID back to alice to make the transfer
+        token.runtime.syscalls.set_caller_id(token.runtime.resolve_id(&ALICE).unwrap());
+
+        {
+            let ret = token
+                .burn_from(BurnFromParams { owner: BOB, amount: TokenAmount::from_whole(5) })
+                .unwrap();
+
+            assert_eq!(ret.balance, TokenAmount::from_whole(5));
+            assert_eq!(token.balance_of(BOB).unwrap(), TokenAmount::from_whole(5));
+            assert_eq!(token.total_supply(), TokenAmount::from_whole(5));
+
+            assert_eq!(ret.allowance, TokenAmount::from_whole(5));
+            assert_eq!(
+                token.allowance(GetAllowanceParams { owner: BOB, operator: ALICE }).unwrap(),
+                TokenAmount::from_whole(5)
+            );
+        }
+    }
 }

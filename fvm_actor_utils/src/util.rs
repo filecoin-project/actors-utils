@@ -3,12 +3,13 @@ use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_shared::METHOD_SEND;
-use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
+use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode, ActorID};
 use fvm_shared::{MethodNum, Response};
 use num_traits::Zero;
 use thiserror::Error;
 
 use crate::messaging::{Messaging, MessagingError, Result as MessagingResult};
+use crate::shared_blockstore::SharedMemoryBlockstore;
 use crate::syscalls::fake_syscalls::FakeSyscalls;
 use crate::syscalls::NoStateError;
 use crate::syscalls::Syscalls;
@@ -20,6 +21,14 @@ pub enum ActorError {
 }
 
 type ActorResult<T> = std::result::Result<T, ActorError>;
+
+impl From<&ActorError> for ExitCode {
+    fn from(error: &ActorError) -> Self {
+        match error {
+            ActorError::NoState(_) => ExitCode::USR_NOT_FOUND,
+        }
+    }
+}
 
 /// ActorRuntime provides access to system resources via Syscalls and the Blockstore
 ///
@@ -36,13 +45,27 @@ impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
         ActorRuntime { syscalls, blockstore }
     }
 
+    /// Creates a runtime suitable for tests, using mock syscalls and a memory blockstore
     pub fn new_test_runtime() -> ActorRuntime<FakeSyscalls, MemoryBlockstore> {
         ActorRuntime { syscalls: FakeSyscalls::default(), blockstore: MemoryBlockstore::default() }
+    }
+
+    /// Creates a runtime suitable for more complex tests, using mock syscalls and a shared memory blockstore
+    /// Clones of this runtime will reference the same blockstore
+    pub fn new_shared_test_runtime() -> ActorRuntime<FakeSyscalls, SharedMemoryBlockstore> {
+        ActorRuntime {
+            syscalls: FakeSyscalls::default(),
+            blockstore: SharedMemoryBlockstore::new(),
+        }
     }
 
     /// Returns the address of the current actor as an ActorID
     pub fn actor_id(&self) -> ActorID {
         self.syscalls.receiver()
+    }
+
+    pub fn caller(&self) -> ActorID {
+        self.syscalls.caller()
     }
 
     /// Sends a message to an actor
@@ -91,6 +114,11 @@ impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
     /// Get the root cid of the actor's state
     pub fn root_cid(&self) -> ActorResult<Cid> {
         Ok(self.syscalls.root().map_err(|_err| NoStateError)?)
+    }
+
+    /// Set the root cid of the actor's state
+    pub fn set_root(&self, cid: &Cid) -> ActorResult<()> {
+        Ok(self.syscalls.set_root(cid).map_err(|_err| NoStateError)?)
     }
 
     /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without

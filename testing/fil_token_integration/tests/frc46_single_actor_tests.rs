@@ -1,5 +1,5 @@
 use frc42_dispatch::method_hash;
-use frc46_token::token::{state::TokenState, types::MintReturn};
+use frc46_token::token::types::MintReturn;
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
@@ -9,7 +9,7 @@ mod common;
 use common::frc46_token_helpers::TokenHelper;
 use common::{construct_tester, TestHelpers};
 use frc46_test_actor::{action, ActionParams, TestAction};
-use token_impl::{ConstructorParams, FactoryToken};
+use token_impl::ConstructorParams;
 
 const FACTORY_TOKEN_ACTOR_WASM: &str =
     "../../target/debug/wbuild/frc46_factory_token/frc46_factory_token.compact.wasm";
@@ -33,17 +33,8 @@ fn frc46_single_actor_tests() {
 
     let operator: [Account; 1] = tester.create_accounts().unwrap();
 
-    let initial_token_state = FactoryToken {
-        token: TokenState::new(&blockstore).unwrap(),
-        name: String::new(),
-        symbol: String::new(),
-        granularity: 1,
-        minter: None,
-    };
-
     // install actors required for our test: a token actor and one instance of the test actor
-    let token_actor =
-        tester.install_actor_with_state(FACTORY_TOKEN_ACTOR_WASM, 10000, initial_token_state);
+    let token_actor = tester.install_actor_stateless(FACTORY_TOKEN_ACTOR_WASM, 10000);
     let frc46_test_actor = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
 
     // Instantiate machine
