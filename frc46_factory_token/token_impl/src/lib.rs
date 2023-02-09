@@ -13,8 +13,8 @@ use frc46_token::token::{
 use fvm_actor_utils::{
     messaging::MessagingError,
     receiver::ReceiverHookError,
-    syscalls::{NoStateError, Syscalls},
-    util::ActorRuntime,
+    syscalls::Syscalls,
+    util::{ActorError, ActorRuntime},
 };
 use fvm_ipld_blockstore::{Block, Blockstore};
 use fvm_ipld_encoding::{
@@ -42,11 +42,11 @@ pub enum RuntimeError {
     #[error("ipld blockstore error: {0}")]
     Blockstore(#[from] ErrorNumber),
     #[error("actor state not found {0}")]
-    NoState(#[from] NoStateError),
+    StateRead(#[from] StateReadError),
     #[error("failed to update actor state {0}")]
     StateUpdate(#[from] StateUpdateError),
-    #[error("failed to read actor state {0}")]
-    StateRead(#[from] StateReadError),
+    #[error("actor runtime error: {0}")]
+    ActorRuntime(#[from] ActorError),
     // deserialisation error when loading state
     #[error("error loading state {0}")]
     Deserialization(String),
@@ -82,11 +82,12 @@ impl From<&RuntimeError> for ExitCode {
                 }
                 _ => ExitCode::USR_UNSPECIFIED,
             },
-            RuntimeError::NoState(_) | RuntimeError::StateRead(_) => ExitCode::USR_NOT_FOUND,
+            RuntimeError::StateRead(_) => ExitCode::USR_NOT_FOUND,
             RuntimeError::StateUpdate(e) => match e {
                 StateUpdateError::ActorDeleted => ExitCode::USR_ILLEGAL_STATE,
                 StateUpdateError::ReadOnly => ExitCode::USR_READ_ONLY,
             },
+            RuntimeError::ActorRuntime(e) => e.into(),
             // RuntimeError::StateUpdate(_) => ExitCode::USR_ILLEGAL_STATE,
             RuntimeError::Deserialization(_) | RuntimeError::Serialization(_) => {
                 ExitCode::USR_SERIALIZATION
@@ -119,7 +120,7 @@ pub fn construct_token<S: Syscalls, BS: Blockstore>(
         FactoryToken::new(runtime, params.name, params.symbol, params.granularity, Some(minter));
 
     let cid = token.save()?;
-    fvm_sdk::sself::set_root(&cid).map_err(|_| NoStateError)?;
+    token.runtime.set_root(&cid)?;
 
     Ok(NO_DATA_BLOCK_ID)
 }
@@ -190,7 +191,7 @@ impl<SC: Syscalls, BS: Blockstore> FRC46Token for FactoryToken<SC, BS> {
         )?;
 
         let cid = self.save()?;
-        self.runtime.set_root(&cid).map_err(|_| NoStateError)?;
+        self.runtime.set_root(&cid)?;
 
         let hook_ret = hook.call(self.token().runtime())?;
 
@@ -215,7 +216,7 @@ impl<SC: Syscalls, BS: Blockstore> FRC46Token for FactoryToken<SC, BS> {
         )?;
 
         let cid = self.save()?;
-        self.runtime.set_root(&cid).map_err(|_| NoStateError)?;
+        self.runtime.set_root(&cid)?;
 
         let hook_ret = hook.call(self.token().runtime())?;
 
@@ -322,12 +323,16 @@ impl<S: Syscalls, BS: Blockstore> FactoryToken<S, BS> {
     }
 
     fn reload(&mut self, initial_cid: &Cid) -> Result<(), RuntimeError> {
-        let new_cid = self.runtime.root_cid().map_err(|_| NoStateError)?;
+        let new_cid = self.runtime.root_cid()?;
         if new_cid != *initial_cid {
             let new_state = FactoryTokenState::load(&self.runtime, &new_cid)?;
             let _old = std::mem::replace(&mut self.state, new_state);
         }
         Ok(())
+    }
+
+    pub fn runtime(&self) -> &ActorRuntime<S, BS> {
+        &self.runtime
     }
 
     pub fn mint(&mut self, params: MintParams) -> Result<MintReturn, RuntimeError> {
@@ -348,7 +353,7 @@ impl<S: Syscalls, BS: Blockstore> FactoryToken<S, BS> {
         )?;
 
         let cid = self.save()?;
-        self.runtime.set_root(&cid).map_err(|_| NoStateError)?;
+        self.runtime.set_root(&cid)?;
 
         let hook_ret = hook.call(self.token().runtime())?;
 
