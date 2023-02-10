@@ -48,6 +48,10 @@ actors
 | --------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [FRC-0053](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0053.md) | [frc53_nft](./frc53_nft/README.md) | [basic_nft](./testing/fil_token_integration/actors/basic_nft_actor/README.md) [basic_receiver](./testing/fil_token_integration/actors/basic_receiving_actor/README.md) |
 
+### frc46_factory_token
+
+A configurable actor that can be used as a factory to implement [FRC-0046](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md) tokens, based on [frc46_token](./frc46_token/README.md)
+
 ## License
 
 Dual-licensed: [MIT](./LICENSE-MIT),
