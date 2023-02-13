@@ -485,7 +485,7 @@ impl NFTState {
     }
 
     /// Asserts that the actor either owns the token or is an account level operator on the owner of the token
-    pub fn assert_can_approve_token<BS: Blockstore>(
+    pub fn assert_can_approve_token(
         token_data: &TokenData,
         actor: ActorID,
         token_id: TokenID,
