@@ -6,7 +6,7 @@ Basic configuration is set at construction time as an immutable part of the toke
 
 This actor also serves as an example of a more complicated token implementation that carries its own state along with the `TokenState` from [frc46_token](../frc46_token/README.md) 
 
-This actor is also used as the token implementation in many of the [integration tests](../fil_token_integration/tests/)
+This actor is also used as the token implementation in many of the [integration tests](../testing/fil_token_integration/tests/)
 
 ## Construction
 The `Constructor` method takes the following params struct which configures the new token:
