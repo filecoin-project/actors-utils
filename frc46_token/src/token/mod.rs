@@ -981,7 +981,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
@@ -1024,7 +1024,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
@@ -1061,7 +1061,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
@@ -1094,7 +1094,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
@@ -1127,7 +1127,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
@@ -1162,7 +1162,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: TOKEN_ACTOR.id().unwrap(),
                 from: TOKEN_ACTOR.id().unwrap(),
@@ -1396,7 +1396,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
@@ -1437,7 +1437,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
@@ -1482,7 +1482,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
@@ -1512,7 +1512,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
@@ -1567,7 +1567,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: ALICE.id().unwrap(),
                 from: ALICE.id().unwrap(),
@@ -1919,7 +1919,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: CAROL.id().unwrap(),
                 from: ALICE.id().unwrap(),
@@ -1955,7 +1955,7 @@ mod test {
 
         // check receiver hook was called with correct shape
         assert_last_hook_call_eq(
-            &token.runtime,
+            token.runtime,
             FRC46TokenReceived {
                 operator: CAROL.id().unwrap(),
                 from: ALICE.id().unwrap(),
@@ -2632,7 +2632,7 @@ mod test {
             state: &'st mut TokenState,
         ) -> Token<'st, FakeSyscalls, MemoryBlockstore> {
             // fresh token state
-            let mut token = new_token(&runtime, state);
+            let mut token = new_token(runtime, state);
             // set allowance if not zero (avoiding unecessary account instantiation)
             if !allowance.is_zero() && from != operator {
                 token.increase_allowance(from, operator, allowance).unwrap();

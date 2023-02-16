@@ -559,7 +559,7 @@ mod test {
     fn setup_token(minter: &Address) -> FactoryToken<FakeSyscalls, SharedMemoryBlockstore> {
         let runtime =
             ActorRuntime::<FakeSyscalls, SharedMemoryBlockstore>::new_shared_test_runtime();
-        let actor_id = runtime.resolve_id(&minter).unwrap();
+        let actor_id = runtime.resolve_id(minter).unwrap();
 
         // set the minter as the message caller so calls to mint() will succeed
         runtime.syscalls.set_caller_id(actor_id);
