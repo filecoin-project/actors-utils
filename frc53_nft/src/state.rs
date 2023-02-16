@@ -229,10 +229,8 @@ impl NFTState {
         let mut token_array = self.get_token_data_amt(bs)?;
 
         for &token_id in token_ids {
-            let mut token_data = token_array
-                .get(token_id)?
-                .ok_or_else(|| StateError::TokenNotFound(token_id))?
-                .clone();
+            let mut token_data =
+                token_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?.clone();
             approve_predicate(&token_data, token_id)?;
             token_data.operators.add_operator(operator);
             token_array.set(token_id, token_data)?;
@@ -258,10 +256,8 @@ impl NFTState {
     {
         let mut token_array = self.get_token_data_amt(bs)?;
         for &token_id in token_ids {
-            let mut token_data = token_array
-                .get(token_id)?
-                .ok_or_else(|| StateError::TokenNotFound(token_id))?
-                .clone();
+            let mut token_data =
+                token_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?.clone();
             revoke_predicate(&token_data, token_id)?;
             token_data.operators.remove_operator(&operator);
             token_array.set(token_id, token_data)?;
@@ -356,7 +352,7 @@ impl NFTState {
 
         for &token_id in token_ids {
             let token_data =
-                token_array.delete(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
+                token_array.delete(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
             burn_predicate(&token_data, token_id)?;
         }
 
@@ -435,7 +431,7 @@ impl NFTState {
         F: Fn(&TokenData, TokenID) -> Result<()>,
     {
         let old_token_data =
-            token_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?.clone();
+            token_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?.clone();
         // check the transfer against business rules
         transfer_predicate(&old_token_data, token_id)?;
 
@@ -559,16 +555,14 @@ impl NFTState {
     /// Get the metadata for a token
     pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<String> {
         let token_data_array = self.get_token_data_amt(bs)?;
-        let token =
-            token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
+        let token = token_data_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
         Ok(token.metadata.clone())
     }
 
     /// Get the owner of a token
     pub fn get_owner<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<ActorID> {
         let token_data_array = self.get_token_data_amt(bs)?;
-        let token =
-            token_data_array.get(token_id)?.ok_or_else(|| StateError::TokenNotFound(token_id))?;
+        let token = token_data_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
         Ok(token.owner)
     }
 }
