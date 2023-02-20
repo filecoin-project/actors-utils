@@ -1,8 +1,10 @@
 use frc42_dispatch::method_hash;
+use frc53_nft::state::NFTState;
 use frc53_nft::types::{
     ListOwnedTokensParams, ListOwnedTokensReturn, ListTokensParams, ListTokensReturn,
 };
 use frc53_nft::{state::TokenID, types::MintReturn};
+use fvm_actor_utils::shared_blockstore::SharedMemoryBlockstore;
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_bitfield::bitfield;
 use fvm_ipld_blockstore::MemoryBlockstore;
@@ -11,6 +13,7 @@ use fvm_ipld_encoding::RawBytes;
 mod common;
 use common::frc53_nft_helpers::{MintParams, NFTHelper};
 use common::{construct_tester, TestHelpers};
+use fvm_shared::ActorID;
 
 const BASIC_NFT_ACTOR_WASM: &str =
     "../../target/debug/wbuild/basic_nft_actor/basic_nft_actor.compact.wasm";
@@ -25,7 +28,6 @@ fn test_nft_actor() {
 
     let actor_address = tester.install_actor_stateless(BASIC_NFT_ACTOR_WASM, 10_000);
     let receiver_address = tester.install_actor_stateless(BASIC_RECEIVER_ACTOR_WASM, 10_001);
-    let other_address = tester.install_actor_stateless(BASIC_RECEIVER_ACTOR_WASM, 10_002);
 
     // Instantiate machine
     tester.instantiate_machine(DummyExterns).unwrap();
@@ -164,8 +166,8 @@ fn test_nft_actor() {
         assert_eq!(total_supply, 4);
     }
 
+    // List all the tokens
     {
-        // List all the tokens
         let list_tokens_params = ListTokensParams { cursor: None, max: 0 };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
@@ -178,6 +180,64 @@ fn test_nft_actor() {
             ret_val.msg_receipt.return_data.deserialize::<ListTokensReturn>().unwrap();
         assert_eq!(list_tokens_result.tokens, bitfield![1, 1, 1, 1]);
     }
+}
+
+#[test]
+pub fn test_nft_enumerations() {
+    let blockstore = SharedMemoryBlockstore::default();
+
+    // Create testing accounts
+    let mut tester = construct_tester(&blockstore);
+    let [alice, bob, operator]: [Account; 3] = tester.create_accounts().unwrap();
+
+    // Create a new actor with prefilled state
+    let mut state = NFTState::new(&blockstore).unwrap();
+    // Mint four tokens for alice
+    state
+        .mint_tokens(
+            &blockstore,
+            alice.0,
+            vec![
+                String::from("alice0"),
+                String::from("alice1"),
+                String::from("alice2"),
+                String::from("alice3"),
+            ],
+        )
+        .unwrap();
+    // Burn alice's first token
+    state.burn_tokens(&blockstore, alice.0, &[0], |_token_data, _token_id| Ok(())).unwrap();
+    // Mint a token for bob
+    state.mint_tokens(&blockstore, bob.0, vec![String::from("bob4")]).unwrap();
+    // Set the operator as an operator for one out of alice's three tokens
+    state
+        .approve_for_tokens(&blockstore, operator.0, &[1], |_token_data, _token_id| Ok(()))
+        .unwrap();
+    // Set the operator as an account-level operator for bob
+    state.approve_for_owner(&blockstore, bob.0, operator.0).unwrap();
+
+    // Install the actor with the modified state
+    let actor_address = tester.install_actor_with_state(BASIC_NFT_ACTOR_WASM, 10_000, state);
+
+    // Instantiate machine
+    tester.instantiate_machine(DummyExterns).unwrap();
+
+    // List all the tokens
+    {
+        let list_tokens_params = ListTokensParams { cursor: None, max: 0 };
+        let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
+        let ret_val = tester.call_method_ok(
+            operator.1,
+            actor_address,
+            method_hash!("ListTokens"),
+            Some(list_tokens_params),
+        );
+
+        let list_tokens_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListTokensReturn>().unwrap();
+        assert_eq!(list_tokens_result.tokens, bitfield![0, 1, 1, 1, 1]);
+        assert!(list_tokens_result.next_cursor.is_none());
+    }
 
     // List the tokens in pairs
     {
@@ -185,96 +245,169 @@ fn test_nft_actor() {
         let list_tokens_params = ListTokensParams { cursor: None, max: 2 };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
-            minter[0].1,
+            operator.1,
             actor_address,
             method_hash!("ListTokens"),
             Some(list_tokens_params),
         );
         let list_tokens_result =
             ret_val.msg_receipt.return_data.deserialize::<ListTokensReturn>().unwrap();
-        assert_eq!(list_tokens_result.tokens, bitfield![1, 1]);
+        assert_eq!(list_tokens_result.tokens, bitfield![0, 1, 1]);
         assert!(list_tokens_result.next_cursor.is_some());
 
-        // List the next (final) two
+        // Attempt to list the next (final) two tokens
         let list_tokens_params =
             ListTokensParams { cursor: list_tokens_result.next_cursor, max: 2 };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
-            minter[0].1,
+            operator.1,
             actor_address,
             method_hash!("ListTokens"),
             Some(list_tokens_params),
         );
         let list_tokens_result =
             ret_val.msg_receipt.return_data.deserialize::<ListTokensReturn>().unwrap();
-        assert_eq!(list_tokens_result.tokens, bitfield![0, 0, 1, 1]);
+        // the first three are empty because they come before the cursor
+        assert_eq!(list_tokens_result.tokens, bitfield![0, 0, 0, 1, 1]);
         // There are no more
         assert!(list_tokens_result.next_cursor.is_none());
     }
 
     // List owned tokens
     {
-        // List all the tokens minted to the receiver address
-        let params = ListOwnedTokensParams { owner: receiver_address, cursor: None, max: 0 };
+        // List all the tokens minted to alice
+        let params = ListOwnedTokensParams { owner: alice.1, cursor: None, max: 0 };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
-            minter[0].1,
+            operator.1,
             actor_address,
             method_hash!("ListOwnedTokens"),
             Some(params),
         );
         let list_tokens_result =
             ret_val.msg_receipt.return_data.deserialize::<ListOwnedTokensReturn>().unwrap();
-        assert_eq!(list_tokens_result.tokens, bitfield![1, 1, 1, 1]);
+        assert_eq!(list_tokens_result.tokens, bitfield![0, 1, 1, 1]);
         assert!(list_tokens_result.next_cursor.is_none());
 
-        // Check that another address doesn't enumerate any tokens
-        let params = ListOwnedTokensParams { owner: other_address, cursor: None, max: 0 };
+        // Check that bob has the fifth token
+        let params = ListOwnedTokensParams { owner: bob.1, cursor: None, max: 0 };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
-            minter[0].1,
+            operator.1,
             actor_address,
             method_hash!("ListOwnedTokens"),
             Some(params),
         );
         let list_tokens_result =
             ret_val.msg_receipt.return_data.deserialize::<ListOwnedTokensReturn>().unwrap();
-        assert_eq!(list_tokens_result.tokens, bitfield![]);
+        assert_eq!(list_tokens_result.tokens, bitfield![0, 0, 0, 0, 1]);
     }
 
-    // List owned tokens in pairs
+    // List owned tokens in varying page sizes
     {
-        // List first two tokens
-        let params = ListOwnedTokensParams { owner: receiver_address, cursor: None, max: 2 };
+        // List first two tokens of alice's tokens
+        let params = ListOwnedTokensParams { owner: alice.1, cursor: None, max: 2 };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
-            minter[0].1,
+            operator.1,
             actor_address,
             method_hash!("ListOwnedTokens"),
             Some(params),
         );
         let call_result =
             ret_val.msg_receipt.return_data.deserialize::<ListOwnedTokensReturn>().unwrap();
-        assert_eq!(call_result.tokens, bitfield![1, 1]);
+        assert_eq!(call_result.tokens, bitfield![0, 1, 1]);
         assert!(call_result.next_cursor.is_some());
 
-        // Attempt to list the next four
-        let params = ListOwnedTokensParams {
-            owner: receiver_address,
-            cursor: call_result.next_cursor,
-            max: 4,
-        };
+        // Attempt to list the next ten of alice's tokens
+        let params =
+            ListOwnedTokensParams { owner: alice.1, cursor: call_result.next_cursor, max: 10 };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
-            minter[0].1,
+            operator.1,
             actor_address,
             method_hash!("ListOwnedTokens"),
             Some(params),
         );
-        // Should only receive two and an empty cursor
+        // Should only receive one more and an empty cursor
         let call_result =
             ret_val.msg_receipt.return_data.deserialize::<ListOwnedTokensReturn>().unwrap();
-        assert_eq!(call_result.tokens, bitfield![0, 0, 1, 1]);
+        assert_eq!(call_result.tokens, bitfield![0, 0, 0, 1]);
         assert!(call_result.next_cursor.is_none());
     }
+
+    /*
+       // List token operators
+       {
+           // List all the operators for alice's first token
+           let params = ListTokenOperatorsParams { owner: alice.1, token_id: 1 };
+           let params = RawBytes::serialize(params).unwrap();
+           let ret_val = tester.call_method_ok(
+               operator.1,
+               actor_address,
+               method_hash!("ListTokenOperators"),
+               Some(params),
+           );
+           let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+           // The operator is approved for token 1
+           assert_eq!(call_result, vec![operator.0]);
+
+           // List all the operators for alice's second
+           let params = ListTokenOperatorsParams { owner: alice.1, token_id: 2 };
+           let params = RawBytes::serialize(params).unwrap();
+           let ret_val = tester.call_method_ok(
+               operator.1,
+               actor_address,
+               method_hash!("ListTokenOperators"),
+               Some(params),
+           );
+           let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+           // No-one is approved for token 2
+           assert!(call_result.is_empty());
+
+           // List all the operators for bob's token
+           let params = ListTokenOperatorsParams { owner: bob.1, token_id: 4 };
+           let params = RawBytes::serialize(params).unwrap();
+           let ret_val = tester.call_method_ok(
+               operator.1,
+               actor_address,
+               method_hash!("ListTokenOperators"),
+               Some(params),
+           );
+           let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+           // Even though the operator is an account-level operator, they are not specifically approved for token 4
+           assert!(call_result.is_empty());
+       }
+    */
+
+    /*
+       // List AccountOperators
+       {
+           // List all the operators for alice
+           let params = alice.1;
+           let params = RawBytes::serialize(params).unwrap();
+           let ret_val = tester.call_method_ok(
+               operator.1,
+               actor_address,
+               method_hash!("ListAccountOperators"),
+               Some(params),
+           );
+           let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+           // The operator is not account-level approved for alice
+           assert!(call_result.is_empty());
+
+           // List all the operators for bob
+           let params = bob.1;
+           let params = RawBytes::serialize(params).unwrap();
+           let ret_val = tester.call_method_ok(
+               operator.1,
+               actor_address,
+               method_hash!("ListAccountOperators"),
+               Some(params),
+           );
+           let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+           // The operator is approved for bob
+           assert_eq!(call_result, vec![operator.0]);
+       }
+    */
 }

@@ -34,8 +34,6 @@ fn invoke(params: u32) -> u32 {
     }
 
     // After constructor has run we have state
-    // let bs = Blockstore {};
-    // let actor_helper = FvmActor {};
     let messenger = FvmMessenger::default();
     let root_cid = sdk::sself::root().unwrap();
     let helpers = ActorRuntime::<FvmSyscalls, Blockstore>::new_fvm_runtime();

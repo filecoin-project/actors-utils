@@ -8,6 +8,7 @@ edition = "2021"
 frc53_nft = { path = "../../frc53_nft" }
 frc42_dispatch = { path = "../../frc42_dispatch" }
 frc46_token = { path = "../../frc46_token" }
+fvm_actor_utils = { path = "../../fvm_actor_utils" }
 token_impl = { path = "../../frc46_factory_token/token_impl" }
 
 anyhow = { version = "1.0.63", features = ["backtrace"] }
