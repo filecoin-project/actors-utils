@@ -1,12 +1,14 @@
 use frc42_dispatch::method_hash;
 use frc53_nft::state::NFTState;
 use frc53_nft::types::{
-    ListOwnedTokensParams, ListOwnedTokensReturn, ListTokensParams, ListTokensReturn,
+    ListOperatorTokensParams, ListOperatorTokensReturn, ListOwnedTokensParams,
+    ListOwnedTokensReturn, ListTokenOperatorsParams, ListTokensParams, ListTokensReturn,
 };
 use fvm_actor_utils::shared_blockstore::SharedMemoryBlockstore;
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_bitfield::bitfield;
 use fvm_ipld_encoding::RawBytes;
+use fvm_shared::ActorID;
 
 mod common;
 use common::{construct_tester, TestHelpers};
@@ -168,78 +170,107 @@ pub fn test_nft_enumerations() {
         assert!(call_result.next_cursor.is_none());
     }
 
-    /*
-       // List token operators
-       {
-           // List all the operators for alice's first token
-           let params = ListTokenOperatorsParams { owner: alice.1, token_id: 1 };
-           let params = RawBytes::serialize(params).unwrap();
-           let ret_val = tester.call_method_ok(
-               operator.1,
-               actor_address,
-               method_hash!("ListTokenOperators"),
-               Some(params),
-           );
-           let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
-           // The operator is approved for token 1
-           assert_eq!(call_result, vec![operator.0]);
+    // List token operators
+    {
+        // List all the operators for alice's first token
+        let params = ListTokenOperatorsParams { owner: alice.1, token_id: 1 };
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method_ok(
+            operator.1,
+            actor_address,
+            method_hash!("ListTokenOperators"),
+            Some(params),
+        );
+        let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+        // The operator is approved for token 1
+        assert_eq!(call_result, vec![operator.0]);
 
-           // List all the operators for alice's second
-           let params = ListTokenOperatorsParams { owner: alice.1, token_id: 2 };
-           let params = RawBytes::serialize(params).unwrap();
-           let ret_val = tester.call_method_ok(
-               operator.1,
-               actor_address,
-               method_hash!("ListTokenOperators"),
-               Some(params),
-           );
-           let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
-           // No-one is approved for token 2
-           assert!(call_result.is_empty());
+        // List all the operators for alice's second
+        let params = ListTokenOperatorsParams { owner: alice.1, token_id: 2 };
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method_ok(
+            operator.1,
+            actor_address,
+            method_hash!("ListTokenOperators"),
+            Some(params),
+        );
+        let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+        // No-one is approved for token 2
+        assert!(call_result.is_empty());
 
-           // List all the operators for bob's token
-           let params = ListTokenOperatorsParams { owner: bob.1, token_id: 4 };
-           let params = RawBytes::serialize(params).unwrap();
-           let ret_val = tester.call_method_ok(
-               operator.1,
-               actor_address,
-               method_hash!("ListTokenOperators"),
-               Some(params),
-           );
-           let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
-           // Even though the operator is an account-level operator, they are not specifically approved for token 4
-           assert!(call_result.is_empty());
-       }
-    */
+        // List all the operators for bob's token
+        let params = ListTokenOperatorsParams { owner: bob.1, token_id: 4 };
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method_ok(
+            operator.1,
+            actor_address,
+            method_hash!("ListTokenOperators"),
+            Some(params),
+        );
+        let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+        // Even though the operator is an account-level operator, they are not specifically approved for token 4
+        assert!(call_result.is_empty());
+    }
 
-    /*
-       // List AccountOperators
-       {
-           // List all the operators for alice
-           let params = alice.1;
-           let params = RawBytes::serialize(params).unwrap();
-           let ret_val = tester.call_method_ok(
-               operator.1,
-               actor_address,
-               method_hash!("ListAccountOperators"),
-               Some(params),
-           );
-           let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
-           // The operator is not account-level approved for alice
-           assert!(call_result.is_empty());
+    // List OperatorTokens
+    {
+        // List all the tokens for the operator on alices tokens
+        let params =
+            ListOperatorTokensParams { operator: operator.1, owner: alice.1, cursor: None, max: 0 };
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method_ok(
+            operator.1,
+            actor_address,
+            method_hash!("ListOperatorTokens"),
+            Some(params),
+        );
+        let call_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListOperatorTokensReturn>().unwrap();
+        // Approved for the first non-burned token
+        assert_eq!(call_result.tokens, bitfield![0, 1]);
 
-           // List all the operators for bob
-           let params = bob.1;
-           let params = RawBytes::serialize(params).unwrap();
-           let ret_val = tester.call_method_ok(
-               operator.1,
-               actor_address,
-               method_hash!("ListAccountOperators"),
-               Some(params),
-           );
-           let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
-           // The operator is approved for bob
-           assert_eq!(call_result, vec![operator.0]);
-       }
-    */
+        // List all the tokens for the operator on bobs tokens
+        let params =
+            ListOperatorTokensParams { operator: operator.1, owner: bob.1, cursor: None, max: 0 };
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method_ok(
+            operator.1,
+            actor_address,
+            method_hash!("ListOperatorTokens"),
+            Some(params),
+        );
+        let call_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListOperatorTokensReturn>().unwrap();
+        // Approved for all tokens as an account-level operator
+        assert_eq!(call_result.tokens, bitfield![0, 0, 0, 0, 1]);
+    }
+
+    // List AccountOperators
+    {
+        // List all the operators for alice
+        let params = alice.1;
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method_ok(
+            operator.1,
+            actor_address,
+            method_hash!("ListAccountOperators"),
+            Some(params),
+        );
+        let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+        // The operator is not account-level approved for alice
+        assert!(call_result.is_empty());
+
+        // List all the operators for bob
+        let params = bob.1;
+        let params = RawBytes::serialize(params).unwrap();
+        let ret_val = tester.call_method_ok(
+            operator.1,
+            actor_address,
+            method_hash!("ListAccountOperators"),
+            Some(params),
+        );
+        let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+        // The operator is approved for bob
+        assert_eq!(call_result, vec![operator.0]);
+    }
 }

@@ -661,13 +661,7 @@ impl NFTState {
         let token_data =
             token_data_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
 
-        let mut operators = Vec::new();
-        for id in 0..=u64::MAX {
-            if token_data.operators.get(id) {
-                operators.push(id);
-            }
-        }
-
+        let operators = token_data.operators.iter().collect::<Vec<TokenID>>();
         Ok(operators)
     }
 
@@ -692,19 +686,21 @@ impl NFTState {
             let mut operatable_tokens = TokenSet::new();
             let token_array = self.get_token_data_amt(bs)?;
             let (tokens, next_cursor) = self.list_owned_tokens(bs, owner, cursor, max)?;
-            for token_id in 0..=u64::MAX {
-                if tokens.get(token_id) {
-                    let token_data = token_array.get(token_id)?.ok_or_else(|| {
-                        StateError::InvariantFailed(format!(
-                            "token {token_id} owned by {owner} not found in token amt",
-                        ))
-                    })?;
 
-                    if token_data.operators.get(operator) {
-                        operatable_tokens.set(token_id)
-                    }
+            tokens.iter().try_for_each(|token_id| -> Result<()> {
+                let token_data = token_array.get(token_id)?.ok_or_else(|| {
+                    StateError::InvariantFailed(format!(
+                        "token {token_id} owned by {owner} not found in token amt",
+                    ))
+                })?;
+
+                if token_data.operators.get(operator) {
+                    operatable_tokens.set(token_id);
                 }
-            }
+
+                Ok(())
+            })?;
+
             Ok(ListOperatorTokensReturn { tokens: operatable_tokens, next_cursor })
         }
     }
@@ -719,13 +715,7 @@ impl NFTState {
         let account = owner_data_map.get(&actor_id_key(actor_id))?;
         match account {
             Some(account) => {
-                let mut operators = Vec::new();
-                for id in 0..=u64::MAX {
-                    if account.operators.get(id) {
-                        operators.push(id);
-                    }
-                }
-
+                let operators = account.operators.iter().collect::<Vec<ActorID>>();
                 Ok(operators)
             }
             None => Ok(vec![]),
