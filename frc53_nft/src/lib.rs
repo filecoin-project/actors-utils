@@ -185,7 +185,7 @@ where
         Ok(self.state.mint_return(&self.runtime, intermediate)?)
     }
 
-    /// Burn a set of NFTs as the owner
+    /// Burn a set of NFTs as the owner and returns the resulting balance
     ///
     /// A burnt TokenID can never be minted again
     pub fn burn(&mut self, owner: &Address, token_ids: &[TokenID]) -> Result<u64> {
@@ -200,7 +200,7 @@ where
         Ok(balance)
     }
 
-    /// Burn a set of NFTs as an operator
+    /// Burn a set of NFTs as an operator and returns the resulting balance
     ///
     /// A burnt TokenID can never be minted again
     pub fn burn_from(
@@ -484,6 +484,7 @@ where
 mod test {
 
     use fvm_actor_utils::{syscalls::fake_syscalls::FakeSyscalls, util::ActorRuntime};
+    use fvm_ipld_bitfield::bitfield;
     use fvm_ipld_blockstore::MemoryBlockstore;
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::{address::Address, ActorID};
@@ -1142,5 +1143,126 @@ mod test {
             Ok(())
         })
         .unwrap();
+    }
+
+    #[test]
+    fn it_enumerates_token_information() {
+        let helper = ActorRuntime::<FakeSyscalls, MemoryBlockstore>::new_test_runtime();
+        let mut state = NFTState::new(&helper).unwrap();
+        let mut nft = NFT::wrap(helper, &mut state);
+
+        // Setup a few tokens and operators
+        {
+            // mint a few tokens for alice
+            let mut hook = nft
+                .mint(
+                    &ALICE,
+                    &ALICE,
+                    vec![String::new(); 4],
+                    RawBytes::default(),
+                    RawBytes::default(),
+                )
+                .unwrap();
+            hook.call(&nft.runtime).unwrap();
+            // alice: [0, 1, 2, 3]
+            // bob: []
+
+            // mint a few tokens for bob
+            let mut hook = nft
+                .mint(&BOB, &BOB, vec![String::new(); 4], RawBytes::default(), RawBytes::default())
+                .unwrap();
+            hook.call(&nft.runtime).unwrap();
+            // alice: [0, 1, 2, 3]
+            // bob: [4, 5, 6, 7]
+
+            // burn some tokens for bob
+            nft.burn(&BOB, &[5, 6]).unwrap();
+            // alice: [0, 1, 2, 3]
+            // bob: [4, 7]
+
+            // set charlie as an operator for alice and bob
+            nft.approve_for_owner(&ALICE, &CHARLIE).unwrap();
+            nft.approve_for_owner(&BOB, &CHARLIE).unwrap();
+
+            // get charlie token-level approval on some of alice's tokens
+            nft.approve(&ALICE, &CHARLIE, &[0, 1]).unwrap();
+        }
+
+        // List all tokens one-by-one
+        {
+            let mut cursor = None;
+            let mut all_tokens = Vec::new();
+            loop {
+                let res = nft.list_tokens(cursor, 1).unwrap();
+                // Requesting pages of size one
+                assert_eq!(res.tokens.len(), 1);
+
+                res.tokens.iter().for_each(|id| all_tokens.push(id));
+
+                if res.next_cursor.is_none() {
+                    break;
+                }
+                cursor = res.next_cursor;
+            }
+            // should have listed all minted tokens less the burned ones
+            assert_eq!(all_tokens, vec![0, 1, 2, 3, 4, 7]);
+        }
+
+        // List owned tokens
+        {
+            // List all of alice's tokens
+            let res = nft.list_owned_tokens(&ALICE, None, u64::MAX).unwrap();
+            assert_eq!(res.tokens, bitfield![1, 1, 1, 1]);
+            assert!(res.next_cursor.is_none());
+
+            // List all of bob's tokens
+            let res = nft.list_owned_tokens(&BOB, None, u64::MAX).unwrap();
+            assert_eq!(res.tokens, bitfield![0, 0, 0, 0, 1, 0, 0, 1]);
+            assert!(res.next_cursor.is_none());
+
+            // List all of charlie's tokens
+            let res = nft.list_owned_tokens(&CHARLIE, None, u64::MAX).unwrap();
+            assert_eq!(res.tokens, bitfield![]);
+            assert!(res.next_cursor.is_none());
+        }
+
+        // List token operators
+        {
+            // Charlie is an operator for alice but only explicitly approved on tokens 0 & 1
+            let res = nft.list_token_operators(&ALICE, 0).unwrap();
+            assert_eq!(res, vec![CHARLIE_ID]);
+            let res = nft.list_token_operators(&ALICE, 1).unwrap();
+            assert_eq!(res, vec![CHARLIE_ID]);
+            let res = nft.list_token_operators(&ALICE, 2).unwrap();
+            assert!(res.is_empty());
+            let res = nft.list_token_operators(&ALICE, 3).unwrap();
+            assert!(res.is_empty());
+        }
+
+        // List operator tokens
+        {
+            // Charlie is an operator for alice but only explicitly approved on tokens 0 & 1
+            let res = nft.list_operator_tokens(&ALICE, &CHARLIE, None, u64::MAX).unwrap();
+            assert_eq!(res.tokens, bitfield![1, 1, 0, 0]);
+            assert!(res.next_cursor.is_none());
+
+            // Charlie is an operator for bob but not explicitly approved on any tokens
+            let res = nft.list_operator_tokens(&BOB, &CHARLIE, None, u64::MAX).unwrap();
+            assert_eq!(res.tokens, bitfield![]);
+            assert!(res.next_cursor.is_none());
+        }
+
+        // List account operators
+        {
+            // Charlie is an account operator for alice and bob
+            let res = nft.list_account_operators(&ALICE).unwrap();
+            assert_eq!(res, vec![CHARLIE_ID]);
+            let res = nft.list_account_operators(&BOB).unwrap();
+            assert_eq!(res, vec![CHARLIE_ID]);
+
+            // But they are not an account operator for charlie
+            let res = nft.list_account_operators(&CHARLIE).unwrap();
+            assert!(res.is_empty());
+        }
     }
 }
