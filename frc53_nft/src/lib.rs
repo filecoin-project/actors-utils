@@ -417,11 +417,7 @@ where
 
     /// Enumerates a page of TokenIDs
     pub fn list_tokens(&self, cursor: Option<AmtCursor>, max: u64) -> Result<ListTokensReturn> {
-        let limit = match max {
-            0 => None,
-            _ => Some(max),
-        };
-        let (tokens, next_cursor) = self.state.list_tokens(&self.runtime, cursor, limit)?;
+        let (tokens, next_cursor) = self.state.list_tokens(&self.runtime, cursor, Some(max))?;
         Ok(ListTokensReturn { tokens, next_cursor })
     }
 
@@ -433,12 +429,8 @@ where
         max: u64,
     ) -> Result<ListTokensReturn> {
         let owner_id = self.runtime.resolve_id(owner)?;
-        let limit = match max {
-            0 => None,
-            _ => Some(max),
-        };
         let (tokens, next_cursor) =
-            self.state.list_owned_tokens(&self.runtime, owner_id, cursor, limit)?;
+            self.state.list_owned_tokens(&self.runtime, owner_id, cursor, Some(max))?;
         Ok(ListTokensReturn { tokens, next_cursor })
     }
 
@@ -458,11 +450,13 @@ where
     ) -> Result<ListOperatorTokensReturn> {
         let owner_id = self.runtime.resolve_id(owner)?;
         let operator_id = self.runtime.resolve_id(operator)?;
-        let limit = match max {
-            0 => None,
-            _ => Some(max),
-        };
-        Ok(self.state.list_operator_tokens(&self.runtime, owner_id, operator_id, cursor, limit)?)
+        Ok(self.state.list_operator_tokens(
+            &self.runtime,
+            owner_id,
+            operator_id,
+            cursor,
+            Some(max),
+        )?)
     }
 
     /// Returns all the account-level operators approved by an owner

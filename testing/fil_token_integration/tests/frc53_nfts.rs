@@ -163,7 +163,7 @@ fn test_nft_actor() {
 
     // List all the tokens
     {
-        let list_tokens_params = ListTokensParams { cursor: None, max: 0 };
+        let list_tokens_params = ListTokensParams { cursor: None, max: u64::MAX };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
             minter[0].1,

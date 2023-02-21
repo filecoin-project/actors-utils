@@ -50,7 +50,7 @@ pub fn test_nft_enumerations() {
     // Set the operator as an account-level operator for bob
     state.approve_for_owner(&blockstore, bob.0, operator.0).unwrap();
 
-    // Install the actor with the modified state
+    // Install the actor with the seeded state
     let actor_address = tester.install_actor_with_state(BASIC_NFT_ACTOR_WASM, 10_000, state);
 
     // Instantiate machine
@@ -58,7 +58,7 @@ pub fn test_nft_enumerations() {
 
     // List all the tokens
     {
-        let list_tokens_params = ListTokensParams { cursor: None, max: 0 };
+        let list_tokens_params = ListTokensParams { cursor: None, max: u64::MAX };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -110,7 +110,7 @@ pub fn test_nft_enumerations() {
     // List owned tokens
     {
         // List all the tokens minted to alice
-        let params = ListOwnedTokensParams { owner: alice.1, cursor: None, max: 0 };
+        let params = ListOwnedTokensParams { owner: alice.1, cursor: None, max: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -124,7 +124,7 @@ pub fn test_nft_enumerations() {
         assert!(list_tokens_result.next_cursor.is_none());
 
         // Check that bob has the fifth token
-        let params = ListOwnedTokensParams { owner: bob.1, cursor: None, max: 0 };
+        let params = ListOwnedTokensParams { owner: bob.1, cursor: None, max: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -215,8 +215,12 @@ pub fn test_nft_enumerations() {
     // List OperatorTokens
     {
         // List all the tokens for the operator on alices tokens
-        let params =
-            ListOperatorTokensParams { operator: operator.1, owner: alice.1, cursor: None, max: 0 };
+        let params = ListOperatorTokensParams {
+            operator: operator.1,
+            owner: alice.1,
+            cursor: None,
+            max: u64::MAX,
+        };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -230,8 +234,12 @@ pub fn test_nft_enumerations() {
         assert_eq!(call_result.tokens, bitfield![0, 1]);
 
         // List all the tokens for the operator on bobs tokens
-        let params =
-            ListOperatorTokensParams { operator: operator.1, owner: bob.1, cursor: None, max: 0 };
+        let params = ListOperatorTokensParams {
+            operator: operator.1,
+            owner: bob.1,
+            cursor: None,
+            max: u64::MAX,
+        };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
