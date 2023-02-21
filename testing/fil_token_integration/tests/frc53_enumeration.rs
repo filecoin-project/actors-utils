@@ -249,8 +249,8 @@ pub fn test_nft_enumerations() {
         );
         let call_result =
             ret_val.msg_receipt.return_data.deserialize::<ListOperatorTokensReturn>().unwrap();
-        // Approved for all tokens as an account-level operator
-        assert_eq!(call_result.tokens, bitfield![0, 0, 0, 0, 1]);
+        // Although the operator is an account-level operator, they are not specifically approved for token 4
+        assert_eq!(call_result.tokens, bitfield![0, 0, 0, 0, 0]);
     }
 
     // List AccountOperators

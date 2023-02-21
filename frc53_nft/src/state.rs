@@ -674,35 +674,27 @@ impl NFTState {
         cursor: Option<AmtCursor>,
         max: Option<u64>,
     ) -> Result<ListOperatorTokensReturn> {
-        // Check if the operator is an account-level operator for the owner
-        let owner_map = self.get_owner_data_hamt(bs)?;
-        if Self::is_account_operator(&owner_map, owner, operator)? {
-            // If so, return all tokens owned by the owner
-            let (tokens, next_cursor) = self.list_owned_tokens(bs, owner, cursor, max)?;
-            Ok(ListOperatorTokensReturn { tokens, next_cursor })
-        } else {
-            // Otherwise, iterate over the owner's tokens and find those where the operator is approved
-            // Note that this may be less than max even if max are available
-            let mut operatable_tokens = TokenSet::new();
-            let token_array = self.get_token_data_amt(bs)?;
-            let (tokens, next_cursor) = self.list_owned_tokens(bs, owner, cursor, max)?;
+        // Iterate over the owner's tokens and find those where the operator is approved
+        let mut operatable_tokens = TokenSet::new();
+        let token_array = self.get_token_data_amt(bs)?;
+        let (tokens, next_cursor) = self.list_owned_tokens(bs, owner, cursor, max)?;
 
-            tokens.iter().try_for_each(|token_id| -> Result<()> {
-                let token_data = token_array.get(token_id)?.ok_or_else(|| {
-                    StateError::InvariantFailed(format!(
-                        "token {token_id} owned by {owner} not found in token amt",
-                    ))
-                })?;
-
-                if token_data.operators.get(operator) {
-                    operatable_tokens.set(token_id);
-                }
-
-                Ok(())
+        // This step filters the returned TokenSet so the operatable_tokens may have size < max
+        tokens.iter().try_for_each(|token_id| -> Result<()> {
+            let token_data = token_array.get(token_id)?.ok_or_else(|| {
+                StateError::InvariantFailed(format!(
+                    "token {token_id} owned by {owner} not found in token amt",
+                ))
             })?;
 
-            Ok(ListOperatorTokensReturn { tokens: operatable_tokens, next_cursor })
-        }
+            if token_data.operators.get(operator) {
+                operatable_tokens.set(token_id);
+            }
+
+            Ok(())
+        })?;
+
+        Ok(ListOperatorTokensReturn { tokens: operatable_tokens, next_cursor })
     }
 
     /// List all the token operators for a given account
