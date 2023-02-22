@@ -97,8 +97,7 @@ where
     /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing state
     /// The old state is returned to enable comparisons and the like but can be safely dropped otherwise
     pub fn load_replace(&mut self, cid: &Cid) -> Result<TokenState> {
-        let new_state = TokenState::load(&self.runtime, cid)?;
-        Ok(std::mem::replace(self.state, new_state))
+        Ok(self.replace(Self::load_state(self.runtime.bs(), cid)?))
     }
 
     /// Flush state and return Cid for root
