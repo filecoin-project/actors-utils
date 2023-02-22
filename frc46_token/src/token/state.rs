@@ -472,7 +472,7 @@ impl TokenState {
         let current_allowance = self.get_allowance_between(bs, owner, operator)?;
 
         // defensive check for operator != owner, really allowance should never be checked here
-        if current_allowance.is_zero() && operator != owner {
+        if (current_allowance.is_zero() && operator != owner) || current_allowance.lt(amount) {
             return Err(StateError::InsufficientAllowance {
                 owner: Address::new_id(owner),
                 operator: Address::new_id(operator),
@@ -483,15 +483,6 @@ impl TokenState {
 
         if amount.is_zero() {
             return Ok(current_allowance);
-        }
-
-        if current_allowance.lt(amount) {
-            return Err(StateError::InsufficientAllowance {
-                owner: Address::new_id(owner),
-                operator: Address::new_id(operator),
-                allowance: current_allowance,
-                delta: amount.clone(),
-            });
         }
 
         // let new_allowance = current_allowance - amount;
