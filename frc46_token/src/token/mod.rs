@@ -468,33 +468,13 @@ where
         let from_id = self.runtime.resolve_or_init(from)?;
         let to_id = self.runtime.resolve_or_init(to)?;
         // skip allowance check for self-managed transfers
-        let res = self.transaction(|state, bs| {
-            // don't change balance if to == from, but must check that the transfer doesn't exceed balance
-            if to_id == from_id {
-                let balance = state.get_balance(&bs, from_id)?;
-                if balance.lt(amount) {
-                    return Err(TokenStateError::InsufficientBalance {
-                        owner: from_id,
-                        balance,
-                        delta: amount.clone().neg(),
-                    }
-                    .into());
-                }
-                Ok(TransferIntermediate {
-                    from: *from,
-                    to: *to,
-                    recipient_data: RawBytes::default(),
-                })
-            } else {
-                state.change_balance_by(&bs, to_id, amount)?;
-                state.change_balance_by(&bs, from_id, &amount.neg())?;
-                Ok(TransferIntermediate {
-                    from: *from,
-                    to: *to,
-                    recipient_data: RawBytes::default(),
-                })
-            }
+        self.transaction(|state, bs| {
+            state.make_transfer(&bs, from_id, to_id, amount)?;
+            Ok(())
         })?;
+
+        let res =
+            TransferIntermediate { from: *from, to: *to, recipient_data: RawBytes::default() };
 
         let params = FRC46TokenReceived {
             operator: from_id,
@@ -585,36 +565,18 @@ where
         let to_id = self.runtime.resolve_or_init(to)?;
 
         // update token state
-        let ret = self.transaction(|state, bs| {
+        self.transaction(|state, bs| {
             state.attempt_use_allowance(&bs, operator_id, from_id, amount)?;
-            // don't change balance if to == from, but must check that the transfer doesn't exceed balance
-            if to_id == from_id {
-                let balance = state.get_balance(&bs, from_id)?;
-                if balance.lt(amount) {
-                    return Err(TokenStateError::InsufficientBalance {
-                        owner: from_id,
-                        balance,
-                        delta: amount.clone().neg(),
-                    }
-                    .into());
-                }
-                Ok(TransferFromIntermediate {
-                    operator: *operator,
-                    from: *from,
-                    to: *to,
-                    recipient_data: RawBytes::default(),
-                })
-            } else {
-                state.change_balance_by(&bs, to_id, amount)?;
-                state.change_balance_by(&bs, from_id, &amount.neg())?;
-                Ok(TransferFromIntermediate {
-                    operator: *operator,
-                    from: *from,
-                    to: *to,
-                    recipient_data: RawBytes::default(),
-                })
-            }
+            state.make_transfer(&bs, from_id, to_id, amount)?;
+            Ok(())
         })?;
+
+        let res = TransferFromIntermediate {
+            operator: *operator,
+            from: *from,
+            to: *to,
+            recipient_data: RawBytes::default(),
+        };
 
         let params = FRC46TokenReceived {
             operator: operator_id,
@@ -625,7 +587,7 @@ where
             token_data,
         };
 
-        Ok(ReceiverHook::new_frc46(*to, params, ret)?)
+        Ok(ReceiverHook::new_frc46(*to, params, res)?)
     }
 
     /// Generate TransferReturn from the intermediate data returned by a receiver hook call

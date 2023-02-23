@@ -265,6 +265,36 @@ impl TokenState {
         Ok(BalanceMap::load_with_bit_width(&self.balances, bs, self.hamt_bit_width)?)
     }
 
+    /// Record a transfer of an amount between two accounts
+    ///
+    /// It is the caller's responsibility to ensure that allowance invariants are upheld. The caller
+    /// should check that the amount is non-negative and complies with the token granularity.
+    pub fn make_transfer<BS: Blockstore>(
+        &mut self,
+        bs: &BS,
+        from: ActorID,
+        to: ActorID,
+        amount: &TokenAmount,
+    ) -> Result<()> {
+        if from == to {
+            // balance transfers are a no-op if the from and to are the same but should still error
+            // if the requested amount exceeds the account's balance
+            let balance = self.get_balance(&bs, from)?;
+            if balance.lt(amount) {
+                return Err(StateError::InsufficientBalance {
+                    owner: from,
+                    balance,
+                    delta: amount.clone().neg(),
+                });
+            }
+        } else {
+            self.change_balance_by(&bs, from, &amount.neg())?;
+            self.change_balance_by(&bs, to, amount)?;
+        }
+
+        Ok(())
+    }
+
     /// Retrieve the number of token holders
     ///
     /// This involves iterating through the entire HAMT
@@ -849,6 +879,36 @@ mod test {
 
         // cannot set a negative balance
         state.set_balance(bs, actor, &TokenAmount::from_atto(-1)).unwrap_err();
+    }
+
+    #[test]
+    fn it_makes_transfers() {
+        let bs = &MemoryBlockstore::new();
+        let mut state = TokenState::new(bs).unwrap();
+        let alice: ActorID = 1;
+        let bob: ActorID = 2;
+
+        // set a positive balance for alice
+        state.set_balance(bs, alice, &TokenAmount::from_atto(100)).unwrap();
+
+        // self transfer is a no-op
+        state.make_transfer(bs, alice, alice, &TokenAmount::from_atto(100)).unwrap();
+        assert_eq!(state.get_balance(bs, alice).unwrap(), TokenAmount::from_atto(100));
+        assert_eq!(state.get_balance(bs, bob).unwrap(), TokenAmount::from_atto(0));
+        // but if amount is greater than balance, it still fails
+        let err = state.make_transfer(bs, alice, alice, &TokenAmount::from_atto(101)).unwrap_err();
+        if let StateError::InsufficientBalance { owner, balance, delta } = err {
+            assert_eq!(owner, alice);
+            assert_eq!(balance, TokenAmount::from_atto(100));
+            assert_eq!(delta, TokenAmount::from_atto(-101));
+        } else {
+            panic!("Unexpected error type: {err:?}");
+        }
+
+        // can transfer between users
+        state.make_transfer(bs, alice, bob, &TokenAmount::from_atto(50)).unwrap();
+        assert_eq!(state.get_balance(bs, alice).unwrap(), TokenAmount::from_atto(50));
+        assert_eq!(state.get_balance(bs, bob).unwrap(), TokenAmount::from_atto(50));
     }
 
     #[test]
