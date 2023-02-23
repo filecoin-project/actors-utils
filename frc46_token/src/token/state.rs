@@ -38,8 +38,8 @@ pub enum StateError {
         "{operator:?} attempted to utilise {delta:?} of allowance {allowance:?} set by {owner:?}"
     )]
     InsufficientAllowance {
-        owner: Address,
-        operator: Address,
+        owner: Box<Address>,
+        operator: Box<Address>,
         allowance: TokenAmount,
         delta: TokenAmount,
     },
@@ -504,8 +504,8 @@ impl TokenState {
         // defensive check for operator != owner, really allowance should never be checked here
         if (current_allowance.is_zero() && operator != owner) || current_allowance.lt(amount) {
             return Err(StateError::InsufficientAllowance {
-                owner: Address::new_id(owner),
-                operator: Address::new_id(operator),
+                owner: Address::new_id(owner).into(),
+                operator: Address::new_id(operator).into(),
                 allowance: current_allowance,
                 delta: amount.clone(),
             });

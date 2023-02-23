@@ -401,8 +401,8 @@ where
                 // if not resolved, implicit zero allowance is not permitted to burn, so return an
                 // insufficient allowance error
                 return Err(TokenStateError::InsufficientAllowance {
-                    owner: *owner,
-                    operator: addr,
+                    owner: (*owner).into(),
+                    operator: addr.into(),
                     allowance: TokenAmount::zero(),
                     delta: amount.clone(),
                 }
@@ -416,8 +416,8 @@ where
             Ok(owner) => owner,
             Err(MessagingError::AddressNotResolved(addr)) => {
                 return Err(TokenStateError::InsufficientAllowance {
-                    owner: *owner,
-                    operator: addr,
+                    owner: (*owner).into(),
+                    operator: addr.into(),
                     allowance: TokenAmount::zero(),
                     delta: amount.clone(),
                 }
@@ -538,8 +538,8 @@ where
             // if we cannot resolve the operator, they are forbidden to transfer
             Err(MessagingError::AddressNotResolved(_)) => {
                 return Err(TokenError::TokenState(TokenStateError::InsufficientAllowance {
-                    operator: *operator,
-                    owner: *from,
+                    operator: (*operator).into(),
+                    owner: (*from).into(),
                     allowance: TokenAmount::zero(),
                     delta: amount.clone(),
                 }));
@@ -552,8 +552,8 @@ where
             Ok(id) => id,
             Err(MessagingError::AddressNotResolved(from)) => {
                 return Err(TokenError::TokenState(TokenStateError::InsufficientAllowance {
-                    operator: *operator,
-                    owner: from,
+                    operator: (*operator).into(),
+                    owner: from.into(),
                     allowance: TokenAmount::zero(),
                     delta: amount.clone(),
                 }));
@@ -2055,8 +2055,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *ALICE);
-                assert_eq!(operator, *secp_address);
+                assert_eq!(*owner, *ALICE);
+                assert_eq!(*operator, *secp_address);
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, TokenAmount::from_atto(10));
             }
@@ -2090,8 +2090,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *ALICE);
-                assert_eq!(operator, *secp_address);
+                assert_eq!(*owner, *ALICE);
+                assert_eq!(*operator, *secp_address);
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, TokenAmount::zero());
             }
@@ -2156,8 +2156,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *TREASURY);
-                assert_eq!(operator, *ALICE);
+                assert_eq!(*owner, *TREASURY);
+                assert_eq!(*operator, *ALICE);
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, burn_amount);
             }
@@ -2214,8 +2214,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *TREASURY);
-                assert_eq!(operator, Address::new_id(*secp_id));
+                assert_eq!(*owner, *TREASURY);
+                assert_eq!(*operator, Address::new_id(*secp_id));
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, burn_amount);
             }
@@ -2266,8 +2266,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *TREASURY);
-                assert_eq!(operator, *secp_address);
+                assert_eq!(*owner, *TREASURY);
+                assert_eq!(*operator, *secp_address);
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, burn_amount);
             }
@@ -2288,8 +2288,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *TREASURY);
-                assert_eq!(operator, *secp_address);
+                assert_eq!(*owner, *TREASURY);
+                assert_eq!(*operator, *secp_address);
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, TokenAmount::zero());
             }
