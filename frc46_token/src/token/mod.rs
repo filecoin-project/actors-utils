@@ -97,8 +97,7 @@ where
     /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing state
     /// The old state is returned to enable comparisons and the like but can be safely dropped otherwise
     pub fn load_replace(&mut self, cid: &Cid) -> Result<TokenState> {
-        let new_state = TokenState::load(&self.runtime, cid)?;
-        Ok(std::mem::replace(self.state, new_state))
+        Ok(self.replace(Self::load_state(self.runtime.bs(), cid)?))
     }
 
     /// Flush state and return Cid for root
@@ -402,8 +401,8 @@ where
                 // if not resolved, implicit zero allowance is not permitted to burn, so return an
                 // insufficient allowance error
                 return Err(TokenStateError::InsufficientAllowance {
-                    owner: *owner,
-                    operator: addr,
+                    owner: (*owner).into(),
+                    operator: addr.into(),
                     allowance: TokenAmount::zero(),
                     delta: amount.clone(),
                 }
@@ -417,8 +416,8 @@ where
             Ok(owner) => owner,
             Err(MessagingError::AddressNotResolved(addr)) => {
                 return Err(TokenStateError::InsufficientAllowance {
-                    owner: *owner,
-                    operator: addr,
+                    owner: (*owner).into(),
+                    operator: addr.into(),
                     allowance: TokenAmount::zero(),
                     delta: amount.clone(),
                 }
@@ -469,33 +468,13 @@ where
         let from_id = self.runtime.resolve_or_init(from)?;
         let to_id = self.runtime.resolve_or_init(to)?;
         // skip allowance check for self-managed transfers
-        let res = self.transaction(|state, bs| {
-            // don't change balance if to == from, but must check that the transfer doesn't exceed balance
-            if to_id == from_id {
-                let balance = state.get_balance(&bs, from_id)?;
-                if balance.lt(amount) {
-                    return Err(TokenStateError::InsufficientBalance {
-                        owner: from_id,
-                        balance,
-                        delta: amount.clone().neg(),
-                    }
-                    .into());
-                }
-                Ok(TransferIntermediate {
-                    from: *from,
-                    to: *to,
-                    recipient_data: RawBytes::default(),
-                })
-            } else {
-                state.change_balance_by(&bs, to_id, amount)?;
-                state.change_balance_by(&bs, from_id, &amount.neg())?;
-                Ok(TransferIntermediate {
-                    from: *from,
-                    to: *to,
-                    recipient_data: RawBytes::default(),
-                })
-            }
+        self.transaction(|state, bs| {
+            state.make_transfer(&bs, from_id, to_id, amount)?;
+            Ok(())
         })?;
+
+        let res =
+            TransferIntermediate { from: *from, to: *to, recipient_data: RawBytes::default() };
 
         let params = FRC46TokenReceived {
             operator: from_id,
@@ -559,8 +538,8 @@ where
             // if we cannot resolve the operator, they are forbidden to transfer
             Err(MessagingError::AddressNotResolved(_)) => {
                 return Err(TokenError::TokenState(TokenStateError::InsufficientAllowance {
-                    operator: *operator,
-                    owner: *from,
+                    operator: (*operator).into(),
+                    owner: (*from).into(),
                     allowance: TokenAmount::zero(),
                     delta: amount.clone(),
                 }));
@@ -573,8 +552,8 @@ where
             Ok(id) => id,
             Err(MessagingError::AddressNotResolved(from)) => {
                 return Err(TokenError::TokenState(TokenStateError::InsufficientAllowance {
-                    operator: *operator,
-                    owner: from,
+                    operator: (*operator).into(),
+                    owner: from.into(),
                     allowance: TokenAmount::zero(),
                     delta: amount.clone(),
                 }));
@@ -586,36 +565,18 @@ where
         let to_id = self.runtime.resolve_or_init(to)?;
 
         // update token state
-        let ret = self.transaction(|state, bs| {
+        self.transaction(|state, bs| {
             state.attempt_use_allowance(&bs, operator_id, from_id, amount)?;
-            // don't change balance if to == from, but must check that the transfer doesn't exceed balance
-            if to_id == from_id {
-                let balance = state.get_balance(&bs, from_id)?;
-                if balance.lt(amount) {
-                    return Err(TokenStateError::InsufficientBalance {
-                        owner: from_id,
-                        balance,
-                        delta: amount.clone().neg(),
-                    }
-                    .into());
-                }
-                Ok(TransferFromIntermediate {
-                    operator: *operator,
-                    from: *from,
-                    to: *to,
-                    recipient_data: RawBytes::default(),
-                })
-            } else {
-                state.change_balance_by(&bs, to_id, amount)?;
-                state.change_balance_by(&bs, from_id, &amount.neg())?;
-                Ok(TransferFromIntermediate {
-                    operator: *operator,
-                    from: *from,
-                    to: *to,
-                    recipient_data: RawBytes::default(),
-                })
-            }
+            state.make_transfer(&bs, from_id, to_id, amount)?;
+            Ok(())
         })?;
+
+        let res = TransferFromIntermediate {
+            operator: *operator,
+            from: *from,
+            to: *to,
+            recipient_data: RawBytes::default(),
+        };
 
         let params = FRC46TokenReceived {
             operator: operator_id,
@@ -626,7 +587,7 @@ where
             token_data,
         };
 
-        Ok(ReceiverHook::new_frc46(*to, params, ret)?)
+        Ok(ReceiverHook::new_frc46(*to, params, res)?)
     }
 
     /// Generate TransferReturn from the intermediate data returned by a receiver hook call
@@ -2094,8 +2055,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *ALICE);
-                assert_eq!(operator, *secp_address);
+                assert_eq!(*owner, *ALICE);
+                assert_eq!(*operator, *secp_address);
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, TokenAmount::from_atto(10));
             }
@@ -2129,8 +2090,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *ALICE);
-                assert_eq!(operator, *secp_address);
+                assert_eq!(*owner, *ALICE);
+                assert_eq!(*operator, *secp_address);
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, TokenAmount::zero());
             }
@@ -2195,8 +2156,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *TREASURY);
-                assert_eq!(operator, *ALICE);
+                assert_eq!(*owner, *TREASURY);
+                assert_eq!(*operator, *ALICE);
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, burn_amount);
             }
@@ -2253,8 +2214,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *TREASURY);
-                assert_eq!(operator, Address::new_id(*secp_id));
+                assert_eq!(*owner, *TREASURY);
+                assert_eq!(*operator, Address::new_id(*secp_id));
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, burn_amount);
             }
@@ -2305,8 +2266,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *TREASURY);
-                assert_eq!(operator, *secp_address);
+                assert_eq!(*owner, *TREASURY);
+                assert_eq!(*operator, *secp_address);
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, burn_amount);
             }
@@ -2327,8 +2288,8 @@ mod test {
                 allowance,
                 delta,
             }) => {
-                assert_eq!(owner, *TREASURY);
-                assert_eq!(operator, *secp_address);
+                assert_eq!(*owner, *TREASURY);
+                assert_eq!(*operator, *secp_address);
                 assert_eq!(allowance, TokenAmount::zero());
                 assert_eq!(delta, TokenAmount::zero());
             }
