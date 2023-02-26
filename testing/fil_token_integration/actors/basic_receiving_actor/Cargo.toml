@@ -10,9 +10,9 @@ frc53_nft = { path = "../../../../frc53_nft" }
 fvm_actor_utils = { path = "../../../../fvm_actor_utils" }
 
 fvm_ipld_blockstore = "0.1.1"
-fvm_ipld_encoding = "=0.3.3"
-fvm_sdk =  "=3.0.0-alpha.24"
-fvm_shared = { version = "=3.0.0-alpha.20" }
+fvm_ipld_encoding = "~0.3"
+fvm_sdk = "~3.0"
+fvm_shared = { version = "~3.0" }
 
 [build-dependencies]
 substrate-wasm-builder = "4.0"
