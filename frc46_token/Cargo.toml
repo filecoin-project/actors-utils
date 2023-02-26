@@ -1,24 +1,24 @@
 [package]
 name = "frc46_token"
 description = "Filecoin FRC-0046 fungible token reference implementation"
-version = "4.0.1-alpha.1"
+version = "4.0.1"
 license = "MIT OR Apache-2.0"
 keywords = ["filecoin", "fvm", "token", "frc-0046"]
 repository = "https://github.com/helix-onchain/filecoin/"
 edition = "2021"
 
 [dependencies]
-frc42_dispatch = { version = "3.0.1-alpha.2", path = "../frc42_dispatch" }
-fvm_actor_utils = { version = "4.0.1-alpha.1", path = "../fvm_actor_utils" }
+frc42_dispatch = { version = "3.0.1", path = "../frc42_dispatch" }
+fvm_actor_utils = { version = "4.0.1", path = "../fvm_actor_utils" }
 
 anyhow = "1.0.56"
 cid = { version = "0.8.3", default-features = false, features = ["serde-codec"] }
 fvm_ipld_blockstore = "0.1.1"
 fvm_ipld_hamt = "0.6.1"
 fvm_ipld_amt = { version = "0.5.1", features = ["go-interop"] }
-fvm_ipld_encoding = "=0.3.3"
-fvm_sdk = "=3.0.0-alpha.24"
-fvm_shared = { version = "=3.0.0-alpha.20" }
+fvm_ipld_encoding = "~0.3"
+fvm_sdk = "~3.0"
+fvm_shared = { version = "~3.0" }
 num-traits = { version = "0.2.15" }
 serde = { version = "1.0.136", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }
