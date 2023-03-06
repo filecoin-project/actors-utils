@@ -229,6 +229,10 @@ impl TokenState {
     }
 
     /// Set the balance of the account returning the old balance
+    ///
+    /// Consistent with `change_balance_by`, this method does not change the total supply. Business
+    /// logic to reconcile the total supply with changes in balancesis the responsibility of the
+    /// caller.
     pub fn set_balance<BS: Blockstore>(
         &mut self,
         bs: &BS,
