@@ -30,8 +30,8 @@ members = [
 # fvm_ipld_blockstore = { path = "../ref-fvm/ipld/blockstore"}
 
 [patch.crates-io]
-fvm_ipld_hamt = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/ranged-iteration-amt" }
-fvm_ipld_amt = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/ranged-iteration-amt" }
-fvm_ipld_bitfield = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/ranged-iteration-amt" }
-fvm_ipld_encoding = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/ranged-iteration-amt" }
-fvm_ipld_blockstore = { git = "https://github.com/helix-onchain/ref-fvm", branch = "alex/ranged-iteration-amt" }
+fvm_ipld_hamt = { git = "https://github.com/helix-onchain/ref-fvm", rev = "146d6bc10c80001bc772ca55abcd56cc8120cbb5" }
+fvm_ipld_amt = { git = "https://github.com/helix-onchain/ref-fvm", rev = "146d6bc10c80001bc772ca55abcd56cc8120cbb5" }
+fvm_ipld_bitfield = { git = "https://github.com/helix-onchain/ref-fvm", rev = "146d6bc10c80001bc772ca55abcd56cc8120cbb5" }
+fvm_ipld_encoding = { git = "https://github.com/helix-onchain/ref-fvm", rev = "146d6bc10c80001bc772ca55abcd56cc8120cbb5" }
+fvm_ipld_blockstore = { git = "https://github.com/helix-onchain/ref-fvm", rev = "146d6bc10c80001bc772ca55abcd56cc8120cbb5" }
