@@ -17,14 +17,14 @@ use fvm_ipld_blockstore::Blockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, ActorID};
 use receiver::{FRC53ReceiverHook, FRC53TokenReceived};
-use state::{AmtCursor, StateError, StateInvariantError, StateSummary};
+use state::{Cursor, StateError, StateInvariantError, StateSummary};
 use thiserror::Error;
 use types::{
-    ListOperatorTokensReturn, ListTokensReturn, MintIntermediate, MintReturn, TransferIntermediate,
-    TransferReturn,
+    ListAccountOperatorsReturn, ListOperatorTokensReturn, ListTokenOperatorsReturn,
+    ListTokensReturn, MintIntermediate, MintReturn, TokenID, TransferIntermediate, TransferReturn,
 };
 
-use self::state::{NFTState, TokenID};
+use self::state::NFTState;
 
 pub mod receiver;
 pub mod state;
@@ -416,8 +416,8 @@ where
     }
 
     /// Enumerates a page of TokenIDs
-    pub fn list_tokens(&self, cursor: Option<AmtCursor>, max: u64) -> Result<ListTokensReturn> {
-        let (tokens, next_cursor) = self.state.list_tokens(&self.runtime, cursor, Some(max))?;
+    pub fn list_tokens(&self, cursor: Option<Cursor>, limit: u64) -> Result<ListTokensReturn> {
+        let (tokens, next_cursor) = self.state.list_tokens(&self.runtime, cursor, limit)?;
         Ok(ListTokensReturn { tokens, next_cursor })
     }
 
@@ -425,44 +425,51 @@ where
     pub fn list_owned_tokens(
         &self,
         owner: &Address,
-        cursor: Option<AmtCursor>,
-        max: u64,
+        cursor: Option<Cursor>,
+        limit: u64,
     ) -> Result<ListTokensReturn> {
         let owner_id = self.runtime.resolve_id(owner)?;
         let (tokens, next_cursor) =
-            self.state.list_owned_tokens(&self.runtime, owner_id, cursor, Some(max))?;
+            self.state.list_owned_tokens(&self.runtime, owner_id, cursor, limit)?;
         Ok(ListTokensReturn { tokens, next_cursor })
     }
 
     /// Returns all the operators approved by an owner for a token
-    pub fn list_token_operators(&self, owner: &Address, token_id: TokenID) -> Result<Vec<ActorID>> {
-        let _owner_id = self.runtime.resolve_id(owner)?;
-        Ok(self.state.list_token_operators(&self.runtime, token_id)?)
+    pub fn list_token_operators(
+        &self,
+        token_id: TokenID,
+        cursor: Option<Cursor>,
+        limit: u64,
+    ) -> Result<ListTokenOperatorsReturn> {
+        let (operators, next_cursor) =
+            self.state.list_token_operators(&self.runtime, token_id, cursor, limit)?;
+        Ok(ListTokenOperatorsReturn { operators, next_cursor })
     }
 
     /// Enumerates tokens for which an account is an operator for an owner
     pub fn list_operator_tokens(
         &self,
-        owner: &Address,
         operator: &Address,
-        cursor: Option<AmtCursor>,
-        max: u64,
+        cursor: Option<Cursor>,
+        limit: u64,
     ) -> Result<ListOperatorTokensReturn> {
-        let owner_id = self.runtime.resolve_id(owner)?;
         let operator_id = self.runtime.resolve_id(operator)?;
-        Ok(self.state.list_operator_tokens(
-            &self.runtime,
-            owner_id,
-            operator_id,
-            cursor,
-            Some(max),
-        )?)
+        let (tokens, next_cursor) =
+            self.state.list_operator_tokens(&self.runtime, operator_id, cursor, limit)?;
+        Ok(ListOperatorTokensReturn { tokens, next_cursor })
     }
 
     /// Returns all the account-level operators approved by an owner
-    pub fn list_account_operators(&self, owner: &Address) -> Result<Vec<ActorID>> {
+    pub fn list_account_operators(
+        &self,
+        owner: &Address,
+        cursor: Option<Cursor>,
+        limit: u64,
+    ) -> Result<ListAccountOperatorsReturn> {
         let owner_id = self.runtime.resolve_id(owner)?;
-        Ok(self.state.list_account_operators(&self.runtime, owner_id)?)
+        let (operators, next_cursor) =
+            self.state.list_account_operators(&self.runtime, owner_id, cursor, limit)?;
+        Ok(ListAccountOperatorsReturn { operators, next_cursor })
     }
 
     /// Reloads the state if the current root cid has diverged (i.e. during re-entrant receiver hooks)
@@ -489,16 +496,13 @@ mod test {
     use fvm_ipld_encoding::RawBytes;
     use fvm_shared::{address::Address, ActorID};
 
-    use crate::{
-        state::{StateError, TokenID},
-        NFTError, NFTState, NFT,
-    };
+    use crate::{state::StateError, types::TokenID, NFTError, NFTState, NFT};
 
     const ALICE_ID: ActorID = 1;
     const ALICE: Address = Address::new_id(ALICE_ID);
-    const BOB_ID: ActorID = 2;
+    const BOB_ID: ActorID = 11;
     const BOB: Address = Address::new_id(BOB_ID);
-    const CHARLIE_ID: ActorID = 3;
+    const CHARLIE_ID: ActorID = 111;
     const CHARLIE: Address = Address::new_id(CHARLIE_ID);
 
     #[test]
@@ -1184,8 +1188,10 @@ mod test {
             nft.approve_for_owner(&ALICE, &CHARLIE).unwrap();
             nft.approve_for_owner(&BOB, &CHARLIE).unwrap();
 
-            // get charlie token-level approval on some of alice's tokens
+            // give charlie token-level approval on some of alice's tokens
             nft.approve(&ALICE, &CHARLIE, &[0, 1]).unwrap();
+            // give bob token-level approval on one of alice's tokens
+            nft.approve(&ALICE, &BOB, &[0]).unwrap();
         }
 
         // List all tokens one-by-one
@@ -1229,40 +1235,67 @@ mod test {
         // List token operators
         {
             // Charlie is an operator for alice but only explicitly approved on tokens 0 & 1
-            let res = nft.list_token_operators(&ALICE, 0).unwrap();
-            assert_eq!(res, vec![CHARLIE_ID]);
-            let res = nft.list_token_operators(&ALICE, 1).unwrap();
-            assert_eq!(res, vec![CHARLIE_ID]);
-            let res = nft.list_token_operators(&ALICE, 2).unwrap();
-            assert!(res.is_empty());
-            let res = nft.list_token_operators(&ALICE, 3).unwrap();
-            assert!(res.is_empty());
+            // Bob is only explicitly approved on token 0
+
+            let res = nft.list_token_operators(0, None, u64::MAX).unwrap();
+            assert!(res.operators.get(BOB_ID));
+            assert!(res.operators.get(CHARLIE_ID));
+            assert_eq!(res.operators.len(), 2);
+
+            let res = nft.list_token_operators(1, None, u64::MAX).unwrap();
+            assert!(!res.operators.get(BOB_ID));
+            assert!(res.operators.get(CHARLIE_ID));
+            assert_eq!(res.operators.len(), 1);
+
+            let res = nft.list_token_operators(2, None, u64::MAX).unwrap();
+            assert!(!res.operators.get(BOB_ID));
+            assert!(!res.operators.get(CHARLIE_ID));
+            assert_eq!(res.operators.len(), 0);
+
+            let res = nft.list_token_operators(3, None, u64::MAX).unwrap();
+            assert!(!res.operators.get(BOB_ID));
+            assert!(!res.operators.get(CHARLIE_ID));
+            assert_eq!(res.operators.len(), 0);
+        }
+
+        // List token operators in pages of size one
+        {
+            let mut cursor = None;
+            let mut all_operators = Vec::new();
+            loop {
+                let res = nft.list_token_operators(0, cursor, 1).unwrap();
+                assert_eq!(res.operators.len(), 1);
+                res.operators.iter().for_each(|id| all_operators.push(id));
+
+                if res.next_cursor.is_none() {
+                    break;
+                }
+                cursor = res.next_cursor;
+            }
+            // should have listed all minted tokens less the burned ones
+            assert_eq!(all_operators, vec![BOB_ID, CHARLIE_ID]);
         }
 
         // List operator tokens
         {
-            // Charlie is an operator for alice but only explicitly approved on tokens 0 & 1
-            let res = nft.list_operator_tokens(&ALICE, &CHARLIE, None, u64::MAX).unwrap();
+            // Charlie is an operator for alice and bob but only explicitly approved on tokens 0 & 1
+            let res = nft.list_operator_tokens(&CHARLIE, None, u64::MAX).unwrap();
             assert_eq!(res.tokens, bitfield![1, 1, 0, 0]);
-            assert!(res.next_cursor.is_none());
-
-            // Charlie is an operator for bob but not explicitly approved on any tokens
-            let res = nft.list_operator_tokens(&BOB, &CHARLIE, None, u64::MAX).unwrap();
-            assert_eq!(res.tokens, bitfield![]);
             assert!(res.next_cursor.is_none());
         }
 
         // List account operators
         {
             // Charlie is an account operator for alice and bob
-            let res = nft.list_account_operators(&ALICE).unwrap();
-            assert_eq!(res, vec![CHARLIE_ID]);
-            let res = nft.list_account_operators(&BOB).unwrap();
-            assert_eq!(res, vec![CHARLIE_ID]);
+            let res = nft.list_account_operators(&ALICE, None, u64::MAX).unwrap();
+            assert!(res.operators.get(CHARLIE_ID));
+
+            let res = nft.list_account_operators(&BOB, None, u64::MAX).unwrap();
+            assert!(res.operators.get(CHARLIE_ID));
 
             // But they are not an account operator for charlie
-            let res = nft.list_account_operators(&CHARLIE).unwrap();
-            assert!(res.is_empty());
+            let res = nft.list_account_operators(&CHARLIE, None, u64::MAX).unwrap();
+            assert!(res.operators.is_empty());
         }
     }
 }

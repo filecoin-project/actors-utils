@@ -1,7 +1,8 @@
 use frc42_dispatch::{match_method, method_hash};
 use frc53_nft::receiver::FRC53TokenReceived;
+use frc53_nft::receiver::FRC53_TOKEN_TYPE;
+use frc53_nft::types::TokenID;
 use frc53_nft::types::TransferParams;
-use frc53_nft::{receiver::FRC53_TOKEN_TYPE, state::TokenID};
 use fvm_actor_utils::receiver::UniversalReceiverParams;
 use fvm_ipld_encoding::ipld_block::IpldBlock;
 use fvm_ipld_encoding::{

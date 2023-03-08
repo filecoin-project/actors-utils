@@ -1,6 +1,6 @@
 use frc42_dispatch::method_hash;
 use frc53_nft::types::{ListTokensParams, ListTokensReturn};
-use frc53_nft::{state::TokenID, types::MintReturn};
+use frc53_nft::{types::MintReturn, types::TokenID};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_bitfield::bitfield;
 use fvm_ipld_blockstore::MemoryBlockstore;
@@ -163,7 +163,7 @@ fn test_nft_actor() {
 
     // List all the tokens
     {
-        let list_tokens_params = ListTokensParams { cursor: None, max: u64::MAX };
+        let list_tokens_params = ListTokensParams { cursor: None, limit: u64::MAX };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
             minter[0].1,

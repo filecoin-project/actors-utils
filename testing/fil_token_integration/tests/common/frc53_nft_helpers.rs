@@ -1,5 +1,5 @@
 use frc42_dispatch::method_hash;
-use frc53_nft::state::TokenID;
+use frc53_nft::types::TokenID;
 use fvm::{executor::ApplyRet, externs::Externs};
 use fvm_integration_tests::tester::Tester;
 use fvm_ipld_blockstore::Blockstore;

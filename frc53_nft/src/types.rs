@@ -7,9 +7,17 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::ActorID;
 
-use crate::state::AmtCursor;
+use crate::state::Cursor;
 
-type TokenID = u64;
+pub type TokenID = u64;
+
+/// Multiple token IDs are represented as a BitField encoded with RLE+ the index of each set bit
+/// corresponds to a TokenID
+pub type TokenSet = BitField;
+
+/// Multiple actor IDs are represented as a BitField encoded with RLE+ the index of each set bit
+/// corresponds to a ActorID
+pub type ActorIDSet = BitField;
 
 /// A trait to be implemented by FRC-0053 compliant actors
 pub trait FRC53NFT {
@@ -165,45 +173,64 @@ pub struct RevokeForAllParams {
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ListTokensParams {
-    pub cursor: Option<AmtCursor>,
-    pub max: u64,
+    pub cursor: Option<Cursor>,
+    pub limit: u64,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ListTokensReturn {
     pub tokens: BitField,
-    pub next_cursor: Option<AmtCursor>,
+    pub next_cursor: Option<Cursor>,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ListOwnedTokensParams {
     pub owner: Address,
-    pub cursor: Option<AmtCursor>,
-    pub max: u64,
+    pub cursor: Option<Cursor>,
+    pub limit: u64,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ListOwnedTokensReturn {
-    pub tokens: BitField,
-    pub next_cursor: Option<AmtCursor>,
+    pub tokens: TokenSet,
+    pub next_cursor: Option<Cursor>,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ListTokenOperatorsParams {
-    pub owner: Address,
     pub token_id: TokenID,
+    pub cursor: Option<Cursor>,
+    pub limit: u64,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListTokenOperatorsReturn {
+    pub operators: ActorIDSet,
+    pub next_cursor: Option<Cursor>,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ListOperatorTokensParams {
-    pub owner: Address,
     pub operator: Address,
-    pub cursor: Option<AmtCursor>,
-    pub max: u64,
+    pub cursor: Option<Cursor>,
+    pub limit: u64,
 }
 
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct ListOperatorTokensReturn {
-    pub tokens: BitField,
-    pub next_cursor: Option<AmtCursor>,
+    pub tokens: TokenSet,
+    pub next_cursor: Option<Cursor>,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListAccountOperatorsParams {
+    pub owner: Address,
+    pub cursor: Option<Cursor>,
+    pub limit: u64,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListAccountOperatorsReturn {
+    pub operators: ActorIDSet,
+    pub next_cursor: Option<Cursor>,
 }

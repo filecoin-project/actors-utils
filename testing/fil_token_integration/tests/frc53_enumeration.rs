@@ -1,14 +1,14 @@
 use frc42_dispatch::method_hash;
 use frc53_nft::state::NFTState;
 use frc53_nft::types::{
-    ListOperatorTokensParams, ListOperatorTokensReturn, ListOwnedTokensParams,
-    ListOwnedTokensReturn, ListTokenOperatorsParams, ListTokensParams, ListTokensReturn,
+    ListAccountOperatorsParams, ListAccountOperatorsReturn, ListOperatorTokensParams,
+    ListOperatorTokensReturn, ListOwnedTokensParams, ListOwnedTokensReturn,
+    ListTokenOperatorsParams, ListTokenOperatorsReturn, ListTokensParams, ListTokensReturn,
 };
 use fvm_actor_utils::shared_blockstore::SharedMemoryBlockstore;
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_bitfield::bitfield;
 use fvm_ipld_encoding::RawBytes;
-use fvm_shared::ActorID;
 
 mod common;
 use common::{construct_tester, TestHelpers};
@@ -58,7 +58,7 @@ pub fn test_nft_enumerations() {
 
     // List all the tokens
     {
-        let list_tokens_params = ListTokensParams { cursor: None, max: u64::MAX };
+        let list_tokens_params = ListTokensParams { cursor: None, limit: u64::MAX };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -76,7 +76,7 @@ pub fn test_nft_enumerations() {
     // List the tokens in pairs
     {
         // List the first two token ids
-        let list_tokens_params = ListTokensParams { cursor: None, max: 2 };
+        let list_tokens_params = ListTokensParams { cursor: None, limit: 2 };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -91,7 +91,7 @@ pub fn test_nft_enumerations() {
 
         // Attempt to list the next (final) two tokens
         let list_tokens_params =
-            ListTokensParams { cursor: list_tokens_result.next_cursor, max: 2 };
+            ListTokensParams { cursor: list_tokens_result.next_cursor, limit: 2 };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -110,7 +110,7 @@ pub fn test_nft_enumerations() {
     // List owned tokens
     {
         // List all the tokens minted to alice
-        let params = ListOwnedTokensParams { owner: alice.1, cursor: None, max: u64::MAX };
+        let params = ListOwnedTokensParams { owner: alice.1, cursor: None, limit: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -124,7 +124,7 @@ pub fn test_nft_enumerations() {
         assert!(list_tokens_result.next_cursor.is_none());
 
         // Check that bob has the fifth token
-        let params = ListOwnedTokensParams { owner: bob.1, cursor: None, max: u64::MAX };
+        let params = ListOwnedTokensParams { owner: bob.1, cursor: None, limit: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -140,7 +140,7 @@ pub fn test_nft_enumerations() {
     // List owned tokens in varying page sizes
     {
         // List first two tokens of alice's tokens
-        let params = ListOwnedTokensParams { owner: alice.1, cursor: None, max: 2 };
+        let params = ListOwnedTokensParams { owner: alice.1, cursor: None, limit: 2 };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -155,7 +155,7 @@ pub fn test_nft_enumerations() {
 
         // Attempt to list the next ten of alice's tokens
         let params =
-            ListOwnedTokensParams { owner: alice.1, cursor: call_result.next_cursor, max: 10 };
+            ListOwnedTokensParams { owner: alice.1, cursor: call_result.next_cursor, limit: 10 };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -173,7 +173,7 @@ pub fn test_nft_enumerations() {
     // List token operators
     {
         // List all the operators for alice's first token
-        let params = ListTokenOperatorsParams { owner: alice.1, token_id: 1 };
+        let params = ListTokenOperatorsParams { token_id: 1, cursor: None, limit: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -181,12 +181,15 @@ pub fn test_nft_enumerations() {
             method_hash!("ListTokenOperators"),
             Some(params),
         );
-        let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+        let call_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListTokenOperatorsReturn>().unwrap();
         // The operator is approved for token 1
-        assert_eq!(call_result, vec![operator.0]);
+        assert!(call_result.operators.get(operator.0));
+        assert_eq!(call_result.operators.len(), 1);
+        assert!(call_result.next_cursor.is_none());
 
         // List all the operators for alice's second
-        let params = ListTokenOperatorsParams { owner: alice.1, token_id: 2 };
+        let params = ListTokenOperatorsParams { token_id: 2, cursor: None, limit: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -194,12 +197,15 @@ pub fn test_nft_enumerations() {
             method_hash!("ListTokenOperators"),
             Some(params),
         );
-        let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+        let call_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListTokenOperatorsReturn>().unwrap();
         // No-one is approved for token 2
-        assert!(call_result.is_empty());
+        assert!(!call_result.operators.get(operator.0));
+        assert_eq!(call_result.operators.len(), 0);
+        assert!(call_result.next_cursor.is_none());
 
         // List all the operators for bob's token
-        let params = ListTokenOperatorsParams { owner: bob.1, token_id: 4 };
+        let params = ListTokenOperatorsParams { token_id: 4, cursor: None, limit: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -207,20 +213,19 @@ pub fn test_nft_enumerations() {
             method_hash!("ListTokenOperators"),
             Some(params),
         );
-        let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+        let call_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListTokenOperatorsReturn>().unwrap();
         // Even though the operator is an account-level operator, they are not specifically approved for token 4
-        assert!(call_result.is_empty());
+        assert!(!call_result.operators.get(operator.0));
+        assert_eq!(call_result.operators.len(), 0);
+        assert!(call_result.next_cursor.is_none());
     }
 
     // List OperatorTokens
     {
-        // List all the tokens for the operator on alices tokens
-        let params = ListOperatorTokensParams {
-            operator: operator.1,
-            owner: alice.1,
-            cursor: None,
-            max: u64::MAX,
-        };
+        // List all the tokens operators token-level approved ids
+        let params =
+            ListOperatorTokensParams { operator: operator.1, cursor: None, limit: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -232,31 +237,12 @@ pub fn test_nft_enumerations() {
             ret_val.msg_receipt.return_data.deserialize::<ListOperatorTokensReturn>().unwrap();
         // Approved for the first non-burned token
         assert_eq!(call_result.tokens, bitfield![0, 1]);
-
-        // List all the tokens for the operator on bobs tokens
-        let params = ListOperatorTokensParams {
-            operator: operator.1,
-            owner: bob.1,
-            cursor: None,
-            max: u64::MAX,
-        };
-        let params = RawBytes::serialize(params).unwrap();
-        let ret_val = tester.call_method_ok(
-            operator.1,
-            actor_address,
-            method_hash!("ListOperatorTokens"),
-            Some(params),
-        );
-        let call_result =
-            ret_val.msg_receipt.return_data.deserialize::<ListOperatorTokensReturn>().unwrap();
-        // Although the operator is an account-level operator, they are not specifically approved for token 4
-        assert_eq!(call_result.tokens, bitfield![0, 0, 0, 0, 0]);
     }
 
     // List AccountOperators
     {
         // List all the operators for alice
-        let params = alice.1;
+        let params = ListAccountOperatorsParams { cursor: None, limit: u64::MAX, owner: alice.1 };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -264,12 +250,14 @@ pub fn test_nft_enumerations() {
             method_hash!("ListAccountOperators"),
             Some(params),
         );
-        let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+        let call_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListAccountOperatorsReturn>().unwrap();
         // The operator is not account-level approved for alice
-        assert!(call_result.is_empty());
+        assert!(call_result.operators.is_empty());
+        assert!(call_result.next_cursor.is_none());
 
         // List all the operators for bob
-        let params = bob.1;
+        let params = ListAccountOperatorsParams { cursor: None, limit: u64::MAX, owner: bob.1 };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -277,8 +265,11 @@ pub fn test_nft_enumerations() {
             method_hash!("ListAccountOperators"),
             Some(params),
         );
-        let call_result = ret_val.msg_receipt.return_data.deserialize::<Vec<ActorID>>().unwrap();
+        let call_result =
+            ret_val.msg_receipt.return_data.deserialize::<ListAccountOperatorsReturn>().unwrap();
         // The operator is approved for bob
-        assert_eq!(call_result, vec![operator.0]);
+        assert!(call_result.operators.get(operator.0));
+        assert_eq!(call_result.operators.len(), 1);
+        assert!(call_result.next_cursor.is_none());
     }
 }
