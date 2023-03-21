@@ -58,7 +58,7 @@ pub fn test_nft_enumerations() {
 
     // List all the tokens
     {
-        let list_tokens_params = ListTokensParams { cursor: None, limit: u64::MAX };
+        let list_tokens_params = ListTokensParams { cursor: RawBytes::default(), limit: u64::MAX };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -76,7 +76,7 @@ pub fn test_nft_enumerations() {
     // List the tokens in pairs
     {
         // List the first two token ids
-        let list_tokens_params = ListTokensParams { cursor: None, limit: 2 };
+        let list_tokens_params = ListTokensParams { cursor: RawBytes::default(), limit: 2 };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -91,7 +91,7 @@ pub fn test_nft_enumerations() {
 
         // Attempt to list the next (final) two tokens
         let list_tokens_params =
-            ListTokensParams { cursor: list_tokens_result.next_cursor, limit: 2 };
+            ListTokensParams { cursor: list_tokens_result.next_cursor.unwrap(), limit: 2 };
         let list_tokens_params = RawBytes::serialize(list_tokens_params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -110,7 +110,8 @@ pub fn test_nft_enumerations() {
     // List owned tokens
     {
         // List all the tokens minted to alice
-        let params = ListOwnedTokensParams { owner: alice.1, cursor: None, limit: u64::MAX };
+        let params =
+            ListOwnedTokensParams { owner: alice.1, cursor: RawBytes::default(), limit: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -124,7 +125,8 @@ pub fn test_nft_enumerations() {
         assert!(list_tokens_result.next_cursor.is_none());
 
         // Check that bob has the fifth token
-        let params = ListOwnedTokensParams { owner: bob.1, cursor: None, limit: u64::MAX };
+        let params =
+            ListOwnedTokensParams { owner: bob.1, cursor: RawBytes::default(), limit: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -140,7 +142,8 @@ pub fn test_nft_enumerations() {
     // List owned tokens in varying page sizes
     {
         // List first two tokens of alice's tokens
-        let params = ListOwnedTokensParams { owner: alice.1, cursor: None, limit: 2 };
+        let params =
+            ListOwnedTokensParams { owner: alice.1, cursor: RawBytes::default(), limit: 2 };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -154,8 +157,11 @@ pub fn test_nft_enumerations() {
         assert!(call_result.next_cursor.is_some());
 
         // Attempt to list the next ten of alice's tokens
-        let params =
-            ListOwnedTokensParams { owner: alice.1, cursor: call_result.next_cursor, limit: 10 };
+        let params = ListOwnedTokensParams {
+            owner: alice.1,
+            cursor: call_result.next_cursor.unwrap(),
+            limit: 10,
+        };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -173,7 +179,8 @@ pub fn test_nft_enumerations() {
     // List token operators
     {
         // List all the operators for alice's first token
-        let params = ListTokenOperatorsParams { token_id: 1, cursor: None, limit: u64::MAX };
+        let params =
+            ListTokenOperatorsParams { token_id: 1, cursor: RawBytes::default(), limit: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -189,7 +196,8 @@ pub fn test_nft_enumerations() {
         assert!(call_result.next_cursor.is_none());
 
         // List all the operators for alice's second
-        let params = ListTokenOperatorsParams { token_id: 2, cursor: None, limit: u64::MAX };
+        let params =
+            ListTokenOperatorsParams { token_id: 2, cursor: RawBytes::default(), limit: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -205,7 +213,8 @@ pub fn test_nft_enumerations() {
         assert!(call_result.next_cursor.is_none());
 
         // List all the operators for bob's token
-        let params = ListTokenOperatorsParams { token_id: 4, cursor: None, limit: u64::MAX };
+        let params =
+            ListTokenOperatorsParams { token_id: 4, cursor: RawBytes::default(), limit: u64::MAX };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -224,8 +233,11 @@ pub fn test_nft_enumerations() {
     // List OperatorTokens
     {
         // List all the tokens operators token-level approved ids
-        let params =
-            ListOperatorTokensParams { operator: operator.1, cursor: None, limit: u64::MAX };
+        let params = ListOperatorTokensParams {
+            operator: operator.1,
+            cursor: RawBytes::default(),
+            limit: u64::MAX,
+        };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -242,7 +254,11 @@ pub fn test_nft_enumerations() {
     // List AccountOperators
     {
         // List all the operators for alice
-        let params = ListAccountOperatorsParams { cursor: None, limit: u64::MAX, owner: alice.1 };
+        let params = ListAccountOperatorsParams {
+            cursor: RawBytes::default(),
+            limit: u64::MAX,
+            owner: alice.1,
+        };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
@@ -257,7 +273,11 @@ pub fn test_nft_enumerations() {
         assert!(call_result.next_cursor.is_none());
 
         // List all the operators for bob
-        let params = ListAccountOperatorsParams { cursor: None, limit: u64::MAX, owner: bob.1 };
+        let params = ListAccountOperatorsParams {
+            cursor: RawBytes::default(),
+            limit: u64::MAX,
+            owner: bob.1,
+        };
         let params = RawBytes::serialize(params).unwrap();
         let ret_val = tester.call_method_ok(
             operator.1,
