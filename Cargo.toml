@@ -12,11 +12,7 @@ members = [
     "frc53_nft",
     "fvm_actor_utils",
     "fvm_dispatch_tools",
-    "testing/fil_token_integration",
-    "testing/fil_token_integration/actors/basic_nft_actor",
-    "testing/fil_token_integration/actors/basic_receiving_actor",
-    "testing/fil_token_integration/actors/basic_token_actor",
-    "testing/fil_token_integration/actors/basic_transfer_actor",
-    "testing/fil_token_integration/actors/frc46_test_actor",
-    "testing/fil_token_integration/actors/frc53_test_actor"
+    "testing/integration",
+    "testing/test_actors",
+    "testing/test_actors/actors/*",
 ]
