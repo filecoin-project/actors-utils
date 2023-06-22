@@ -29,3 +29,4 @@ basic_transfer_actor = { path = "../test_actors/actors/basic_transfer_actor" }
 frc46_test_actor = { path = "../test_actors/actors/frc46_test_actor" }
 frc46_factory_token = { path = "../../frc46_factory_token" }
 frc53_test_actor = { path = "../test_actors/actors/frc53_test_actor" }
+helix_test_actors = { path = "../test_actors" }

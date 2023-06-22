@@ -1,20 +1,22 @@
+use cid::Cid;
 use frc42_dispatch::method_hash;
 use frc46_token::token::types::MintReturn;
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
+use fvm_shared::address::Address;
+use fvm_shared::bigint::Zero;
 use fvm_shared::{econ::TokenAmount, receipt::Receipt};
 
 mod common;
 use common::frc46_token_helpers::TokenHelper;
 use common::{construct_tester, TestHelpers};
 use frc46_test_actor::{action, ActionParams, TestAction};
+use helix_test_actors::FRC46_TEST_ACTOR_BINARY;
 use token_impl::ConstructorParams;
 
 const FACTORY_TOKEN_ACTOR_WASM: &str =
     "../../target/debug/wbuild/frc46_factory_token/frc46_factory_token.compact.wasm";
-const TEST_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/frc46_test_actor/frc46_test_actor.compact.wasm";
 
 /// This covers several simpler tests, which all involve a single receiving actor
 /// They're combined because these integration tests take a long time to build and run
@@ -35,7 +37,15 @@ fn frc46_single_actor_tests() {
 
     // install actors required for our test: a token actor and one instance of the test actor
     let token_actor = tester.install_actor_stateless(FACTORY_TOKEN_ACTOR_WASM, 10000);
-    let frc46_test_actor = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
+    let frc46_test_actor = Address::new_id(10001);
+    tester
+        .set_actor_from_bin(
+            FRC46_TEST_ACTOR_BINARY,
+            Cid::default(),
+            frc46_test_actor,
+            TokenAmount::zero(),
+        )
+        .unwrap();
 
     // Instantiate machine
     tester.instantiate_machine(DummyExterns).unwrap();
