@@ -8,11 +8,11 @@ frc42_dispatch = { path = "../../../../frc42_dispatch" }
 frc46_token = { path = "../../../../frc46_token" }
 fvm_actor_utils = { path = "../../../../fvm_actor_utils" }
 
-cid = { version = "0.8.5", default-features = false }
-fvm_ipld_blockstore = { version = "0.1.1" }
-fvm_ipld_encoding = "~0.3"
-fvm_sdk = "~3.2"
-fvm_shared = "~3.2"
+cid = { workspace = true }
+fvm_ipld_blockstore = { workspace = true }
+fvm_ipld_encoding = { workspace = true }
+fvm_sdk = { workspace = true }
+fvm_shared = { workspace = true }
 serde = { version = "1.0.136", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }
 
