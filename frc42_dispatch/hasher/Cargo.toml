@@ -8,9 +8,9 @@ edition = "2021"
 
 [dependencies]
 fvm_sdk = { version = "~3.2", optional = true }
-fvm_shared = "~3.2"
+fvm_shared = { version = "~3.2", optional = true }
 thiserror = { version = "1.0.31" }
 
 [features]
-default = ["dep:fvm_sdk"]
+default = ["dep:fvm_sdk", "dep:fvm_shared"]
 no_sdk = [] # avoid dependence on fvm_sdk (for proc macro and similar purposes)
