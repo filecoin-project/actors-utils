@@ -12,5 +12,6 @@ fvm_shared = { version = "~3.2", optional = true }
 thiserror = { version = "1.0.31" }
 
 [features]
-default = ["dep:fvm_sdk", "dep:fvm_shared"]
-no_sdk = [] # avoid dependence on fvm_sdk (for proc macro and similar purposes)
+# The fvm dependencies are optional. Useful for proc macro and similar purposes.
+default = ["use_sdk"]
+use_sdk = ["dep:fvm_sdk", "dep:fvm_shared"]
