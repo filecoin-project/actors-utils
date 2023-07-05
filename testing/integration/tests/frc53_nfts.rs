@@ -7,11 +7,7 @@ use fvm_ipld_encoding::RawBytes;
 mod common;
 use common::frc53_nft_helpers::{MintParams, NFTHelper};
 use common::{construct_tester, TestHelpers};
-
-const BASIC_NFT_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/basic_nft_actor/basic_nft_actor.compact.wasm";
-const BASIC_RECEIVER_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/basic_receiving_actor/basic_receiving_actor.compact.wasm";
+use helix_test_actors::{BASIC_NFT_ACTOR_BINARY, BASIC_RECEIVING_ACTOR_BINARY};
 
 #[test]
 fn test_nft_actor() {
@@ -19,8 +15,8 @@ fn test_nft_actor() {
     let mut tester = construct_tester(&blockstore);
     let minter: [Account; 1] = tester.create_accounts().unwrap();
 
-    let actor_address = tester.install_actor_stateless(BASIC_NFT_ACTOR_WASM, 10_000);
-    let receiver_address = tester.install_actor_stateless(BASIC_RECEIVER_ACTOR_WASM, 10_001);
+    let actor_address = tester.install_actor_stateless(BASIC_NFT_ACTOR_BINARY, 10_000);
+    let receiver_address = tester.install_actor_stateless(BASIC_RECEIVING_ACTOR_BINARY, 10_001);
 
     // Instantiate machine
     tester.instantiate_machine(DummyExterns).unwrap();

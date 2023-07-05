@@ -10,9 +10,10 @@ use fvm_shared::{econ::TokenAmount, receipt::Receipt};
 
 mod common;
 use common::frc46_token_helpers::TokenHelper;
-use common::{construct_tester, TestHelpers};
-use frc46_test_actor::{action, ActionParams, TestAction};
+use common::{construct_tester, load_actor_wasm, TestHelpers};
 use helix_test_actors::FRC46_TEST_ACTOR_BINARY;
+use serde::{Deserialize, Serialize};
+use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 use token_impl::ConstructorParams;
 
 const FACTORY_TOKEN_ACTOR_WASM: &str =
@@ -35,8 +36,8 @@ fn frc46_single_actor_tests() {
 
     let operator: [Account; 1] = tester.create_accounts().unwrap();
 
-    // install actors required for our test: a token actor and one instance of the test actor
-    let token_actor = tester.install_actor_stateless(FACTORY_TOKEN_ACTOR_WASM, 10000);
+    let token_actor =
+        tester.install_actor_stateless(&load_actor_wasm(FACTORY_TOKEN_ACTOR_WASM), 10000);
     let frc46_test_actor = Address::new_id(10001);
     tester
         .set_actor_from_bin(
@@ -232,4 +233,25 @@ fn frc46_single_actor_tests() {
             TokenAmount::from_atto(100),
         );
     }
+}
+
+// These types have been copied from frc46_test_actor as they can't be included into rust code from a cdylib
+#[derive(Serialize, Deserialize, Debug)]
+pub enum TestAction {
+    Accept,
+    Reject,
+    Transfer(Address, RawBytes),
+    Burn,
+    ActionThenAbort(RawBytes),
+    TransferWithFallback { to: Address, instructions: RawBytes, fallback: RawBytes },
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct ActionParams {
+    pub token_address: Address,
+    pub action: TestAction,
+}
+
+pub fn action(action: TestAction) -> RawBytes {
+    RawBytes::serialize(action).unwrap()
 }

@@ -9,18 +9,14 @@ use fvm_shared::{
 
 mod common;
 use common::frc46_token_helpers::TokenHelper;
-use common::{construct_tester, TestHelpers};
-use frc46_test_actor::{action, ActionParams, TestAction};
+use common::{construct_tester, load_actor_wasm, TestHelpers};
+use helix_test_actors::FRC46_TEST_ACTOR_BINARY;
+use serde::{Deserialize, Serialize};
+use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 use token_impl::ConstructorParams;
 
 const FACTORY_TOKEN_ACTOR_WASM: &str =
     "../../target/debug/wbuild/frc46_factory_token/frc46_factory_token.compact.wasm";
-const TEST_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/frc46_test_actor/frc46_test_actor.compact.wasm";
-
-fn action_params(token_address: Address, action: TestAction) -> RawBytes {
-    RawBytes::serialize(ActionParams { token_address, action }).unwrap()
-}
 
 #[test]
 fn frc46_multi_actor_tests() {
@@ -29,12 +25,13 @@ fn frc46_multi_actor_tests() {
 
     let operator: [Account; 1] = tester.create_accounts().unwrap();
 
-    let token_actor = tester.install_actor_stateless(FACTORY_TOKEN_ACTOR_WASM, 10000);
+    let token_actor =
+        tester.install_actor_stateless(&load_actor_wasm(FACTORY_TOKEN_ACTOR_WASM), 10000);
     // we'll use up to four actors for some of these tests, though most use only two
-    let alice = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
-    let bob = tester.install_actor_stateless(TEST_ACTOR_WASM, 10011);
-    let carol = tester.install_actor_stateless(TEST_ACTOR_WASM, 10012);
-    let dave = tester.install_actor_stateless(TEST_ACTOR_WASM, 10013);
+    let alice = tester.install_actor_stateless(FRC46_TEST_ACTOR_BINARY, 10010);
+    let bob = tester.install_actor_stateless(FRC46_TEST_ACTOR_BINARY, 10011);
+    let carol = tester.install_actor_stateless(FRC46_TEST_ACTOR_BINARY, 10012);
+    let dave = tester.install_actor_stateless(FRC46_TEST_ACTOR_BINARY, 10013);
 
     // Instantiate machine
     tester.instantiate_machine(DummyExterns).unwrap();
@@ -379,4 +376,29 @@ fn frc46_multi_actor_tests() {
         // total supply should remain at 500
         tester.assert_total_supply(operator[0].1, token_actor, TokenAmount::from_atto(500));
     }
+}
+
+// These types have been copied from frc46_test_actor as they can't be included into rust code from a cdylib
+#[derive(Serialize, Deserialize, Debug)]
+pub enum TestAction {
+    Accept,
+    Reject,
+    Transfer(Address, RawBytes),
+    Burn,
+    ActionThenAbort(RawBytes),
+    TransferWithFallback { to: Address, instructions: RawBytes, fallback: RawBytes },
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct ActionParams {
+    pub token_address: Address,
+    pub action: TestAction,
+}
+
+pub fn action(action: TestAction) -> RawBytes {
+    RawBytes::serialize(action).unwrap()
+}
+
+fn action_params(token_address: Address, action: TestAction) -> RawBytes {
+    RawBytes::serialize(ActionParams { token_address, action }).unwrap()
 }

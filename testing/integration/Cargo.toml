@@ -21,12 +21,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }
 
 [dev-dependencies]
-actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "09aa10f082565565b08572532b245236525f778c" }
-basic_nft_actor = {path = "../test_actors/actors/basic_nft_actor"}
-basic_receiving_actor = { path = "../test_actors/actors/basic_receiving_actor" }
-basic_token_actor = { path = "../test_actors/actors/basic_token_actor" }
-basic_transfer_actor = { path = "../test_actors/actors/basic_transfer_actor" }
-frc46_test_actor = { path = "../test_actors/actors/frc46_test_actor" }
 frc46_factory_token = { path = "../../frc46_factory_token" }
-frc53_test_actor = { path = "../test_actors/actors/frc53_test_actor" }
+actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "09aa10f082565565b08572532b245236525f778c" }
 helix_test_actors = { path = "../test_actors" }

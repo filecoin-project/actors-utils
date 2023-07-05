@@ -14,5 +14,5 @@ fvm_ipld_encoding = "~0.3"
 fvm_sdk = "~3.2"
 fvm_shared = "~3.2"
 
-[build-dependencies]
-substrate-wasm-builder = "4.0"
+[lib]
+crate-type = ["cdylib"] ## cdylib is necessary for Wasm build

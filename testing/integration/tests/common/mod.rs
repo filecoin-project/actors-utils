@@ -41,19 +41,19 @@ pub trait TestHelpers {
     /// Returns the actor's address
     fn install_actor_with_state<S: Serialize>(
         &mut self,
-        path: &str,
+        code: &[u8],
         actor_id: u64,
         state: S,
     ) -> Address;
 
     /// Install an actor with no initial state
     /// Takes ID and returns the new actor's address
-    fn install_actor_stateless(&mut self, path: &str, actor_id: u64) -> Address;
+    fn install_actor_stateless(&mut self, code: &[u8], actor_id: u64) -> Address;
 }
 
+#[allow(dead_code)]
 pub fn load_actor_wasm(path: &str) -> Vec<u8> {
     let wasm_path = env::current_dir().unwrap().join(path).canonicalize().unwrap();
-
     std::fs::read(wasm_path).expect("unable to read actor file")
 }
 
@@ -103,21 +103,19 @@ impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {
 
     fn install_actor_with_state<S: Serialize>(
         &mut self,
-        path: &str,
+        code: &[u8],
         actor_id: u64,
         state: S,
     ) -> Address {
-        let code = load_actor_wasm(path);
         let address = Address::new_id(actor_id);
         let state_cid = self.set_state(&state).unwrap();
-        self.set_actor_from_bin(&code, state_cid, address, TokenAmount::zero()).unwrap();
+        self.set_actor_from_bin(code, state_cid, address, TokenAmount::zero()).unwrap();
         address
     }
 
-    fn install_actor_stateless(&mut self, path: &str, actor_id: u64) -> Address {
-        let code = load_actor_wasm(path);
+    fn install_actor_stateless(&mut self, code: &[u8], actor_id: u64) -> Address {
         let address = Address::new_id(actor_id);
-        self.set_actor_from_bin(&code, Cid::default(), address, TokenAmount::zero()).unwrap();
+        self.set_actor_from_bin(code, Cid::default(), address, TokenAmount::zero()).unwrap();
         address
     }
 }

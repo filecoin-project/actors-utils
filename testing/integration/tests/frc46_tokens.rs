@@ -1,6 +1,3 @@
-use std::env;
-
-use basic_token_actor::MintParams;
 use cid::Cid;
 use frc42_dispatch::method_hash;
 use frc46_token::token::{state::TokenState, types::MintReturn};
@@ -16,11 +13,17 @@ use fvm_shared::econ::TokenAmount;
 use fvm_shared::message::Message;
 use fvm_shared::state::StateTreeVersion;
 use fvm_shared::version::NetworkVersion;
+use helix_test_actors::BASIC_RECEIVING_ACTOR_BINARY;
+use helix_test_actors::BASIC_TOKEN_ACTOR_BINARY;
+use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
-const BASIC_TOKEN_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/basic_token_actor/basic_token_actor.compact.wasm";
-const BASIC_RECEIVER_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/basic_receiving_actor/basic_receiving_actor.compact.wasm";
+// Duplicated type from basic_token_actor
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct MintParams {
+    pub initial_owner: Address,
+    pub amount: TokenAmount,
+    pub operator_data: RawBytes,
+}
 
 #[test]
 fn it_mints_tokens() {
@@ -32,23 +35,22 @@ fn it_mints_tokens() {
 
     let minter: [Account; 1] = tester.create_accounts().unwrap();
 
-    // Get wasm bin
-    let wasm_path =
-        env::current_dir().unwrap().join(BASIC_TOKEN_ACTOR_WASM).canonicalize().unwrap();
-    let wasm_bin = std::fs::read(wasm_path).expect("Unable to read token actor file");
-    let rcvr_path =
-        env::current_dir().unwrap().join(BASIC_RECEIVER_ACTOR_WASM).canonicalize().unwrap();
-    let rcvr_bin = std::fs::read(rcvr_path).expect("Unable to read receiver actor file");
-
     // Set actor state
     let actor_state = TokenState::new(&blockstore).unwrap(); // TODO: this should probably not be exported from the package
     let state_cid = tester.set_state(&actor_state).unwrap();
 
     let actor_address = Address::new_id(10000);
     let receive_address = Address::new_id(10010);
-    tester.set_actor_from_bin(&wasm_bin, state_cid, actor_address, TokenAmount::zero()).unwrap();
     tester
-        .set_actor_from_bin(&rcvr_bin, Cid::default(), receive_address, TokenAmount::zero())
+        .set_actor_from_bin(BASIC_TOKEN_ACTOR_BINARY, state_cid, actor_address, TokenAmount::zero())
+        .unwrap();
+    tester
+        .set_actor_from_bin(
+            BASIC_RECEIVING_ACTOR_BINARY,
+            Cid::default(),
+            receive_address,
+            TokenAmount::zero(),
+        )
         .unwrap();
 
     // Instantiate machine

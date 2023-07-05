@@ -2,14 +2,7 @@
 #![allow(dead_code)]
 macro_rules! wasm_bin {
     ($x: expr) => {
-        concat!(
-            env!("OUT_DIR"),
-            "/bundle/wasm32-unknown-unknown/wasm/wbuild/",
-            $x,
-            "/",
-            $x,
-            ".compact.wasm"
-        )
+        concat!(env!("OUT_DIR"), "/bundle/wasm32-unknown-unknown/wasm/", $x, ".wasm")
     };
 }
 

@@ -12,13 +12,9 @@ use fvm_shared::econ::TokenAmount;
 mod common;
 use common::frc46_token_helpers::TokenHelper;
 use common::{construct_tester, TestHelpers};
-
-const BASIC_TOKEN_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/basic_token_actor/basic_token_actor.compact.wasm";
-const BASIC_TRANSFER_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/basic_transfer_actor/basic_transfer_actor.compact.wasm";
-const BASIC_RECEIVER_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/basic_receiving_actor/basic_receiving_actor.compact.wasm";
+use helix_test_actors::{
+    BASIC_RECEIVING_ACTOR_BINARY, BASIC_TOKEN_ACTOR_BINARY, BASIC_TRANSFER_ACTOR_BINARY,
+};
 
 #[derive(Serialize_tuple, Deserialize_tuple)]
 struct TransferActorState {
@@ -36,10 +32,11 @@ fn transfer_tokens() {
     let token_state = TokenState::new(&blockstore).unwrap();
     let transfer_state = TransferActorState { operator_address: None, token_address: None };
 
-    let token_address = tester.install_actor_with_state(BASIC_TOKEN_ACTOR_WASM, 10000, token_state);
+    let token_address =
+        tester.install_actor_with_state(BASIC_TOKEN_ACTOR_BINARY, 10000, token_state);
     let transfer_address =
-        tester.install_actor_with_state(BASIC_TRANSFER_ACTOR_WASM, 10010, transfer_state);
-    let receiver_address = tester.install_actor_stateless(BASIC_RECEIVER_ACTOR_WASM, 10020);
+        tester.install_actor_with_state(BASIC_TRANSFER_ACTOR_BINARY, 10010, transfer_state);
+    let receiver_address = tester.install_actor_stateless(BASIC_RECEIVING_ACTOR_BINARY, 10020);
 
     // Instantiate machine
     tester.instantiate_machine(DummyExterns).unwrap();

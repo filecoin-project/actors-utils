@@ -1,5 +1,5 @@
 use frc42_dispatch::method_hash;
-use frc53_nft::state::NFTState;
+use frc53_nft::state::{NFTState, TokenID};
 use frc53_nft::types::{MintReturn, TransferReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;
@@ -9,12 +9,9 @@ use fvm_shared::{address::Address, receipt::Receipt};
 mod common;
 use common::frc53_nft_helpers::{MintParams, NFTHelper};
 use common::{construct_tester, TestHelpers};
-use frc53_test_actor::{action, ActionParams, TestAction};
-
-const BASIC_NFT_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/basic_nft_actor/basic_nft_actor.compact.wasm";
-const TEST_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/frc53_test_actor/frc53_test_actor.compact.wasm";
+use helix_test_actors::{BASIC_NFT_ACTOR_BINARY, FRC53_TEST_ACTOR_BINARY};
+use serde::{Deserialize, Serialize};
+use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
 fn action_params(token_address: Address, action: TestAction) -> RawBytes {
     RawBytes::serialize(ActionParams { token_address, action }).unwrap()
@@ -31,12 +28,12 @@ fn frc53_multi_actor_tests() {
     let initial_nft_state = NFTState::new(&blockstore).unwrap();
 
     let token_actor =
-        tester.install_actor_with_state(BASIC_NFT_ACTOR_WASM, 10000, initial_nft_state);
+        tester.install_actor_with_state(BASIC_NFT_ACTOR_BINARY, 10000, initial_nft_state);
     // we'll use up to four actors for some of these tests, though most use only two
-    let alice = tester.install_actor_stateless(TEST_ACTOR_WASM, 10010);
-    let bob = tester.install_actor_stateless(TEST_ACTOR_WASM, 10011);
-    let carol = tester.install_actor_stateless(TEST_ACTOR_WASM, 10012);
-    let dave = tester.install_actor_stateless(TEST_ACTOR_WASM, 10013);
+    let alice = tester.install_actor_stateless(FRC53_TEST_ACTOR_BINARY, 10010);
+    let bob = tester.install_actor_stateless(FRC53_TEST_ACTOR_BINARY, 10011);
+    let carol = tester.install_actor_stateless(FRC53_TEST_ACTOR_BINARY, 10012);
+    let dave = tester.install_actor_stateless(FRC53_TEST_ACTOR_BINARY, 10013);
 
     // instantiate machine
     tester.instantiate_machine(DummyExterns).unwrap();
@@ -441,4 +438,23 @@ fn frc53_multi_actor_tests() {
         // Bob: [1, 2, 5]
         // Next ID: 6
     }
+}
+
+/// These types have been duplicated from frc53_test_actor as we can't import into rust from a cdylib
+#[derive(Serialize, Deserialize, Debug)]
+pub enum TestAction {
+    Accept,
+    Reject,
+    Transfer(Address, Vec<TokenID>, RawBytes),
+    Burn(Vec<TokenID>),
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Debug)]
+pub struct ActionParams {
+    pub token_address: Address,
+    pub action: TestAction,
+}
+
+pub fn action(action: TestAction) -> RawBytes {
+    RawBytes::serialize(action).unwrap()
 }
