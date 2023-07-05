@@ -10,11 +10,6 @@ fvm_ipld_encoding = "~0.3"
 fvm_sdk = "~3.2"
 fvm_shared = "~3.2"
 
-[dev-dependencies]
-cid = { version = "0.8.5", default-features = false }
-fvm = { version = "^3.0.0", default-features = false }
-fvm_integration_tests = "~3.0"
-actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "09aa10f082565565b08572532b245236525f778c" }
 
-[build-dependencies]
-substrate-wasm-builder = "4.0"
+[lib]
+crate-type = ["cdylib"] ## cdylib is necessary for Wasm build

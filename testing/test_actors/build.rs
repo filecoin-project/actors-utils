@@ -13,6 +13,7 @@ const ACTORS: &[&str] = &[
     "basic_transfer_actor",
     "frc46_test_actor",
     "frc53_test_actor",
+    "greeter",
 ];
 
 fn main() -> Result<(), Box<dyn Error>> {
