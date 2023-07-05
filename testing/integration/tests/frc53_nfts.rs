@@ -32,7 +32,7 @@ fn test_nft_actor() {
             metadata: vec![String::from("metadata")],
             operator_data: RawBytes::default(),
         };
-        let mint_params = RawBytes::serialize(&mint_params).unwrap();
+        let mint_params = RawBytes::serialize(mint_params).unwrap();
         let ret_val = tester.call_method_ok(
             minter[0].1,
             actor_address,
@@ -65,7 +65,7 @@ fn test_nft_actor() {
             metadata: vec![String::from("metadata2")],
             operator_data: RawBytes::default(),
         };
-        let mint_params = RawBytes::serialize(&mint_params).unwrap();
+        let mint_params = RawBytes::serialize(mint_params).unwrap();
         let ret_val = tester.call_method_ok(
             minter[0].1,
             actor_address,
@@ -135,7 +135,7 @@ fn test_nft_actor() {
             metadata: vec![String::default(), String::default()],
             operator_data: RawBytes::default(),
         };
-        let mint_params = RawBytes::serialize(&mint_params).unwrap();
+        let mint_params = RawBytes::serialize(mint_params).unwrap();
         let ret_val =
             tester.call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(mint_params));
         assert!(ret_val.msg_receipt.exit_code.is_success(), "{ret_val:#?}");

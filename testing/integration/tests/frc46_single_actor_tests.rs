@@ -10,14 +10,11 @@ use fvm_shared::{econ::TokenAmount, receipt::Receipt};
 
 mod common;
 use common::frc46_token_helpers::TokenHelper;
-use common::{construct_tester, load_actor_wasm, TestHelpers};
-use helix_test_actors::FRC46_TEST_ACTOR_BINARY;
+use common::{construct_tester, TestHelpers};
+use helix_test_actors::{FRC46_FACTORY_TOKEN_ACTOR_BINARY, FRC46_TEST_ACTOR_BINARY};
 use serde::{Deserialize, Serialize};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 use token_impl::ConstructorParams;
-
-const FACTORY_TOKEN_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/frc46_factory_token/frc46_factory_token.compact.wasm";
 
 /// This covers several simpler tests, which all involve a single receiving actor
 /// They're combined because these integration tests take a long time to build and run
@@ -36,8 +33,7 @@ fn frc46_single_actor_tests() {
 
     let operator: [Account; 1] = tester.create_accounts().unwrap();
 
-    let token_actor =
-        tester.install_actor_stateless(&load_actor_wasm(FACTORY_TOKEN_ACTOR_WASM), 10000);
+    let token_actor = tester.install_actor_stateless(FRC46_FACTORY_TOKEN_ACTOR_BINARY, 10000);
     let frc46_test_actor = Address::new_id(10001);
     tester
         .set_actor_from_bin(

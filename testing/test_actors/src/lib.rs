@@ -12,3 +12,5 @@ pub const BASIC_TOKEN_ACTOR_BINARY: &[u8] = include_bytes!(wasm_bin!("basic_toke
 pub const BASIC_TRANSFER_ACTOR_BINARY: &[u8] = include_bytes!(wasm_bin!("basic_transfer_actor"));
 pub const FRC46_TEST_ACTOR_BINARY: &[u8] = include_bytes!(wasm_bin!("frc46_test_actor"));
 pub const FRC53_TEST_ACTOR_BINARY: &[u8] = include_bytes!(wasm_bin!("frc53_test_actor"));
+pub const FRC46_FACTORY_TOKEN_ACTOR_BINARY: &[u8] =
+    include_bytes!(wasm_bin!("frc46_factory_token"));

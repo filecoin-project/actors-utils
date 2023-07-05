@@ -9,14 +9,11 @@ use fvm_shared::{
 
 mod common;
 use common::frc46_token_helpers::TokenHelper;
-use common::{construct_tester, load_actor_wasm, TestHelpers};
-use helix_test_actors::FRC46_TEST_ACTOR_BINARY;
+use common::{construct_tester, TestHelpers};
+use helix_test_actors::{FRC46_FACTORY_TOKEN_ACTOR_BINARY, FRC46_TEST_ACTOR_BINARY};
 use serde::{Deserialize, Serialize};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 use token_impl::ConstructorParams;
-
-const FACTORY_TOKEN_ACTOR_WASM: &str =
-    "../../target/debug/wbuild/frc46_factory_token/frc46_factory_token.compact.wasm";
 
 #[test]
 fn frc46_multi_actor_tests() {
@@ -25,8 +22,7 @@ fn frc46_multi_actor_tests() {
 
     let operator: [Account; 1] = tester.create_accounts().unwrap();
 
-    let token_actor =
-        tester.install_actor_stateless(&load_actor_wasm(FACTORY_TOKEN_ACTOR_WASM), 10000);
+    let token_actor = tester.install_actor_stateless(FRC46_FACTORY_TOKEN_ACTOR_BINARY, 10000);
     // we'll use up to four actors for some of these tests, though most use only two
     let alice = tester.install_actor_stateless(FRC46_TEST_ACTOR_BINARY, 10010);
     let bob = tester.install_actor_stateless(FRC46_TEST_ACTOR_BINARY, 10011);

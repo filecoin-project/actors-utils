@@ -14,6 +14,7 @@ const ACTORS: &[&str] = &[
     "frc46_test_actor",
     "frc53_test_actor",
     "greeter",
+    "frc46_factory_token",
 ];
 
 fn main() -> Result<(), Box<dyn Error>> {
