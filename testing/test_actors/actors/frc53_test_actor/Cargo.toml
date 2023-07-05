@@ -1,0 +1,22 @@
+[package]
+name = "frc53_test_actor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+frc46_token = { path = "../../../../frc46_token" }
+fvm_actor_utils = { path = "../../../../fvm_actor_utils" }
+frc42_dispatch = { path = "../../../../frc42_dispatch" }
+frc53_nft = { path = "../../../../frc53_nft" }
+
+cid = { version = "0.8.5", default-features = false }
+fvm_ipld_blockstore = { version = "0.1.1" }
+fvm_ipld_encoding = "~0.3"
+fvm_sdk = "~3.2"
+fvm_shared = "~3.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_tuple = { version = "0.5.0" }
+
+[lib]
+crate-type = ["cdylib"] ## cdylib is necessary for Wasm build
+

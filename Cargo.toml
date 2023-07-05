@@ -7,16 +7,21 @@ members = [
     "frc42_dispatch/macros",
     "frc42_dispatch/macros/example",
     "frc46_token",
-    "frc46_factory_token",
-    "frc46_factory_token/token_impl",
     "frc53_nft",
     "fvm_actor_utils",
     "fvm_dispatch_tools",
-    "testing/fil_token_integration",
-    "testing/fil_token_integration/actors/basic_nft_actor",
-    "testing/fil_token_integration/actors/basic_receiving_actor",
-    "testing/fil_token_integration/actors/basic_token_actor",
-    "testing/fil_token_integration/actors/basic_transfer_actor",
-    "testing/fil_token_integration/actors/frc46_test_actor",
-    "testing/fil_token_integration/actors/frc53_test_actor"
+    "testing/integration",
+    "testing/test_actors",
+    "testing/test_actors/actors/*",
+    "testing/test_actors/actors/frc46_factory_token/token_impl",
 ]
+
+[profile.wasm]
+inherits = "release"
+panic = "abort"
+overflow-checks = false
+lto = true
+opt-level = "z"
+strip = true
+codegen-units = 1
+incremental = false
