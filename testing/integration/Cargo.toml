@@ -20,6 +20,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_tuple = { version = "0.5.0" }
 
 [dev-dependencies]
-actors-v10 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", rev = "09aa10f082565565b08572532b245236525f778c" }
+actors-v12 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", branch="alex/update-fvm" }
 helix_test_actors = { path = "../test_actors" }
 token_impl = { path = "../test_actors/actors/frc46_factory_token/token_impl" }
