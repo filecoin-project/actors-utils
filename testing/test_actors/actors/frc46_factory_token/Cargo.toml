@@ -5,9 +5,9 @@ edition = "2021"
 
 [dependencies]
 cid = { workspace = true }
-frc42_dispatch = { path = "../frc42_dispatch" }
-frc46_token = { path = "../frc46_token" }
-fvm_actor_utils = { path = "../fvm_actor_utils" }
+frc42_dispatch = { path = "../../../../frc42_dispatch" }
+frc46_token = { path = "../../../../frc46_token" }
+fvm_actor_utils = { path = "../../../../fvm_actor_utils" }
 fvm_ipld_blockstore = { workspace = true }
 fvm_ipld_encoding = { workspace = true }
 fvm_sdk = { workspace = true }
