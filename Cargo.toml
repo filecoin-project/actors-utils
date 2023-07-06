@@ -27,6 +27,11 @@ fvm_ipld_hamt = "0.7.0"
 fvm_ipld_amt = { version = "0.6.0", features = ["go-interop"] }
 fvm_ipld_bitfield = "0.5.4"
 
+[patch.crates-io]
+fvm_actor_utils = { git = "https://github.com/helix-onchain/filecoin", branch = "alex/update-fvm-ipld" }
+frc42_dispatch = { git = "https://github.com/helix-onchain/filecoin", branch = "alex/update-fvm-ipld" }
+frc46_token = { git = "https://github.com/helix-onchain/filecoin", branch = "alex/update-fvm-ipld" }
+
 [profile.wasm]
 inherits = "release"
 panic = "abort"
