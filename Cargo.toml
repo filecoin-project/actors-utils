@@ -37,6 +37,7 @@ fvm_ipld_blockstore = { git = "https://github.com/filecoin-project/ref-fvm", bra
 fvm_ipld_hamt = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
 fvm_ipld_amt = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
 fvm_ipld_encoding = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
+fvm = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
 fvm_sdk = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
 fvm_shared = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
 fvm_integration_tests = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
