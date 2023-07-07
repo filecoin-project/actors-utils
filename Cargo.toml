@@ -44,11 +44,11 @@ incremental = false
 
 [patch.crates-io]
 cid = { version = "0.10.1", git = "https://github.com/multiformats/rust-cid", rev = "v0.10.1" }
-fvm_ipld_bitfield = { git = "https://github.com/cryptonemo/ref-fvm", branch = "synthetic-porep" }
-fvm_ipld_blockstore = { git = "https://github.com/cryptonemo/ref-fvm", branch = "synthetic-porep" }
-fvm_ipld_hamt = { git = "https://github.com/cryptonemo/ref-fvm", branch = "synthetic-porep" }
-fvm_ipld_amt = { git = "https://github.com/cryptonemo/ref-fvm", branch = "synthetic-porep" }
-fvm_ipld_encoding = { git = "https://github.com/cryptonemo/ref-fvm", branch = "synthetic-porep" }
-fvm_sdk = { git = "https://github.com/cryptonemo/ref-fvm", branch = "synthetic-porep" }
-fvm_shared = { git = "https://github.com/cryptonemo/ref-fvm", branch = "synthetic-porep" }
-fvm_integration_tests = { git = "https://github.com/cryptonemo/ref-fvm", branch = "synthetic-porep" }
+fvm_ipld_bitfield = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
+fvm_ipld_blockstore = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
+fvm_ipld_hamt = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
+fvm_ipld_amt = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
+fvm_ipld_encoding = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
+fvm_sdk = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
+fvm_shared = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
+fvm_integration_tests = { git = "https://github.com/filecoin-project/ref-fvm", branch = "synthetic-porep" }
