@@ -60,7 +60,7 @@ pub fn load_actor_wasm(path: &str) -> Vec<u8> {
 /// Construct a Tester with the provided blockstore
 /// mainly cuts down on noise with importing the built-in actor bundle and network/state tree versions
 pub fn construct_tester<BS: Blockstore + Clone, E: Externs>(blockstore: &BS) -> Tester<BS, E> {
-    let bundle_root = bundle::import_bundle(&blockstore, actors_v10::BUNDLE_CAR).unwrap();
+    let bundle_root = bundle::import_bundle(&blockstore, actors_v12::BUNDLE_CAR).unwrap();
 
     Tester::new(NetworkVersion::V18, StateTreeVersion::V5, bundle_root, blockstore.clone()).unwrap()
 }
