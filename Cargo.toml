@@ -7,31 +7,32 @@ members = [
     "frc42_dispatch/macros",
     "frc42_dispatch/macros/example",
     "frc46_token",
-    "frc46_factory_token",
-    "frc46_factory_token/token_impl",
     "frc53_nft",
     "fvm_actor_utils",
     "fvm_dispatch_tools",
-    "testing/fil_token_integration",
-    "testing/fil_token_integration/actors/basic_nft_actor",
-    "testing/fil_token_integration/actors/basic_receiving_actor",
-    "testing/fil_token_integration/actors/basic_token_actor",
-    "testing/fil_token_integration/actors/basic_transfer_actor",
-    "testing/fil_token_integration/actors/frc46_test_actor",
-    "testing/fil_token_integration/actors/frc53_test_actor"
+    "testing/integration",
+    "testing/test_actors",
+    "testing/test_actors/actors/*",
+    "testing/test_actors/actors/frc46_factory_token/token_impl",
 ]
 
-# patch hamt and amt with local development versions, which is a local copy of helix-onchain/ref-fvm
-# [patch.crates-io]
-# fvm_ipld_hamt = { path = "../ref-fvm/ipld/hamt" }
-# fvm_ipld_amt = { path = "../ref-fvm/ipld/amt" }
-# fvm_ipld_bitfield = { path = "../ref-fvm/ipld/bitfield"}
-# fvm_ipld_encoding = { path = "../ref-fvm/ipld/encoding"}
-# fvm_ipld_blockstore = { path = "../ref-fvm/ipld/blockstore"}
+[workspace.dependencies]
+cid = { version = "0.10.1", default-features = false, features = ["serde-codec"] }
+fvm_integration_tests = "~3.1.0"
+fvm_ipld_amt = { version = "0.6.0", features = ["go-interop"] }
+fvm_ipld_bitfield = "0.5.4"
+fvm_ipld_blockstore = "0.2.0"
+fvm_ipld_encoding = "0.4.0"
+fvm_ipld_hamt = "0.7.0"
+fvm_sdk = "~3.3.0"
+fvm_shared = "~3.4.0"
 
-[patch.crates-io]
-fvm_ipld_hamt = { git = "https://github.com/helix-onchain/ref-fvm", rev = "146d6bc10c80001bc772ca55abcd56cc8120cbb5" }
-fvm_ipld_amt = { git = "https://github.com/helix-onchain/ref-fvm", rev = "146d6bc10c80001bc772ca55abcd56cc8120cbb5" }
-fvm_ipld_bitfield = { git = "https://github.com/helix-onchain/ref-fvm", rev = "146d6bc10c80001bc772ca55abcd56cc8120cbb5" }
-fvm_ipld_encoding = { git = "https://github.com/helix-onchain/ref-fvm", rev = "146d6bc10c80001bc772ca55abcd56cc8120cbb5" }
-fvm_ipld_blockstore = { git = "https://github.com/helix-onchain/ref-fvm", rev = "146d6bc10c80001bc772ca55abcd56cc8120cbb5" }
+[profile.wasm]
+inherits = "release"
+panic = "abort"
+overflow-checks = false
+lto = true
+opt-level = "z"
+strip = true
+codegen-units = 1
+incremental = false

@@ -49,9 +49,6 @@ impl Syscalls for FvmSyscalls {
 
 impl<S: Syscalls + Clone, BS: Blockstore + Clone> ActorRuntime<S, BS> {
     pub fn new_fvm_runtime() -> ActorRuntime<FvmSyscalls, crate::blockstore::Blockstore> {
-        ActorRuntime {
-            syscalls: FvmSyscalls::default(),
-            blockstore: crate::blockstore::Blockstore::default(),
-        }
+        ActorRuntime { syscalls: FvmSyscalls::default(), blockstore: crate::blockstore::Blockstore }
     }
 }

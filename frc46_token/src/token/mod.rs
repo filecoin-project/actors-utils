@@ -605,8 +605,8 @@ where
 
     /// Sets the balance of an account to a specific amount
     ///
-    /// Using this library method obeys internal invariants but does not invoke the receiver
-    /// hook on recipient accounts. Returns the old balance.
+    /// Using this library method obeys internal invariants (changing total supply etc.) but does
+    /// not invoke the receiver hook on recipient accounts. Returns the old balance.
     pub fn set_balance(&mut self, owner: &Address, amount: &TokenAmount) -> Result<TokenAmount> {
         let amount = validate_amount_with_granularity(amount, "set_balance", self.granularity)?;
 

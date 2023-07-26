@@ -18,7 +18,7 @@ test: install-toolchain
 test-coverage: install-toolchain
 	cargo test --workspace \
 		--exclude greeter \
-		--exclude fil_token_integration_tests \
+		--exclude helix_integration_tests \
 		--exclude basic_token_actor \
 		--exclude basic_receiving_actor \
 		--exclude basic_nft_actor \
@@ -29,7 +29,7 @@ test-coverage: install-toolchain
 
 # separate actor testing stage to run from CI without coverage support
 test-actors: install-toolchain
-	cargo test --package greeter --package fil_token_integration_tests
+	cargo test --package greeter --package helix_integration_tests
 
 install-toolchain:
 	rustup update

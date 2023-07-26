@@ -1,0 +1,27 @@
+[package]
+name = "helix_integration_tests"
+version = "0.1.0"
+repository = "https://github.com/helix-collective/filecoin"
+edition = "2021"
+
+[dependencies]
+frc42_dispatch = { path = "../../frc42_dispatch" }
+frc46_token = { path = "../../frc46_token" }
+frc53_nft = { path = "../../frc53_nft" }
+fvm_actor_utils = { path = "../../fvm_actor_utils" }
+
+anyhow = { version = "1.0.63", features = ["backtrace"] }
+cid = { workspace = true }
+fvm = { version = "^3.0.0", default-features = false }
+fvm_integration_tests = { workspace = true }
+fvm_ipld_blockstore = { workspace = true }
+fvm_ipld_bitfield = { workspace = true }
+fvm_ipld_encoding = { workspace = true }
+fvm_shared = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_tuple = { version = "0.5.0" }
+
+[dev-dependencies]
+actors-v12 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors" }
+helix_test_actors = { path = "../test_actors" }
+token_impl = { path = "../test_actors/actors/frc46_factory_token/token_impl" }

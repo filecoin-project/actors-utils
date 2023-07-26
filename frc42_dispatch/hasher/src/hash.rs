@@ -1,5 +1,3 @@
-#[cfg(not(feature = "no_sdk"))]
-use fvm_sdk::crypto;
 use thiserror::Error;
 
 /// Minimal interface for a hashing function
@@ -12,22 +10,16 @@ pub trait Hasher {
 }
 
 /// Hasher that uses the hash_blake2b syscall provided by the FVM
+#[cfg(feature = "use_sdk")]
 #[derive(Default)]
 pub struct Blake2bSyscall {}
 
+#[cfg(feature = "use_sdk")]
 impl Hasher for Blake2bSyscall {
-    // fvm_sdk dependence can be removed using no_sdk feature
-    #[cfg(not(feature = "no_sdk"))]
+    // fvm_sdk dependence can be removed by setting default-features to false
     fn hash(&self, bytes: &[u8]) -> Vec<u8> {
         use fvm_shared::crypto::hash::SupportedHashes;
-        crypto::hash_owned(SupportedHashes::Blake2b512, bytes)
-    }
-
-    // stub version that avoids fvm_sdk syscalls (eg: for proc macro, or built-in actor use)
-    #[cfg(feature = "no_sdk")]
-    #[allow(unused_variables)]
-    fn hash(&self, bytes: &[u8]) -> Vec<u8> {
-        unimplemented!();
+        fvm_sdk::crypto::hash_owned(SupportedHashes::Blake2b512, bytes)
     }
 }
 

@@ -1,0 +1,21 @@
+[package]
+name = "frc46_factory_token"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cid = { workspace = true }
+frc42_dispatch = { path = "../../../../frc42_dispatch" }
+frc46_token = { path = "../../../../frc46_token" }
+fvm_actor_utils = { path = "../../../../fvm_actor_utils" }
+fvm_ipld_blockstore = { workspace = true }
+fvm_ipld_encoding = { workspace = true }
+fvm_sdk = { workspace = true }
+fvm_shared = { workspace = true }
+serde = { version = "1.0.136", features = ["derive"] }
+serde_tuple = { version = "0.5.0" }
+thiserror = { version = "1.0.31" }
+token_impl = { path = "token_impl" }
+
+[lib]
+crate-type = ["cdylib"] ## cdylib is necessary for Wasm build

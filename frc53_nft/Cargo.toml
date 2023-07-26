@@ -8,14 +8,14 @@ edition = "2021"
 frc42_dispatch = { path = "../frc42_dispatch" }
 fvm_actor_utils = { path = "../fvm_actor_utils" }
 
-cid = { version = "0.8.3", default-features = false, features = ["serde-codec"] }
-fvm_ipld_bitfield = "0.5.4"
-fvm_ipld_blockstore = "0.1.1"
-fvm_ipld_hamt = "0.6.1"
-fvm_ipld_amt = { version = "0.5.1", features = ["go-interop"] }
-fvm_ipld_encoding = "~0.3"
-fvm_sdk = "~3.0"
-fvm_shared = { version = "~3.0" }
+cid = { workspace = true }
+fvm_ipld_bitfield = { workspace = true }
+fvm_ipld_blockstore = { workspace = true }
+fvm_ipld_hamt = { workspace = true }
+fvm_ipld_amt = { workspace = true }
+fvm_ipld_encoding = { workspace = true }
+fvm_sdk = { workspace = true }
+fvm_shared = { workspace = true }
 integer-encoding = { version = "3.0.4" }
 num-traits = { version = "0.2.15" }
 serde = { version = "1.0.136", features = ["derive"] }

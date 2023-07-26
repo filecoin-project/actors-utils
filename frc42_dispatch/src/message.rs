@@ -1,7 +1,6 @@
 use fvm_ipld_encoding::ipld_block::IpldBlock;
-#[cfg(not(feature = "no_sdk"))]
+#[cfg(feature = "use_sdk")]
 use fvm_sdk::send;
-use fvm_shared::sys::SendFlags;
 use fvm_shared::{address::Address, econ::TokenAmount, error::ErrorNumber, Response};
 use thiserror::Error;
 
@@ -29,7 +28,7 @@ impl<T: Hasher> MethodMessenger<T> {
 
     /// Calls a method (by name) on a specified actor by constructing and publishing the underlying
     /// on-chain Message
-    #[cfg(not(feature = "no_sdk"))]
+    #[cfg(feature = "use_sdk")]
     pub fn call_method(
         &self,
         to: &Address,
@@ -38,11 +37,11 @@ impl<T: Hasher> MethodMessenger<T> {
         value: TokenAmount,
     ) -> Result<Response, MethodMessengerError> {
         let method = self.method_resolver.method_number(method)?;
-        send::send(to, method, params, value, None, SendFlags::empty())
+        send::send(to, method, params, value, None, fvm_shared::sys::SendFlags::empty())
             .map_err(MethodMessengerError::from)
     }
 
-    #[cfg(feature = "no_sdk")]
+    #[cfg(not(feature = "use_sdk"))]
     #[allow(unused_variables)]
     pub fn call_method(
         &self,
