@@ -22,13 +22,27 @@ use fvm_shared::ActorID;
 use integer_encoding::VarInt;
 use thiserror::Error;
 
+use crate::types::ActorIDSet;
 use crate::types::MintIntermediate;
 use crate::types::MintReturn;
+use crate::types::TokenID;
+use crate::types::TokenSet;
 use crate::types::TransferIntermediate;
 use crate::types::TransferReturn;
 use crate::util::OperatorSet;
 
-pub type TokenID = u64;
+/// Opaque cursor to iterate over internal data structures
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct Cursor {
+    pub root: Cid,
+    pub index: u64,
+}
+
+impl Cursor {
+    fn new(cid: Cid, index: u64) -> Self {
+        Self { root: cid, index }
+    }
+}
 
 /// Each token stores its owner, approved operators etc.
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
@@ -83,6 +97,8 @@ pub enum StateError {
     NotAuthorized { actor: ActorID, token_id: TokenID },
     #[error("receiver hook error: {0}")]
     ReceiverHook(#[from] ReceiverHookError),
+    #[error("invalid cursor")]
+    InvalidCursor,
     /// This error is returned for errors that should never happen
     #[error("invariant failed: {0}")]
     InvariantFailed(String),
@@ -141,6 +157,22 @@ impl NFTState {
     ) -> Result<OwnerMap<'bs, BS>> {
         let res = OwnerMap::load_with_bit_width(&self.owner_data, store, HAMT_BIT_WIDTH)?;
         Ok(res)
+    }
+
+    /// Retrieves the token data amt, asserting that the cursor is valid for the current state. If
+    /// the root cid has changed since the cursor was created, the data has mutated and the cursor
+    /// is invalid.
+    pub fn get_token_amt_for_cursor<'bs, BS: Blockstore>(
+        &self,
+        store: &'bs BS,
+        cursor: &Option<Cursor>,
+    ) -> Result<Amt<TokenData, &'bs BS>> {
+        if let Some(cursor) = cursor {
+            if cursor.root != self.token_data {
+                return Err(StateError::InvalidCursor);
+            }
+        }
+        self.get_token_data_amt(store)
     }
 }
 
@@ -553,17 +585,147 @@ impl NFTState {
     }
 
     /// Get the metadata for a token
-    pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<String> {
+    pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: TokenID) -> Result<String> {
         let token_data_array = self.get_token_data_amt(bs)?;
         let token = token_data_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
         Ok(token.metadata.clone())
     }
 
     /// Get the owner of a token
-    pub fn get_owner<BS: Blockstore>(&self, bs: &BS, token_id: u64) -> Result<ActorID> {
+    pub fn get_owner<BS: Blockstore>(&self, bs: &BS, token_id: TokenID) -> Result<ActorID> {
         let token_data_array = self.get_token_data_amt(bs)?;
         let token = token_data_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
         Ok(token.owner)
+    }
+
+    /// List all the minted tokens
+    pub fn list_tokens<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        cursor: Option<Cursor>,
+        limit: u64,
+    ) -> Result<(TokenSet, Option<Cursor>)> {
+        let token_data_array = self.get_token_amt_for_cursor(bs, &cursor)?;
+        // Build the TokenSet
+        let mut token_ids = TokenSet::new();
+        let (_, next_key) =
+            token_data_array.for_each_ranged(cursor.map(|r| r.index), Some(limit), |i, _| {
+                token_ids.set(i);
+                Ok(())
+            })?;
+
+        let next_cursor = next_key.map(|key| Cursor::new(self.token_data, key));
+        Ok((token_ids, next_cursor))
+    }
+
+    /// List the tokens owned by an actor. In the reference implementation this is may be a
+    /// prohibitievly expensive operation as it involves iterating over the entire token set.
+    /// Returns a bitfield of the tokens owned by the actor and a cursor to the next page of data.
+    pub fn list_owned_tokens<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        owner: ActorID,
+        cursor: Option<Cursor>,
+        limit: u64,
+    ) -> Result<(TokenSet, Option<Cursor>)> {
+        let token_data_array = self.get_token_amt_for_cursor(bs, &cursor)?;
+
+        // Build the TokenSet
+        let mut token_ids = TokenSet::new();
+        let (_, next_key) =
+            token_data_array.for_each_ranged(cursor.map(|r| r.index), Some(limit), |i, data| {
+                if data.owner == owner {
+                    token_ids.set(i);
+                }
+                Ok(())
+            })?;
+
+        let next_cursor = next_key.map(|key| Cursor::new(self.token_data, key));
+        Ok((token_ids, next_cursor))
+    }
+
+    /// List all the token operators for a given token_id
+    pub fn list_token_operators<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        token_id: TokenID,
+        cursor: Option<Cursor>,
+        limit: u64,
+    ) -> Result<(ActorIDSet, Option<Cursor>)> {
+        let token_data_array = self.get_token_amt_for_cursor(bs, &cursor)?;
+        let token_data =
+            token_data_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
+
+        let range_start = cursor.map(|c| c.index).unwrap_or(0);
+        let mut actor_set = ActorIDSet::new();
+        token_data.operators.iter().skip(range_start as usize).take(limit as usize).for_each(
+            |operator| {
+                actor_set.set(operator);
+            },
+        );
+
+        let next_cursor = match token_data.operators.len() > range_start + limit {
+            true => Some(Cursor::new(self.token_data, range_start + limit)),
+            false => None,
+        };
+
+        Ok((actor_set, next_cursor))
+    }
+
+    /// Enumerates tokens for which an account is an operator
+    pub fn list_operator_tokens<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        operator: ActorID,
+        cursor: Option<Cursor>,
+        limit: u64,
+    ) -> Result<(TokenSet, Option<Cursor>)> {
+        let token_data_array = self.get_token_amt_for_cursor(bs, &cursor)?;
+
+        // Build the TokenSet
+        let mut operatable_tokens = TokenSet::new();
+        let (_, next_key) =
+            token_data_array.for_each_ranged(cursor.map(|r| r.index), Some(limit), |i, data| {
+                if data.operators.get(operator) {
+                    operatable_tokens.set(i);
+                }
+                Ok(())
+            })?;
+
+        let next_cursor = next_key.map(|key| Cursor::new(self.token_data, key));
+        Ok((operatable_tokens, next_cursor))
+    }
+
+    /// List all the token operators for a given account
+    pub fn list_account_operators<BS: Blockstore>(
+        &self,
+        bs: &BS,
+        actor_id: ActorID,
+        cursor: Option<Cursor>,
+        limit: u64,
+    ) -> Result<(ActorIDSet, Option<Cursor>)> {
+        let owner_data_map = self.get_owner_data_hamt(bs)?;
+        let account = owner_data_map.get(&actor_id_key(actor_id))?;
+        match account {
+            Some(account) => {
+                let mut operator_set = ActorIDSet::new();
+                let range_start = cursor.map(|c| c.index).unwrap_or(0);
+
+                account.operators.iter().skip(range_start as usize).take(limit as usize).for_each(
+                    |operator| {
+                        operator_set.set(operator);
+                    },
+                );
+
+                let next_cursor = match account.operators.len() > range_start + limit {
+                    true => Some(Cursor::new(self.token_data, range_start + limit)),
+                    false => None,
+                };
+
+                Ok((operator_set, next_cursor))
+            }
+            None => Ok((ActorIDSet::new(), None)),
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 use frc42_dispatch::method_hash;
-use frc53_nft::state::{NFTState, TokenID};
+use frc53_nft::state::NFTState;
+use frc53_nft::types::TokenID;
 use frc53_nft::types::{MintReturn, TransferReturn};
 use fvm_integration_tests::{dummy::DummyExterns, tester::Account};
 use fvm_ipld_blockstore::MemoryBlockstore;

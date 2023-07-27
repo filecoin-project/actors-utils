@@ -4,7 +4,7 @@ use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, ActorID};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
-use crate::state::TokenID;
+use crate::types::TokenID;
 
 pub const FRC53_TOKEN_TYPE: ReceiverType = method_hash!("FRC53") as u32;
 

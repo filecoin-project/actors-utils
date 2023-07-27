@@ -1,12 +1,21 @@
 //! Interfaces and types for the frc53 NFT standard
 use cid::Cid;
 use fvm_actor_utils::receiver::RecipientData;
+use fvm_ipld_bitfield::BitField;
 use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::ActorID;
 
-type TokenID = u64;
+pub type TokenID = u64;
+
+/// Multiple token IDs are represented as a BitField encoded with RLE+ the index of each set bit
+/// corresponds to a TokenID
+pub type TokenSet = BitField;
+
+/// Multiple actor IDs are represented as a BitField encoded with RLE+ the index of each set bit
+/// corresponds to a ActorID
+pub type ActorIDSet = BitField;
 
 /// A trait to be implemented by FRC-0053 compliant actors
 pub trait FRC53NFT {
@@ -158,4 +167,78 @@ pub struct RevokeParams {
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct RevokeForAllParams {
     pub operator: Address,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListTokensParams {
+    /// Opaque serialisation of frc53_nft::state::Cursor, with empty cursor meaning start of list
+    pub cursor: RawBytes,
+    pub limit: u64,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListTokensReturn {
+    pub tokens: BitField,
+    /// Opaque serialisation of frc53_nft::state::Cursor, with empty cursor meaning no more items
+    pub next_cursor: Option<RawBytes>,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListOwnedTokensParams {
+    pub owner: Address,
+    /// Opaque serialisation of frc53_nft::state::Cursor, with empty cursor meaning start of list
+    pub cursor: RawBytes,
+    pub limit: u64,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListOwnedTokensReturn {
+    pub tokens: TokenSet,
+    /// Opaque serialisation of frc53_nft::state::Cursor, with empty cursor meaning no more items
+    pub next_cursor: Option<RawBytes>,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListTokenOperatorsParams {
+    pub token_id: TokenID,
+    /// Opaque serialisation of frc53_nft::state::Cursor, with empty cursor meaning start of list
+    pub cursor: RawBytes,
+    pub limit: u64,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListTokenOperatorsReturn {
+    pub operators: ActorIDSet,
+    /// Opaque serialisation of frc53_nft::state::Cursor, with empty cursor meaning no more items
+    pub next_cursor: Option<RawBytes>,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListOperatorTokensParams {
+    pub operator: Address,
+    /// Opaque serialisation of frc53_nft::state::Cursor, with empty cursor meaning start of list
+    pub cursor: RawBytes,
+    pub limit: u64,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListOperatorTokensReturn {
+    pub tokens: TokenSet,
+    /// Opaque serialisation of frc53_nft::state::Cursor, with empty cursor meaning no more items
+    pub next_cursor: Option<RawBytes>,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListAccountOperatorsParams {
+    pub owner: Address,
+    /// Opaque serialisation of frc53_nft::state::Cursor, with empty cursor meaning start of list
+    pub cursor: RawBytes,
+    pub limit: u64,
+}
+
+#[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
+pub struct ListAccountOperatorsReturn {
+    pub operators: ActorIDSet,
+    /// Opaque serialisation of frc53_nft::state::Cursor, with empty cursor meaning no more items
+    pub next_cursor: Option<RawBytes>,
 }
