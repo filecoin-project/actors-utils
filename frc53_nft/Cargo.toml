@@ -1,12 +1,12 @@
 
 [package]
 name = "frc53_nft"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
-frc42_dispatch = { path = "../frc42_dispatch" }
-fvm_actor_utils = { path = "../fvm_actor_utils" }
+frc42_dispatch = { workspace = true }
+fvm_actor_utils = { workspace = true }
 
 cid = { workspace = true }
 fvm_ipld_bitfield = { workspace = true }
@@ -16,8 +16,8 @@ fvm_ipld_amt = { workspace = true }
 fvm_ipld_encoding = { workspace = true }
 fvm_sdk = { workspace = true }
 fvm_shared = { workspace = true }
-integer-encoding = { version = "3.0.4" }
-num-traits = { version = "0.2.15" }
-serde = { version = "1.0.136", features = ["derive"] }
-serde_tuple = { version = "0.5.0" }
-thiserror = { version = "1.0.31" }
+integer-encoding = { workspace = true }
+num-traits = { workspace = true }
+serde = { workspace = true }
+serde_tuple = { workspace = true }
+thiserror = { workspace = true }

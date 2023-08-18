@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-blake2b_simd = { version = "1.0.0" }
-clap = { version = "3.2.12", features = ["derive"] }
-frc42_dispatch = { path = "../frc42_dispatch" }
+blake2b_simd = { workspace = true }
+clap = { workspace = true }
+frc42_dispatch = { workspace = true }
