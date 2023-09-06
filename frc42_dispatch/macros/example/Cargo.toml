@@ -2,6 +2,7 @@
 name = "example"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
-frc42_macros = { version = "1.0.0", path = ".." }
+frc42_macros = { version = "2.0.0", path = ".." }
