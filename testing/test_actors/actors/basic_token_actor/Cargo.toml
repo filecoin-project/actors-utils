@@ -3,6 +3,7 @@ name = "basic_token_actor"
 version = "0.1.0"
 repository = "https://github.com/helix-collective/filecoin"
 edition = "2021"
+publish = false
 
 [dependencies]
 frc46_token = { path = "../../../../frc46_token" }
