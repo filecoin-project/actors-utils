@@ -30,7 +30,7 @@ fn it_mints_tokens() {
     let blockstore = MemoryBlockstore::default();
     let bundle_root = bundle::import_bundle(&blockstore, actors_v12::BUNDLE_CAR).unwrap();
     let mut tester =
-        Tester::new(NetworkVersion::V18, StateTreeVersion::V5, bundle_root, blockstore.clone())
+        Tester::new(NetworkVersion::V21, StateTreeVersion::V5, bundle_root, blockstore.clone())
             .unwrap();
 
     let minter: [Account; 1] = tester.create_accounts().unwrap();
