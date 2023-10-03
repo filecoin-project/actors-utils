@@ -60,4 +60,8 @@ tokens, based on [frc46_token](./frc46_token/README.md) and implemented
 Dual-licensed: [MIT](./LICENSE-MIT),
 [Apache Software License v2](./LICENSE-APACHE).
 
+## Testing
+
+For local coverage testing, please install the `grcov` crate.
+
 <sub>Copyright Protocol Labs, Inc, 2022</sub>
