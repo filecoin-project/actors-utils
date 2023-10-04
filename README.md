@@ -35,26 +35,33 @@ utilities to generate method numbers is also available:
 
 Reference library for implementing a standard fungible token in native actors
 
-| Specification                                                                     | Reference Implementation               | Examples                                                                                                                                                                   |
-| --------------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [FRC-0046](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md) | [frc46_token](./frc46_token/README.md) | [basic_token](./testing/fil_token_integration/actors/basic_token_actor/README.md) [basic_receiver](./testing/fil_token_integration/actors/basic_receiving_actor/README.md) |
+| Specification                                                                     | Reference Implementation               | Examples                                                                                                                                               |
+| --------------------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [FRC-0046](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md) | [frc46_token](./frc46_token/README.md) | [basic_token](./testing/test_actors/actors/basic_token_actor/README.md) [basic_receiver](./testing/test_actors/actors/basic_receiving_actor/README.md) |
 
 ### frc53_nft
 
 Reference library for implementing a standard non-fungible token in native
 actors
 
-| Specification                                                                     | Reference Implementation           | Examples                                                                                                                                                               |
-| --------------------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [FRC-0053](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0053.md) | [frc53_nft](./frc53_nft/README.md) | [basic_nft](./testing/fil_token_integration/actors/basic_nft_actor/README.md) [basic_receiver](./testing/fil_token_integration/actors/basic_receiving_actor/README.md) |
+| Specification                                                                     | Reference Implementation           | Examples                                                                                                                                           |
+| --------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [FRC-0053](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0053.md) | [frc53_nft](./frc53_nft/README.md) | [basic_nft](./testing/test_actors/actors/basic_nft_actor/README.md) [basic_receiver](./testing/test_actors/actors/basic_receiving_actor/README.md) |
 
 ### frc46_factory_token
 
-A configurable actor that can be used as a factory to implement [FRC-0046](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md) tokens, based on [frc46_token](./frc46_token/README.md)
+A configurable actor that can be used as a factory to create instances of
+[FRC-0046](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0046.md)-compatible
+tokens, based on [frc46_token](./frc46_token/README.md) and implemented
+[here](./testing/test_actors/actors/frc46_factory_token/)
 
 ## License
 
 Dual-licensed: [MIT](./LICENSE-MIT),
 [Apache Software License v2](./LICENSE-APACHE).
+
+## Testing
+
+For local coverage testing, please install the `grcov` crate.
 
 <sub>Copyright Protocol Labs, Inc, 2022</sub>
