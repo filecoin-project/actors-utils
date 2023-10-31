@@ -5,4 +5,4 @@ edition = "2021"
 publish = false
 
 [dependencies]
-frc42_macros = { version = "3.0.0-alpha.1", path = ".." }
+frc42_macros = { version = "3.0.0", path = ".." }
