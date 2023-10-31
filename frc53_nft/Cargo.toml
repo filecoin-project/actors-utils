@@ -2,7 +2,7 @@
 [package]
 name = "frc53_nft"
 description = "Filecoin FRC-0053 non-fungible token reference implementation"
-version = "3.0.0-alpha.1"
+version = "3.0.0"
 license = "MIT OR Apache-2.0"
 keywords = ["filecoin", "fvm", "token", "nft", "frc-0053"]
 repository = "https://github.com/helix-onchain/filecoin/"
