@@ -1,7 +1,7 @@
 [package]
 name = "frc42_dispatch"
 description = "Filecoin FRC-0042 calling convention/dispatch support library"
-version = "5.0.0"
+version = "5.1.0"
 license = "MIT OR Apache-2.0"
 keywords = ["filecoin", "dispatch", "frc-0042"]
 repository = "https://github.com/helix-onchain/filecoin/"
