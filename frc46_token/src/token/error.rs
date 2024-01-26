@@ -81,7 +81,7 @@ mod test {
             source: AddressError::UnknownNetwork,
         };
         assert_eq!(ExitCode::USR_NOT_FOUND, ExitCode::from(&err));
-        assert_eq!(err.to_string(), String::from("expected Address { payload: ID(1) } to be a resolvable id address but threw UnknownNetwork when attempting to resolve"));
+        assert_eq!(err.to_string(), String::from("expected Address(\"f01\") to be a resolvable id address but threw UnknownNetwork when attempting to resolve"));
 
         let err = TokenError::InvalidOperator(Address::new_id(1));
         assert_eq!(ExitCode::USR_ILLEGAL_ARGUMENT, ExitCode::from(&err));
