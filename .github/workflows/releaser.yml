@@ -1,0 +1,62 @@
+name: Releaser
+
+on:
+  push:
+    paths: [
+      "dispatch_examples/greeter/Cargo.toml",
+      "frc42_dispatch/Cargo.toml",
+      "frc42_dispatch/hasher/Cargo.toml",
+      "frc42_dispatch/macros/Cargo.toml",
+      "frc42_dispatch/macros/example/Cargo.toml",
+      "frc46_token/Cargo.toml",
+      "frc53_nft/Cargo.toml",
+      "fvm_actor_utils/Cargo.toml",
+      "fvm_dispatch_tools/Cargo.toml",
+      "testing/integration/Cargo.toml",
+      "testing/test_actors/Cargo.toml",
+      "testing/test_actors/actors/basic_nft_actor/Cargo.toml",
+      "testing/test_actors/actors/basic_receiving_actor/Cargo.toml",
+      "testing/test_actors/actors/basic_token_actor/Cargo.toml",
+      "testing/test_actors/actors/basic_transfer_actor/Cargo.toml",
+      "testing/test_actors/actors/frc46_factory_actor/Cargo.toml",
+      "testing/test_actors/actors/frc46_test_actor/Cargo.toml",
+      "testing/test_actors/actors/frc53_test_actor/Cargo.toml",
+      "testing/test_actors/actors/frc46_factory_token/token_impl/Cargo.toml"
+    ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  releaser:
+    uses: ipdxco/unified-github-workflows/.github/workflows/releaser.yml@v1.0
+    with:
+      sources: |
+        [
+          "dispatch_examples/greeter/Cargo.toml",
+          "frc42_dispatch/Cargo.toml",
+          "frc42_dispatch/hasher/Cargo.toml",
+          "frc42_dispatch/macros/Cargo.toml",
+          "frc42_dispatch/macros/example/Cargo.toml",
+          "frc46_token/Cargo.toml",
+          "frc53_nft/Cargo.toml",
+          "fvm_actor_utils/Cargo.toml",
+          "fvm_dispatch_tools/Cargo.toml",
+          "testing/integration/Cargo.toml",
+          "testing/test_actors/Cargo.toml",
+          "testing/test_actors/actors/basic_nft_actor/Cargo.toml",
+          "testing/test_actors/actors/basic_receiving_actor/Cargo.toml",
+          "testing/test_actors/actors/basic_token_actor/Cargo.toml",
+          "testing/test_actors/actors/basic_transfer_actor/Cargo.toml",
+          "testing/test_actors/actors/frc46_factory_actor/Cargo.toml",
+          "testing/test_actors/actors/frc46_test_actor/Cargo.toml",
+          "testing/test_actors/actors/frc53_test_actor/Cargo.toml",
+          "testing/test_actors/actors/frc46_factory_token/token_impl/Cargo.toml"
+        ]
+    secrets:
+      UCI_GITHUB_TOKEN: ${{ secrets.UCI_GITHUB_TOKEN }}
