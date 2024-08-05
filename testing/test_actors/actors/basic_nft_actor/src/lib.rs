@@ -198,7 +198,7 @@ pub fn constructor() {
 // Note that the below MintParams needs to be manually synced with
 // testing/fil_token_integration/tests/frc53_nfts.rs::MintParams
 
-/// Minting tokens goes directly to the caller for now
+/// Minting tokens goes directly to the caller for now.
 #[derive(Serialize_tuple, Deserialize_tuple, Debug, Clone)]
 pub struct MintParams {
     pub initial_owner: Address,
@@ -206,7 +206,7 @@ pub struct MintParams {
     pub operator_data: RawBytes,
 }
 
-/// Grab the incoming parameters and convert from RawBytes to deserialized struct
+/// Grab the incoming parameters and convert from RawBytes to deserialized struct.
 pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
     let params = sdk::message::params_raw(params).unwrap().unwrap();
     let params = RawBytes::new(params.data);

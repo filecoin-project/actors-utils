@@ -16,9 +16,12 @@ use serde::{Deserialize, Serialize};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 use token_impl::ConstructorParams;
 
-/// This covers several simpler tests, which all involve a single receiving actor
-/// They're combined because these integration tests take a long time to build and run
+/// This covers several simpler tests, which all involve a single receiving actor.
+///
+/// They're combined because these integration tests take a long time to build and run.
+///
 /// Test cases covered:
+///
 /// - mint to test actor who rejects in receiver hook
 /// - mint to self (token actor - should be rejected)
 /// - mint to test actor who burns tokens upon receipt (calling Burn from within the hook)

@@ -9,8 +9,10 @@ use fvm_sdk::ipld;
 #[derive(Default, Debug, Copy, Clone)]
 pub struct Blockstore;
 
-/// Blockstore implementation is borrowed from https://github.com/filecoin-project/builtin-actors/blob/6df845dcdf9872beb6e871205eb34dcc8f7550b5/runtime/src/runtime/actor_blockstore.rs
-/// This impl will likely be made redundant if low-level SDKs export blockstore implementations
+/// Blockstore implementation is borrowed from [the builtin actors][source]. This impl will likely
+/// be made redundant if low-level SDKs export blockstore implementations.
+///
+/// [source]: https://github.com/filecoin-project/builtin-actors/blob/6df845dcdf9872beb6e871205eb34dcc8f7550b5/runtime/src/runtime/actor_blockstore.rs
 impl fvm_ipld_blockstore::Blockstore for Blockstore {
     fn get(&self, cid: &Cid) -> Result<Option<Vec<u8>>> {
         // If this fails, the _CID_ is invalid. I.e., we have a bug.

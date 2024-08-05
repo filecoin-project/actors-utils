@@ -9,30 +9,31 @@ use thiserror::Error;
 
 use crate::messaging::{Messaging, MessagingError, RECEIVER_HOOK_METHOD_NUM};
 
-/// Parameters for universal receiver
+/// Parameters for universal receiver.
 ///
-/// Actual payload varies with asset type
-/// eg: FRC46_TOKEN_TYPE will come with a payload of FRC46TokenReceived
+/// Actual payload varies with asset type.
+///
+/// E.g.: `FRC46_TOKEN_TYPE` will come with a payload of `FRC46TokenReceived`.
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
 pub struct UniversalReceiverParams {
-    /// Asset type
+    /// Asset type.
     pub type_: ReceiverType,
-    /// Payload corresponding to asset type
+    /// Payload corresponding to asset type.
     pub payload: RawBytes,
 }
 
-/// Standard interface for an actor that wishes to receive FRC-0046 tokens or other assets
+/// Standard interface for an actor that wishes to receive FRC-0046 tokens or other assets.
 pub trait UniversalReceiver {
-    /// Invoked by a token actor during pending transfer or mint to the receiver's address
+    /// Invoked by a token actor during pending transfer or mint to the receiver's address.
     ///
-    /// Within this hook, the token actor has optimistically persisted the new balance so
-    /// the receiving actor can immediately utilise the received funds. If the receiver wishes to
-    /// reject the incoming transfer, this function should abort which will cause the token actor
-    /// to rollback the transaction.
+    /// Within this hook, the token actor has optimistically persisted the new balance so the
+    /// receiving actor can immediately utilise the received funds. If the receiver wishes to reject
+    /// the incoming transfer, this function should abort which will cause the token actor to
+    /// rollback the transaction.
     fn receive(params: UniversalReceiverParams);
 }
 
-/// Type of asset received - could be tokens (FRC46 or other) or other assets
+/// Type of asset received - could be tokens (FRC46 or other) or other assets.
 pub type ReceiverType = u32;
 
 #[derive(Error, Debug)]
@@ -50,7 +51,7 @@ pub enum ReceiverHookError {
 }
 
 impl ReceiverHookError {
-    /// Construct a new ReceiverHookError::Receiver
+    /// Construct a new [`ReceiverHookError::Receiver`].
     pub fn new_receiver_error(
         address: Address,
         exit_code: ExitCode,
@@ -81,13 +82,13 @@ pub trait RecipientData {
     fn set_recipient_data(&mut self, data: RawBytes);
 }
 
-/// Implements a guarded call to a token receiver hook
+/// Implements a guarded call to a token receiver hook.
 ///
-/// Mint and Transfer operations will return this so that state can be updated and saved
-/// before making the call into the receiver hook.
+/// Mint and Transfer operations will return this so that state can be updated and saved before
+/// making the call into the receiver hook.
 ///
-/// This also tracks whether the call has been made or not, and
-/// will panic if dropped without calling the hook.
+/// This also tracks whether the call has been made or not, and will panic if dropped without
+/// calling the hook.
 #[derive(Debug)]
 pub struct ReceiverHook<T: RecipientData> {
     address: Address,
@@ -98,7 +99,7 @@ pub struct ReceiverHook<T: RecipientData> {
 }
 
 impl<T: RecipientData> ReceiverHook<T> {
-    /// Construct a new ReceiverHook call
+    /// Construct a new ReceiverHook call.
     pub fn new(
         address: Address,
         token_params: RawBytes,
@@ -114,15 +115,15 @@ impl<T: RecipientData> ReceiverHook<T> {
         }
     }
 
-    /// Call the receiver hook and return the result
+    /// Call the receiver hook and return the result.
     ///
-    /// Requires the same Messaging trait as the Token
-    /// eg: `hook.call(token.msg())?;`
+    /// Requires the same [`Messaging`] trait as the `Token`. E.g., `hook.call(token.msg())?;`.
     ///
-    /// Returns
-    /// - an error if already called
-    /// - an error if the hook call aborted
-    /// - any return data provided by the hook upon success
+    /// Returns:
+    ///
+    /// - An error if already called.
+    /// - An error if the hook call aborted.
+    /// - Any return data provided by the hook upon success.
     pub fn call(&mut self, msg: &dyn Messaging) -> std::result::Result<T, ReceiverHookError> {
         if self.called {
             return Err(ReceiverHookError::AlreadyCalled);
@@ -163,7 +164,7 @@ impl<T: RecipientData> ReceiverHook<T> {
     }
 }
 
-/// Drop implements the panic if not called behaviour
+/// Drop implements the panic if not called behaviour.
 impl<T: RecipientData> std::ops::Drop for ReceiverHook<T> {
     fn drop(&mut self) {
         if !self.called {

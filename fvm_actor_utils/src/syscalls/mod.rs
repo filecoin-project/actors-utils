@@ -8,14 +8,14 @@ use thiserror::Error;
 pub mod fake_syscalls;
 pub mod fvm_syscalls;
 
-/// Copied to avoid linking against `fvm_sdk` for non-WASM targets
+/// Copied to avoid linking against `fvm_sdk` for non-WASM targets.
 #[derive(Copy, Clone, Debug, Error)]
 #[error("actor does not exist in state-tree")]
 pub struct NoStateError;
 
 /// The Syscalls trait defines methods available to the actor from its execution environment.
 ///
-/// The methods available are a subset of the methods exported by `fvm_sdk`
+/// The methods available are a subset of the methods exported by `fvm_sdk`.
 pub trait Syscalls {
     /// Get the IPLD root CID. Fails if the actor doesn't have state (before the first call to
     /// `set_root` and after actor deletion).
@@ -29,13 +29,13 @@ pub trait Syscalls {
     /// - Fails if the actor has been deleted.
     fn set_root(&self, cid: &Cid) -> Result<(), NoStateError>;
 
-    /// Returns the ID address of the actor
+    /// Returns the ID address of the actor.
     fn receiver(&self) -> ActorID;
 
-    /// Returns the ID address of the calling actor
+    /// Returns the ID address of the calling actor.
     fn caller(&self) -> ActorID;
 
-    /// Sends a message to an actor
+    /// Sends a message to an actor.
     fn send(
         &self,
         to: &Address,
@@ -47,6 +47,6 @@ pub trait Syscalls {
     /// Resolves the ID address of an actor.
     ///
     /// Returns None if the address cannot be resolved. Successfully resolving an address doesn't
-    /// necessarily mean the actor exists (e.g., if the addresss was already an actor ID).
+    /// necessarily mean the actor exists (e.g., if the address was already an actor ID).
     fn resolve_address(&self, addr: &Address) -> Option<ActorID>;
 }

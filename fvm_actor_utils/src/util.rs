@@ -30,10 +30,10 @@ impl From<&ActorError> for ExitCode {
     }
 }
 
-/// ActorRuntime provides access to system resources via Syscalls and the Blockstore
+/// [`ActorRuntime`] provides access to system resources via [`Syscalls`] and the [`Blockstore`].
 ///
 /// It provides higher level utilities than raw syscalls for actors to use to interact with the
-/// IPLD layer and the FVM runtime (e.g. messaging other actors)
+/// IPLD layer and the FVM runtime (e.g. messaging other actors).
 #[derive(Clone, Debug)]
 pub struct ActorRuntime<S: Syscalls, BS: Blockstore> {
     pub syscalls: S,
@@ -45,13 +45,16 @@ impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
         ActorRuntime { syscalls, blockstore }
     }
 
-    /// Creates a runtime suitable for tests, using mock syscalls and a memory blockstore
+    /// Creates a runtime suitable for tests, using [mock syscalls][`FakeSyscalls`] and a
+    /// [memory blockstore][`MemoryBlockstore`].
     pub fn new_test_runtime() -> ActorRuntime<FakeSyscalls, MemoryBlockstore> {
         ActorRuntime { syscalls: FakeSyscalls::default(), blockstore: MemoryBlockstore::default() }
     }
 
-    /// Creates a runtime suitable for more complex tests, using mock syscalls and a shared memory blockstore
-    /// Clones of this runtime will reference the same blockstore
+    /// Creates a runtime suitable for more complex tests, using [mock syscalls][`FakeSyscalls`] and
+    /// a [memory blockstore][`MemoryBlockstore`].
+    ///
+    /// Clones of this runtime will reference the same blockstore.
     pub fn new_shared_test_runtime() -> ActorRuntime<FakeSyscalls, SharedMemoryBlockstore> {
         ActorRuntime {
             syscalls: FakeSyscalls::default(),
@@ -59,7 +62,7 @@ impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
         }
     }
 
-    /// Returns the address of the current actor as an ActorID
+    /// Returns the address of the current actor as an [`ActorID`].
     pub fn actor_id(&self) -> ActorID {
         self.syscalls.receiver()
     }
@@ -68,7 +71,7 @@ impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
         self.syscalls.caller()
     }
 
-    /// Sends a message to an actor
+    /// Sends a message to an actor.
     pub fn send(
         &self,
         to: &Address,
@@ -79,17 +82,18 @@ impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
         Ok(self.syscalls.send(to, method, params, value)?)
     }
 
-    /// Attempts to resolve the given address to its ID address form
+    /// Attempts to resolve the given address to its ID address form.
     ///
-    /// Returns MessagingError::AddressNotResolved if the address could not be resolved
+    /// Returns [`MessagingError::AddressNotResolved`] if the address could not be resolved.
     pub fn resolve_id(&self, address: &Address) -> MessagingResult<ActorID> {
         self.syscalls.resolve_address(address).ok_or(MessagingError::AddressNotResolved(*address))
     }
 
     /// Resolves an address to an ID address, sending a message to initialize an account there if
-    /// it doesn't exist
+    /// it doesn't exist.
     ///
-    /// If the account cannot be created, this function returns MessagingError::AddressNotInitialized
+    /// If the account cannot be created, this function returns
+    /// [`MessagingError::AddressNotInitialized`].
     pub fn resolve_or_init(&self, address: &Address) -> MessagingResult<ActorID> {
         let id = match self.resolve_id(address) {
             Ok(addr) => addr,
@@ -111,21 +115,21 @@ impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
         }
     }
 
-    /// Get the root cid of the actor's state
+    /// Get the root cid of the actor's state.
     pub fn root_cid(&self) -> ActorResult<Cid> {
         Ok(self.syscalls.root().map_err(|_err| NoStateError)?)
     }
 
-    /// Set the root cid of the actor's state
+    /// Set the root cid of the actor's state.
     pub fn set_root(&self, cid: &Cid) -> ActorResult<()> {
         Ok(self.syscalls.set_root(cid).map_err(|_err| NoStateError)?)
     }
 
     /// Attempts to compare two addresses, seeing if they would resolve to the same Actor without
-    /// actually instantiating accounts for them
+    /// actually instantiating accounts for them.
     ///
     /// If a and b are of the same type, simply do an equality check. Otherwise, attempt to resolve
-    /// to an ActorID and compare
+    /// to an ActorID and compare.
     pub fn same_address(&self, address_a: &Address, address_b: &Address) -> bool {
         let protocol_a = address_a.protocol();
         let protocol_b = address_b.protocol();
@@ -150,7 +154,7 @@ impl<S: Syscalls, BS: Blockstore> ActorRuntime<S, BS> {
     }
 }
 
-/// Convenience impl encapsulating the blockstore functionality
+/// Convenience impl encapsulating the blockstore functionality.
 impl<S: Syscalls, BS: Blockstore> Blockstore for ActorRuntime<S, BS> {
     fn get(&self, k: &Cid) -> anyhow::Result<Option<Vec<u8>>> {
         self.blockstore.get(k)

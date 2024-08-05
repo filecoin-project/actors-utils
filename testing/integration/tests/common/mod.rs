@@ -17,9 +17,9 @@ use serde::Serialize;
 pub mod frc46_token_helpers;
 pub mod frc53_nft_helpers;
 
-/// Helper routines to simplify common operations with a Tester
+/// Helper routines to simplify common operations with a [`Tester`].
 pub trait TestHelpers {
-    /// Call a method on an actor
+    /// Call a method on an actor.
     fn call_method(
         &mut self,
         from: Address,
@@ -28,7 +28,7 @@ pub trait TestHelpers {
         params: Option<RawBytes>,
     ) -> ApplyRet;
 
-    /// Call a method on an actor and assert a successful result
+    /// Call a method on an actor and assert a successful result.
     fn call_method_ok(
         &mut self,
         from: Address,
@@ -37,8 +37,9 @@ pub trait TestHelpers {
         params: Option<RawBytes>,
     ) -> ApplyRet;
 
-    /// Install an actor with initial state and ID
-    /// Returns the actor's address
+    /// Install an actor with initial state and ID.
+    ///
+    /// Returns the actor's address.
     fn install_actor_with_state<S: Serialize>(
         &mut self,
         code: &[u8],
@@ -46,8 +47,9 @@ pub trait TestHelpers {
         state: S,
     ) -> Address;
 
-    /// Install an actor with no initial state
-    /// Takes ID and returns the new actor's address
+    /// Install an actor with no initial state.
+    ///
+    /// Takes ID and returns the new actor's [`Address`].
     fn install_actor_stateless(&mut self, code: &[u8], actor_id: u64) -> Address;
 }
 
@@ -57,8 +59,10 @@ pub fn load_actor_wasm(path: &str) -> Vec<u8> {
     std::fs::read(wasm_path).expect("unable to read actor file")
 }
 
-/// Construct a Tester with the provided blockstore
-/// mainly cuts down on noise with importing the built-in actor bundle and network/state tree versions
+/// Construct a [`Tester`] with the provided [`Blockstore`].
+///
+/// This mainly cuts down on noise with importing the built-in actor bundle and network/state tree
+/// versions.
 pub fn construct_tester<BS: Blockstore + Clone, E: Externs>(blockstore: &BS) -> Tester<BS, E> {
     let bundle_root = bundle::import_bundle(&blockstore, actors_v12::BUNDLE_CAR).unwrap();
 

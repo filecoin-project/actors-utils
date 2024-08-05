@@ -27,16 +27,16 @@ use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode, ActorID};
 use serde::{de::DeserializeOwned, ser::Serialize};
 use thiserror::Error;
 
-/// Errors that can occur during the execution of this actor
+/// Errors that can occur during the execution of this actor.
 #[derive(Error, Debug)]
 pub enum RuntimeError {
-    /// Error from the underlying token library
+    /// Error from the underlying token library.
     #[error("error in token: {0}")]
     Token(#[from] TokenError),
-    /// Error from the underlying universal receiver hook library
+    /// Error from the underlying universal receiver hook library.
     #[error("error calling receiver hook: {0}")]
     Receiver(#[from] ReceiverHookError),
-    /// Error from serialising data to RawBytes
+    /// Error from serialising data to RawBytes.
     #[error("ipld encoding error: {0}")]
     Encoding(#[from] fvm_ipld_encoding::Error),
     #[error("ipld blockstore error: {0}")]
@@ -106,8 +106,9 @@ pub struct ConstructorParams {
     pub name: String,
     pub symbol: String,
     pub granularity: u64,
-    /// authorised mint operator
-    /// only this address can mint tokens or remove themselves to permanently disable minting
+    /// Authorised mint operator.
+    ///
+    /// Only this address can mint tokens or remove themselves to permanently disable minting.
     pub minter: Address,
 }
 
@@ -127,13 +128,13 @@ pub fn construct_token<S: Syscalls, BS: Blockstore>(
 
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct FactoryTokenState {
-    /// Default token helper impl
+    /// Default token helper impl.
     pub token: TokenState,
-    /// basic token identifier stuff, should it go here or store separately alongside the state
+    // basic token identifier stuff, should it go here or store separately alongside the state
     pub name: String,
     pub symbol: String,
     pub granularity: u64,
-    /// address of authorised minting operator
+    /// Address of authorised minting operator.
     pub minter: Option<ActorID>,
 }
 
@@ -143,8 +144,9 @@ pub struct FactoryToken<S: Syscalls, BS: Blockstore> {
 }
 
 impl FactoryTokenState {
-    /// Load token state from the blockstore provided in `runtime`
-    /// This is for internal use only as part of FactoryToken::load
+    /// Load token state from the blockstore provided in `runtime`.
+    ///
+    /// This is for internal use only as part of [`FactoryToken::load`].
     fn load<BS: Blockstore>(runtime: &BS, cid: &Cid) -> Result<Self, RuntimeError> {
         match runtime.get_cbor::<Self>(cid) {
             Ok(Some(s)) => Ok(s),
@@ -155,9 +157,9 @@ impl FactoryTokenState {
     }
 }
 
-/// Implementation of the token API in a FVM actor
+/// Implementation of the token API in a FVM actor.
 ///
-/// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
+/// Here the Ipld parameter structs are marshalled and passed to the underlying library functions.
 impl<SC: Syscalls, BS: Blockstore> FRC46Token for FactoryToken<SC, BS> {
     type TokenError = RuntimeError;
     fn name(&self) -> String {
@@ -363,8 +365,9 @@ impl<S: Syscalls, BS: Blockstore> FactoryToken<S, BS> {
         Ok(ret)
     }
 
-    /// Permanently disable minting
-    /// Only the authorised mint operator can do this
+    /// Permanently disable minting.
+    ///
+    /// Only the authorised mint operator can call this.
     pub fn disable_mint(&mut self) -> Result<(), RuntimeError> {
         // no minter means minting has already been permanently disabled
         // we return this if already disabled because it will make more sense than failing the address check below
@@ -393,20 +396,24 @@ where
     Ok(sdk::ipld::put_block(DAG_CBOR, bytes.as_slice())?)
 }
 
-/// Generic invoke for FRC46 Token methods
-/// Given a method number and parameter block id, invokes the appropriate method on the FRC46Token interface
+/// Generic invoke for FRC46 Token methods.
 ///
-/// The flush_state function passed into this must flush current state to the blockstore and update the root cid
-/// This is called after operations which mutate the state, such as changing an allowance or burning tokens.
+/// Given a method number and parameter block id, invokes the appropriate method on the FRC46Token
+/// interface.
 ///
-/// Transfer and TransferFrom operations invoke the receiver hook which will require flushing state before calling the hook
-/// This must be done inside the FRC46Token::transfer/transfer_from functions
+/// The flush_state function passed into this must flush current state to the blockstore and update
+/// the root cid. This is called after operations which mutate the state, such as changing an
+/// allowance or burning tokens.
+///
+/// Transfer and TransferFrom operations invoke the receiver hook which will require flushing state
+/// before calling the hook. This must be done inside the
+/// [`FRC46Token::transfer`]/[`FRC46Token::transfer_from`] functions.
 ///
 /// Possible returns:
-/// - Ok(None) - method not found
-/// - Ok(Some(u32)) - block id of results saved to blockstore (or NO_DATA_BLOCK_ID if there is no result to return)
-/// - Err(error) - any error encountered during operation
 ///
+/// - `Ok(None)` - method not found
+/// - `Ok(Some(u32))` - block id of results saved to blockstore (or [`NO_DATA_BLOCK_ID`] if there is no result to return)
+/// - `Err(error)` - any error encountered during operation
 pub fn frc46_invoke<T, F, E>(
     method_num: u64,
     params: u32,
