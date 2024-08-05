@@ -2,19 +2,8 @@ name: Release Checker
 
 on:
   pull_request_target:
-    paths: [
-      "dispatch_examples/greeter/Cargo.toml",
-      "frc42_dispatch/Cargo.toml",
-      "frc42_dispatch/hasher/Cargo.toml",
-      "dispatch_examples/greeter/Cargo.toml",
-      "frc42_dispatch/Cargo.toml",
-      "frc42_dispatch/hasher/Cargo.toml",
-      "frc42_dispatch/macros/Cargo.toml",
-      "frc46_token/Cargo.toml",
-      "frc53_nft/Cargo.toml",
-      "fvm_actor_utils/Cargo.toml",
-      "fvm_dispatch_tools/Cargo.toml"
-    ]
+    paths:
+      - "**/Cargo.toml"
     types: [ opened, synchronize, reopened, labeled, unlabeled ]
   workflow_dispatch:
 
@@ -32,7 +21,6 @@ jobs:
     with:
       sources: |
         [
-          "dispatch_examples/greeter/Cargo.toml",
           "frc42_dispatch/Cargo.toml",
           "frc42_dispatch/hasher/Cargo.toml",
           "frc42_dispatch/macros/Cargo.toml",

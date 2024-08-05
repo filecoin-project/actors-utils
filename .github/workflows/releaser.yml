@@ -2,16 +2,8 @@ name: Releaser
 
 on:
   push:
-    paths: [
-      "dispatch_examples/greeter/Cargo.toml",
-      "frc42_dispatch/Cargo.toml",
-      "frc42_dispatch/hasher/Cargo.toml",
-      "frc42_dispatch/macros/Cargo.toml",
-      "frc46_token/Cargo.toml",
-      "frc53_nft/Cargo.toml",
-      "fvm_actor_utils/Cargo.toml",
-      "fvm_dispatch_tools/Cargo.toml"
-    ]
+    paths:
+      - "**/Cargo.toml"
   workflow_dispatch:
 
 permissions:
@@ -27,7 +19,6 @@ jobs:
     with:
       sources: |
         [
-          "dispatch_examples/greeter/Cargo.toml",
           "frc42_dispatch/Cargo.toml",
           "frc42_dispatch/hasher/Cargo.toml",
           "frc42_dispatch/macros/Cargo.toml",
