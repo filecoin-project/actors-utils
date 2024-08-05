@@ -58,14 +58,14 @@ fn it_mints_tokens() {
 
     // Helper to simplify sending messages
     let mut sequence = 0u64;
-    let mut call_method = |from, to, method_num, params| {
+    let mut call_method = |from, to, method_num, params: Option<RawBytes>| {
         let message = Message {
             from,
             to,
             gas_limit: 99999999,
             method_num,
             sequence,
-            params: if let Some(params) = params { params } else { RawBytes::default() },
+            params: params.unwrap_or_default(),
             ..Message::default()
         };
         sequence += 1;

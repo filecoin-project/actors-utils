@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::env;
 
 use cid::Cid;
@@ -80,7 +81,7 @@ impl<B: Blockstore, E: Externs> TestHelpers for Tester<B, E> {
             gas_limit: BLOCK_GAS_LIMIT,
             method_num,
             sequence: unsafe { SEQUENCE },
-            params: if let Some(params) = params { params } else { RawBytes::default() },
+            params: params.unwrap_or_default(),
             ..Message::default()
         };
         unsafe {
