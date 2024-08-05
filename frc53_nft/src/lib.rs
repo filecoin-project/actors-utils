@@ -590,13 +590,7 @@ mod test {
         {
             // mint no tokens
             let mut hook = nft
-                .mint(
-                    &ALICE,
-                    &ALICE,
-                    vec![String::new(); 0],
-                    RawBytes::default(),
-                    RawBytes::default(),
-                )
+                .mint(&ALICE, &ALICE, Vec::default(), RawBytes::default(), RawBytes::default())
                 .unwrap();
             let res = hook.call(&nft.runtime).unwrap();
             assert_eq!(res.token_ids, Vec::<TokenID>::default());
