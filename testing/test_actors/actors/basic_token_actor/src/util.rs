@@ -5,13 +5,13 @@ use fvm_sdk as sdk;
 use fvm_shared::address::Address;
 use thiserror::Error;
 
-/// Errors that can occur during the execution of this actor
+/// Errors that can occur during the execution of this actor.
 #[derive(Error, Debug)]
 pub enum RuntimeError {
-    /// Error from the underlying token library
+    /// Error from the underlying token library.
     #[error("error in token: {0}")]
     Token(#[from] TokenError),
-    /// Error from the underlying universal receiver hook library
+    /// Error from the underlying universal receiver hook library.
     #[error("error calling receiver hook: {0}")]
     Receiver(#[from] ReceiverHookError),
 }
@@ -21,7 +21,7 @@ pub fn caller_address() -> Address {
     Address::new_id(caller)
 }
 
-/// Grab the incoming parameters and convert from RawBytes to deserialized struct
+/// Grab the incoming parameters and convert from [`RawBytes`] to deserialized struct.
 pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
     let params = sdk::message::params_raw(params).unwrap().unwrap();
     let params = RawBytes::new(params.data);

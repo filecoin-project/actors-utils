@@ -106,16 +106,17 @@ type BalanceMap<'bs, BS> = Map<'bs, BS, BytesKey, TokenAmount>;
 type AllowanceMap<'bs, BS> = Map<'bs, BS, BytesKey, Cid>;
 type OwnerAllowanceMap<'bs, BS> = Map<'bs, BS, BytesKey, TokenAmount>;
 
-/// Token state IPLD structure
+/// Token state IPLD structure.
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
 pub struct TokenState {
-    /// Total supply of token
+    /// Total supply of token.
     pub supply: TokenAmount,
-    /// Map<ActorId, TokenAmount> of balances as a Hamt
+    /// `Map<ActorId, TokenAmount>` of balances as a [`Hamt`].
     pub balances: Cid,
-    /// Map<ActorId, Map<ActorId, TokenAmount>> as a Hamt. Allowances are stored balances[owner][operator]
+    /// `Map<ActorId, Map<ActorId, TokenAmount>>` as a [`Hamt`]. Allowances are stored
+    /// `balances[owner][operator]`.
     pub allowances: Cid,
-    /// Bit-width to use when loading Hamts
+    /// Bit-width to use when loading Hamts.
     hamt_bit_width: u32,
 }
 
@@ -126,15 +127,15 @@ pub struct TokenState {
 /// caller to handle. However, some invariants such as non-negative balances, allowances and total
 /// supply are enforced.
 impl TokenState {
-    /// Create a new token state-tree, without committing it (the root cid) to a blockstore
+    /// Create a new token state-tree, without committing it (the root cid) to a blockstore.
     pub fn new<BS: Blockstore>(store: &BS) -> Result<Self> {
         Self::new_with_bit_width(store, DEFAULT_HAMT_BIT_WIDTH)
     }
 
-    /// Create a new token state-tree, without committing it (the root cid) to a blockstore
+    /// Create a new token state-tree, without committing it (the root cid) to a blockstore.
     ///
     /// Explicitly sets the bit width of underlying Hamt structures. Caller must ensure
-    /// 1 <= hamt_bit_width <= 8.
+    /// `1 <= hamt_bit_width <= 8`.
     pub fn new_with_bit_width<BS: Blockstore>(store: &BS, hamt_bit_width: u32) -> Result<Self> {
         // Blockstore is still needed to create valid Cids for the Hamts
         let empty_balance_map = BalanceMap::new_with_bit_width(store, hamt_bit_width).flush()?;
@@ -149,7 +150,7 @@ impl TokenState {
         })
     }
 
-    /// Loads a fresh copy of the state from a blockstore from a given cid
+    /// Loads a fresh copy of the state from a blockstore from a given cid.
     pub fn load<BS: Blockstore>(bs: &BS, cid: &Cid) -> Result<Self> {
         // Load the actor state from the state tree.
         let state = match bs.get_cbor::<Self>(cid) {
@@ -161,7 +162,7 @@ impl TokenState {
         Ok(state)
     }
 
-    /// Saves the current state to the blockstore, returning the cid
+    /// Saves the current state to the blockstore, returning the cid.
     pub fn save<BS: Blockstore>(&self, bs: &BS) -> Result<Cid> {
         let serialized = match fvm_ipld_encoding::to_vec(self) {
             Ok(s) => s,
@@ -175,7 +176,7 @@ impl TokenState {
         Ok(cid)
     }
 
-    /// Get the balance of an ActorID from the currently stored state
+    /// Get the balance of an [`ActorID`] from the currently stored state.
     pub fn get_balance<BS: Blockstore>(&self, bs: &BS, owner: ActorID) -> Result<TokenAmount> {
         let balances = self.get_balance_map(bs)?;
 
@@ -187,7 +188,7 @@ impl TokenState {
         Ok(balance)
     }
 
-    /// Changes the balance of the specified account by the delta
+    /// Changes the balance of the specified account by the delta.
     ///
     /// Caller must ensure that the sign of of the delta is consistent with token rules (i.e.
     /// negative transfers, burns etc. are not allowed). Returns the new balance of the account.
@@ -228,11 +229,11 @@ impl TokenState {
         Ok(new_balance)
     }
 
-    /// Set the balance of the account returning the old balance
+    /// Set the balance of the account returning the old balance.
     ///
-    /// Consistent with `change_balance_by`, this method does not change the total supply. Business
-    /// logic to reconcile the total supply with changes in balancesis the responsibility of the
-    /// caller.
+    /// Consistent with [`TokenState::change_balance_by`], this method does not change the total
+    /// supply. Business logic to reconcile the total supply with changes in balances the
+    /// responsibility of the caller.
     pub fn set_balance<BS: Blockstore>(
         &mut self,
         bs: &BS,
@@ -264,12 +265,12 @@ impl TokenState {
         Ok(old_balance)
     }
 
-    /// Retrieve the balance map as a HAMT
+    /// Retrieve the balance map as a HAMT.
     pub fn get_balance_map<'bs, BS: Blockstore>(&self, bs: &'bs BS) -> Result<BalanceMap<'bs, BS>> {
         Ok(BalanceMap::load_with_bit_width(&self.balances, bs, self.hamt_bit_width)?)
     }
 
-    /// Record a transfer of an amount between two accounts
+    /// Record a transfer of an amount between two accounts.
     ///
     /// It is the caller's responsibility to ensure that allowance invariants are upheld. The caller
     /// should check that the amount is non-negative and complies with the token granularity.
@@ -299,9 +300,9 @@ impl TokenState {
         Ok(())
     }
 
-    /// Retrieve the number of token holders
+    /// Retrieve the number of token holders.
     ///
-    /// This involves iterating through the entire HAMT
+    /// This involves iterating through the entire HAMT.
     pub fn count_balances<BS: Blockstore>(&self, bs: &BS) -> Result<usize> {
         let balance_map = self.get_balance_map(bs)?;
 
@@ -314,9 +315,9 @@ impl TokenState {
         Ok(count)
     }
 
-    /// Increase/decrease the total supply by the specified value
+    /// Increase/decrease the total supply by the specified value.
     ///
-    /// Returns the new total supply
+    /// Returns the new total supply.
     pub fn change_supply_by(&mut self, delta: &TokenAmount) -> Result<&TokenAmount> {
         let new_supply = &self.supply + delta;
         if new_supply.is_negative() {
@@ -330,9 +331,9 @@ impl TokenState {
         Ok(&self.supply)
     }
 
-    /// Get the allowance that an owner has approved for a operator
+    /// Get the allowance that an owner has approved for a operator.
     ///
-    /// If an existing allowance cannot be found, it is implicitly assumed to be zero
+    /// If an existing allowance cannot be found, it is implicitly assumed to be zero.
     pub fn get_allowance_between<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -352,7 +353,7 @@ impl TokenState {
         }
     }
 
-    /// Change the allowance between owner and operator by the specified delta
+    /// Change the allowance between owner and operator by the specified delta.
     pub fn change_allowance_by<BS: Blockstore>(
         &mut self,
         bs: &BS,
@@ -411,9 +412,9 @@ impl TokenState {
         Ok(new_allowance)
     }
 
-    /// Revokes an approved allowance by removing the entry from the owner-operator map
+    /// Revokes an approved allowance by removing the entry from the owner-operator map.
     ///
-    /// If that map becomes empty, it is removed from the root map. Returns the old allowance
+    /// If that map becomes empty, it is removed from the root map. Returns the old allowance.
     pub fn revoke_allowance<BS: Blockstore>(
         &mut self,
         bs: &BS,
@@ -449,7 +450,8 @@ impl TokenState {
         }
     }
 
-    /// Set the allowance between owner and operator to a specific amount, returning the old allowance
+    /// Set the allowance between owner and operator to a specific amount, returning the old
+    /// allowance.
     pub fn set_allowance<BS: Blockstore>(
         &mut self,
         bs: &BS,
@@ -493,9 +495,9 @@ impl TokenState {
         Ok(old_allowance)
     }
 
-    /// Atomically checks if value is less than the allowance and deducts it if so
+    /// Atomically checks if value is less than the allowance and deducts it if so.
     ///
-    /// Returns new allowance if successful, else returns an error and the allowance is unchanged
+    /// Returns new allowance if successful, else returns an error and the allowance is unchanged.
     pub fn attempt_use_allowance<BS: Blockstore>(
         &mut self,
         bs: &BS,
@@ -525,11 +527,13 @@ impl TokenState {
         Ok(new_allowance)
     }
 
-    /// Get the allowances map of a specific actor, resolving the CID link to a Hamt
+    /// Get the allowances map of a specific actor, resolving the CID link to a Hamt.
     ///
-    /// Ok(Some) if the owner has allocated allowances to other actors
-    /// Ok(None) if the owner has no current non-zero allowances to other actors
-    /// Err if operations on the underlying Hamt failed
+    /// Returns:
+    ///
+    /// - `Ok(Some)` if the owner has allocated allowances to other actors..
+    /// - `Ok(None)` if the owner has no current non-zero allowances to other actors.
+    /// - `Err` if operations on the underlying Hamt failed.
     pub fn get_owner_allowance_map<'bs, BS: Blockstore>(
         &self,
         bs: &'bs BS,
@@ -545,9 +549,9 @@ impl TokenState {
         Ok(owner_allowances)
     }
 
-    /// Get the global allowances map
+    /// Get the global allowances map.
     ///
-    /// Gets a HAMT with CIDs linking to other HAMTs
+    /// Gets a HAMT with CIDs linking to other HAMTs.
     pub fn get_allowances_map<'bs, BS: Blockstore>(
         &self,
         bs: &'bs BS,
@@ -557,11 +561,11 @@ impl TokenState {
 }
 
 impl TokenState {
-    /// Checks that the current state obeys all system invariants
+    /// Checks that the current state obeys all system invariants.
     ///
     /// Checks that there are no zero balances, zero allowances or empty allowance maps explicitly
     /// stored in the blockstore. Checks that balances, total supply, allowances are never negative.
-    /// Checks that sum of all balances matches total_supply. Checks that no allowances are stored
+    /// Checks that sum of all balances matches `total_supply`. Checks that no allowances are stored
     /// where operator == owner. Checks that all balances are a multiple of the granularity.
     ///
     /// Returns a state summary that can be used to check application specific invariants and a list
@@ -615,9 +619,9 @@ impl TokenState {
         )
     }
 
-    /// Checks an allowance Hamt for any consistency errors
+    /// Checks an allowance Hamt for any consistency errors.
     ///
-    /// Returns a summary of the balances and a list of errors
+    /// Returns a summary of the balances and a list of errors.
     fn check_allowances<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -696,9 +700,9 @@ impl TokenState {
         (allowance_summary, errors)
     }
 
-    /// Checks a balance Hamt for any consistency errors
+    /// Checks a balance Hamt for any consistency errors.
     ///
-    /// Returns a summary of the balances and a list of errors
+    /// Returns a summary of the balances and a list of errors.
     fn check_balances<BS: Blockstore>(
         &self,
         balances: Hamt<&BS, TokenAmount>,
@@ -754,7 +758,7 @@ impl TokenState {
         (balance_map, errors)
     }
 
-    /// Helper to decode keys from bytes, recording errors if they fail
+    /// Helper to decode keys from bytes, recording errors if they fail.
     fn decode_key_addr(key: &BytesKey, errors: &mut Vec<StateInvariantError>) -> Option<ActorID> {
         match decode_actor_id(key) {
             Some(actor_id) => Some(actor_id),
@@ -774,7 +778,7 @@ pub fn decode_actor_id(key: &BytesKey) -> Option<ActorID> {
     u64::decode_var(key.0.as_slice()).map(|a| a.0)
 }
 
-/// A summary of the current state to allow checking application specific invariants
+/// A summary of the current state to allow checking application specific invariants.
 #[derive(Clone, Debug)]
 pub struct StateSummary {
     pub balance_map: Option<HashMap<ActorID, TokenAmount>>,

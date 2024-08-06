@@ -46,9 +46,9 @@ impl From<&MessagingError> for ExitCode {
     }
 }
 
-/// An abstraction used to send messages to other actors
+/// An abstraction used to send messages to other actors.
 pub trait Messaging {
-    /// Sends a message to an actor
+    /// Sends a message to an actor.
     fn send(
         &self,
         to: &Address,
@@ -59,7 +59,7 @@ pub trait Messaging {
 }
 
 /// This method number comes from taking the name as "Receive" and applying
-/// the transformation described in [FRC-0042](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0042.md)
+/// the transformation described in [FRC-0042](https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0042.md).
 pub const RECEIVER_HOOK_METHOD_NUM: u64 = method_hash!("Receive");
 
 #[derive(Debug, Default, Clone, Copy)]

@@ -17,27 +17,27 @@ pub struct TestMessage {
 
 #[derive(Clone, Default, Debug)]
 pub struct FakeSyscalls {
-    /// The root of the receiving actor
+    /// The root of the receiving actor.
     pub root: RefCell<Cid>,
-    /// The f0 ID of the receiving actor
+    /// The f0 ID of the receiving actor.
     pub actor_id: ActorID,
 
-    /// Actor ID to return as caller ID
+    /// Actor ID to return as caller ID.
     pub caller_id: RefCell<ActorID>,
 
-    /// A map of addresses that were instantiated in this runtime
+    /// A map of addresses that were instantiated in this runtime.
     pub addresses: RefCell<HashMap<Address, ActorID>>,
-    /// The next-to-allocate f0 address
+    /// The next-to-allocate f0 address.
     pub next_actor_id: RefCell<ActorID>,
 
-    /// The last message sent via this runtime
+    /// The last message sent via this runtime.
     pub last_message: RefCell<Option<TestMessage>>,
-    /// Flag to control message success
+    /// Flag to control message success.
     pub abort_next_send: RefCell<bool>,
 }
 
 impl FakeSyscalls {
-    /// Set the ActorID returned as caller
+    /// Set the ActorID returned as caller.
     pub fn set_caller_id(&self, new_id: ActorID) {
         self.caller_id.replace(new_id);
     }

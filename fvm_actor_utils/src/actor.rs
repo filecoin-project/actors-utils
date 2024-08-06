@@ -11,13 +11,13 @@ pub enum ActorError {
 
 type Result<T> = std::result::Result<T, ActorError>;
 
-/// Generic utils related to actors on the FVM
+/// Generic utils related to actors on the FVM.
 pub trait Actor {
-    /// Get the root cid of the actor's state
+    /// Get the root cid of the actor's state.
     fn root_cid(&self) -> Result<Cid>;
 }
 
-/// A helper handle for actors deployed on FVM
+/// A helper handle for actors deployed on FVM.
 pub struct FvmActor {}
 
 impl Actor for FvmActor {
@@ -26,7 +26,7 @@ impl Actor for FvmActor {
     }
 }
 
-/// A fake actor fixture that can be twiddled for testing
+/// A fake actor fixture that can be twiddled for testing.
 #[derive(Default, Clone, Debug)]
 pub struct FakeActor {
     pub root: Cid,

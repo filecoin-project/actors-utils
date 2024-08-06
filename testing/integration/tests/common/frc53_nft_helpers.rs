@@ -20,11 +20,12 @@ pub struct MintParams {
 }
 
 pub trait NFTHelper {
-    /// Get balance from token actor for a given address
-    /// This is a very common thing to check during tests
+    /// Get balance from token actor for a given address.
+    ///
+    /// This is a very common thing to check during tests.
     fn nft_balance(&mut self, operator: Address, token_actor: Address, target: Address) -> u64;
 
-    /// Mint tokens from token_actor to target address
+    /// Mint tokens from token_actor to target address.
     fn mint_nfts(
         &mut self,
         operator: Address,
@@ -34,7 +35,7 @@ pub trait NFTHelper {
         operator_data: RawBytes,
     ) -> ApplyRet;
 
-    /// Mint tokens from token_actor to target address and assert a successful result
+    /// Mint tokens from token_actor to target address and assert a successful result.
     fn mint_nfts_ok(
         &mut self,
         operator: Address,
@@ -44,7 +45,7 @@ pub trait NFTHelper {
         operator_data: RawBytes,
     ) -> ApplyRet;
 
-    /// Check token balance, asserting that balance matches the provided amount
+    /// Check token balance, asserting that balance matches the provided amount.
     fn assert_nft_balance(
         &mut self,
         operator: Address,
@@ -53,16 +54,16 @@ pub trait NFTHelper {
         amount: u64,
     );
 
-    /// Check token balance, asserting a zero balance
+    /// Check token balance, asserting a zero balance.
     fn assert_nft_balance_zero(&mut self, operator: Address, token_actor: Address, target: Address);
 
-    /// Check the total supply, asserting that it matches the provided amount
+    /// Check the total supply, asserting that it matches the provided amount.
     fn assert_nft_total_supply(&mut self, operator: Address, token_actor: Address, amount: u64);
 
-    /// Check the total supply, asserting that it is zero
+    /// Check the total supply, asserting that it is zero.
     fn assert_nft_total_supply_zero(&mut self, operator: Address, token_actor: Address);
 
-    /// Check the tokens owner, asserting that it is owned by the specified ActorID
+    /// Check the tokens owner, asserting that it is owned by the specified ActorID.
     fn assert_nft_owner(
         &mut self,
         operator: Address,
@@ -71,7 +72,7 @@ pub trait NFTHelper {
         owner: ActorID,
     );
 
-    /// Check the tokens metadata, asserting that it matches the provided metadata
+    /// Check the tokens metadata, asserting that it matches the provided metadata.
     fn assert_nft_metadata(
         &mut self,
         operator: Address,

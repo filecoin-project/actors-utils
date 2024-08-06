@@ -12,7 +12,7 @@ use fvm_shared::sys::SendFlags;
 use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode};
 use sdk::NO_DATA_BLOCK_ID;
 
-/// Grab the incoming parameters and convert from RawBytes to deserialized struct
+/// Grab the incoming parameters and convert from [`RawBytes`] to the deserialized struct.
 pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
     let params = sdk::message::params_raw(params).unwrap().unwrap();
     let params = RawBytes::new(params.data);
@@ -38,17 +38,18 @@ impl TransferActorState {
     }
 }
 
-/// Implements a simple actor that can hold and transfer tokens
+/// Implements a simple actor that can hold and transfer tokens.
 ///
-/// First operator to send it tokens will be saved and tokens from other operators will be rejected
+/// First operator to send it tokens will be saved and tokens from other operators will be rejected.
 ///
-/// Address of the token actor is also saved as this identifies the token type
+/// Address of the token actor is also saved as this identifies the token type.
 ///
-/// After receiving some tokens, it does nothing until the Forward method is called by the initial operator
-/// When Forward method is invoked, it will transfer the entire balance it holds to a given address
+/// After receiving some tokens, it does nothing until the Forward method is called by the initial
+/// operator. When the `Forward` method is invoked, it will transfer the entire balance it holds to
+/// a given address.
 ///
 /// Forward requires the same operator to initiate transfer and will abort if the operator address doesn't match,
-/// or if the receiver hook rejects the transfer
+/// or if the receiver hook rejects the transfer.
 #[no_mangle]
 fn invoke(input: u32) -> u32 {
     std::panic::set_hook(Box::new(|info| {

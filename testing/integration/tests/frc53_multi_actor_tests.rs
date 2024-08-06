@@ -441,7 +441,8 @@ fn frc53_multi_actor_tests() {
     }
 }
 
-/// These types have been duplicated from frc53_test_actor as we can't import into rust from a cdylib
+/// These types have been duplicated from `frc53_test_actor` as we can't import into rust from a
+/// cdylib.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum TestAction {
     Accept,
