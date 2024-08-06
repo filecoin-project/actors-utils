@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use crate::hash::{Hasher, MethodNameErr, MethodResolver};
 
-/// Utility to invoke standard methods on deployed actors
+/// Utility to invoke standard methods on deployed actors.
 #[derive(Default)]
 pub struct MethodMessenger<T: Hasher> {
     method_resolver: MethodResolver<T>,
@@ -21,13 +21,13 @@ pub enum MethodMessengerError {
 }
 
 impl<T: Hasher> MethodMessenger<T> {
-    /// Creates a new method messenger using a specified hashing function (blake2b by default)
+    /// Creates a new method messenger using a specified hashing function (blake2b by default).
     pub fn new(hasher: T) -> Self {
         Self { method_resolver: MethodResolver::new(hasher) }
     }
 
     /// Calls a method (by name) on a specified actor by constructing and publishing the underlying
-    /// on-chain Message
+    /// on-chain message.
     #[cfg(feature = "use_sdk")]
     pub fn call_method(
         &self,

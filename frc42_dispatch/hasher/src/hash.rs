@@ -1,15 +1,15 @@
 use thiserror::Error;
 
-/// Minimal interface for a hashing function
+/// Minimal interface for a hashing function.
 ///
-/// Hasher::hash() must return a digest that is at least 4 bytes long so that it can be cast to a
-/// u32
+/// [`Hasher::hash()`] must return a digest that is at least 4 bytes long so that it can be cast to
+/// a [`u32`].
 pub trait Hasher {
-    /// For an input of bytes return a digest that is at least 4 bytes long
+    /// For an input of bytes return a digest that is at least 4 bytes long.
     fn hash(&self, bytes: &[u8]) -> Vec<u8>;
 }
 
-/// Hasher that uses the hash_blake2b syscall provided by the FVM
+/// Hasher that uses the blake2b hash syscall provided by the FVM.
 #[cfg(feature = "use_sdk")]
 #[derive(Default)]
 pub struct Blake2bSyscall {}
@@ -24,7 +24,7 @@ impl Hasher for Blake2bSyscall {
 }
 
 /// Uses an underlying hashing function (blake2b by convention) to generate method numbers from
-/// method names
+/// method names.
 #[derive(Default)]
 pub struct MethodResolver<T: Hasher> {
     hasher: T,
@@ -54,12 +54,12 @@ impl<T: Hasher> MethodResolver<T> {
     const FIRST_METHOD_NUMBER: u64 = 1 << 24;
     const DIGEST_CHUNK_LENGTH: usize = 4;
 
-    /// Creates a MethodResolver with an instance of a hasher (blake2b by convention)
+    /// Creates a [`MethodResolver`] with an instance of a hasher (blake2b by convention).
     pub fn new(hasher: T) -> Self {
         Self { hasher }
     }
 
-    /// Generates a standard FRC-0042 compliant method number
+    /// Generates a standard FRC-0042 compliant method number.
     ///
     /// The method number is calculated as the first four bytes of `hash(method-name)`.
     /// The name `Constructor` is always hashed to 1 and other method names that hash to
@@ -91,10 +91,10 @@ impl<T: Hasher> MethodResolver<T> {
     }
 }
 
-/// Checks that a method name is valid and compliant with the FRC-0042 standard recommendations
+/// Checks that a method name is valid and compliant with the FRC-0042 standard recommendations.
 ///
-/// - Only ASCII characters in `[a-zA-Z0-9_]` are allowed
-/// - Starts with a character in `[A-Z_]`
+/// - Only ASCII characters in `[a-zA-Z0-9_]` are allowed.
+/// - Starts with a character in `[A-Z_]`.
 fn check_method_name(method_name: &str) -> Result<(), MethodNameErr> {
     if method_name.is_empty() {
         return Err(MethodNameErr::EmptyString);
@@ -114,10 +114,11 @@ fn check_method_name(method_name: &str) -> Result<(), MethodNameErr> {
     Ok(())
 }
 
-/// Takes a byte array and interprets it as a u32 number
+/// Takes a byte array and interprets it as a u32 number.
 ///
 /// Using big-endian order interperets the first four bytes to an int.
-/// The slice passed to this must be at least length 4
+///
+/// The slice passed to this must be at least length 4.
 fn as_u32(bytes: &[u8]) -> u32 {
     u32::from_be_bytes(bytes[0..4].try_into().expect("bytes was not at least length 4"))
 }
@@ -171,7 +172,7 @@ mod tests {
         );
     }
 
-    /// Fake hasher that always returns a digest beginning with b"\0\0\0\0"
+    /// Fake hasher that always returns a digest beginning with b"\0\0\0\0".
     #[derive(Clone, Copy)]
     struct FakeHasher0 {}
     impl Hasher for FakeHasher0 {
@@ -183,7 +184,7 @@ mod tests {
         }
     }
 
-    /// Fake hasher that always returns a digest beginning with b"\0\0\0\1"
+    /// Fake hasher that always returns a digest beginning with b"\0\0\0\1".
     #[derive(Clone, Copy)]
     struct FakeHasher1 {}
     impl Hasher for FakeHasher1 {

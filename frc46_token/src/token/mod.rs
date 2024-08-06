@@ -34,7 +34,7 @@ pub const TOKEN_PRECISION: u64 = 1_000_000_000_000_000_000;
 
 type Result<T> = std::result::Result<T, TokenError>;
 
-/// Library functions that implement core FRC-??? standards
+/// Library functions that implement core FRC-??? standards.
 ///
 /// Holds injectable services to access/interface with IPLD/FVM layer.
 pub struct Token<'st, S, BS>
@@ -42,13 +42,14 @@ where
     S: Syscalls,
     BS: Blockstore,
 {
-    /// Runtime services to interact with the execution environment
+    /// Runtime services to interact with the execution environment.
     runtime: &'st ActorRuntime<S, BS>,
-    /// Reference to token state that will be inspected/mutated
+    /// Reference to token state that will be inspected/mutated.
     state: &'st mut TokenState,
-    /// Minimum granularity of token amounts.
-    /// All balances and amounts must be a multiple of this granularity.
-    /// Set to 1 for standard 18-dp precision, TOKEN_PRECISION for whole units only, or some
+    /// Minimum granularity of token amounts. All balances and amounts must be a multiple of this
+    /// granularity.
+    ///
+    /// Set to 1 for standard 18-dp precision, [`TOKEN_PRECISION`] for whole units only, or some
     /// value in between.
     granularity: u64,
 }
@@ -58,23 +59,23 @@ where
     S: Syscalls,
     BS: Blockstore,
 {
-    /// Creates a new clean token state instance
+    /// Creates a new clean token state instance.
     ///
-    /// This should be wrapped in a Token handle for convenience. Must be flushed to the blockstore
-    /// explicitly to persist changes
+    /// This should be wrapped in a [`Token`] handle for convenience. Must be flushed to the
+    /// blockstore explicitly to persist changes.
     pub fn create_state(bs: &BS) -> Result<TokenState> {
         Ok(TokenState::new(bs)?)
     }
 
-    /// Creates a new clean token state instance, specifying the underlying Hamt bit widths
+    /// Creates a new clean token state instance, specifying the underlying Hamt bit widths.
     ///
-    /// This should be wrapped in a Token handle for convenience. Must be flushed to the blockstore
-    /// explicitly to persist changes
+    /// This should be wrapped in a [`Token`] handle for convenience. Must be flushed to the
+    /// blockstore explicitly to persist changes.
     pub fn create_state_with_bit_width(bs: &BS, hamt_bit_width: u32) -> Result<TokenState> {
         Ok(TokenState::new_with_bit_width(bs, hamt_bit_width)?)
     }
 
-    /// Wrap an existing token state
+    /// Wrap an existing token state.
     pub fn wrap(
         runtime: &'st ActorRuntime<S, BS>,
         granularity: u64,
@@ -83,34 +84,36 @@ where
         Self { runtime, granularity, state }
     }
 
-    /// Replace the current state with another
-    /// The previous state is returned and can be safely dropped
+    /// Replace the current state with another.
+    ///
+    /// The previous state is returned and can be safely dropped.
     pub fn replace(&mut self, state: TokenState) -> TokenState {
         std::mem::replace(self.state, state)
     }
 
-    /// For an already initialised state tree, loads the state tree from the blockstore at a Cid
+    /// For an already initialised state tree, loads the state tree from the blockstore at a Cid.
     pub fn load_state(bs: &BS, state_cid: &Cid) -> Result<TokenState> {
         Ok(TokenState::load(bs, state_cid)?)
     }
 
-    /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing state
-    /// The old state is returned to enable comparisons and the like but can be safely dropped otherwise
+    /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing
+    /// state. The old state is returned to enable comparisons and the like but can be safely
+    /// dropped otherwise.
     pub fn load_replace(&mut self, cid: &Cid) -> Result<TokenState> {
         Ok(self.replace(Self::load_state(self.runtime.bs(), cid)?))
     }
 
-    /// Flush state and return Cid for root
+    /// Flush state and return Cid for root.
     pub fn flush(&mut self) -> Result<Cid> {
         Ok(self.state.save(&self.runtime)?)
     }
 
-    /// Get a reference to the wrapped state tree
+    /// Get a reference to the wrapped state tree.
     pub fn state(&self) -> &TokenState {
         self.state
     }
 
-    /// Get a reference to the underlying runtime
+    /// Get a reference to the underlying runtime.
     pub fn runtime(&self) -> &ActorRuntime<S, BS> {
         self.runtime
     }
@@ -137,25 +140,24 @@ where
     S: Syscalls,
     BS: Blockstore,
 {
-    /// Returns the smallest amount of tokens which is indivisible
+    /// Returns the smallest amount of tokens which is indivisible.
     ///
     /// Transfers and balances must be in multiples of granularity but allowances need not be.
-    /// Granularity never changes after it is initially set
+    /// Granularity never changes after it is initially set.
     pub fn granularity(&self) -> u64 {
         self.granularity
     }
 
-    /// Mints the specified value of tokens into an account
+    /// Mints the specified value of tokens into an account.
     ///
-    /// The minter is implicitly defined as the caller of the actor, and must be an ID address.
-    /// The mint amount must be non-negative or the method returns an error.
+    /// The minter is implicitly defined as the caller of the actor, and must be an ID address. The
+    /// mint amount must be non-negative or the method returns an error.
     ///
-    /// Returns a ReceiverHook to call the owner's token receiver hook,
-    /// and the owner's new balance.
-    /// ReceiverHook must be called or it will panic and abort the transaction.
+    /// Returns a [`ReceiverHook`] to call the owner's token receiver hook, and the owner's new
+    /// balance. ReceiverHook must be called or it will panic and abort the transaction.
     ///
-    /// The hook call will return a MintIntermediate struct which must be passed to mint_return
-    /// to get the final return data
+    /// The hook call will return a [`MintIntermediate`] struct which must be passed to
+    /// [`Token::mint_return`] to get the final return data.
     pub fn mint(
         &mut self,
         operator: &Address,
@@ -190,9 +192,12 @@ where
         Ok(ReceiverHook::new_frc46(*initial_owner, params, result)?)
     }
 
-    /// Finalise return data from MintIntermediate data returned by calling receiver hook after minting
-    /// This is done to allow reloading the state if it changed as a result of the hook call
-    /// so we can return an accurate balance even if the receiver transferred or burned tokens upon receipt
+    /// Finalise return data from [`MintIntermediate`] data returned by calling receiver hook after
+    /// minting.
+    ///
+    /// This is done to allow reloading the state if it changed as a result of the hook call so we
+    /// can return an accurate balance even if the receiver transferred or burned tokens upon
+    /// receipt.
     pub fn mint_return(&self, intermediate: MintIntermediate) -> Result<MintReturn> {
         Ok(MintReturn {
             balance: self.balance_of(&intermediate.recipient)?,
@@ -201,17 +206,18 @@ where
         })
     }
 
-    /// Gets the total number of tokens in existence
+    /// Gets the total number of tokens in existence.
     ///
-    /// This equals the sum of `balance_of` called on all addresses. This equals sum of all
-    /// successful `mint` calls minus the sum of all successful `burn`/`burn_from` calls
+    /// This equals the sum of [`Token::balance_of`] called on all addresses. This equals sum of all
+    /// successful [`Token::mint`] calls minus the sum of all successful
+    /// [`Token::burn`]/[`Token::burn_from`] calls.
     pub fn total_supply(&self) -> TokenAmount {
         self.state.supply.clone()
     }
 
-    /// Returns the balance associated with a particular address
+    /// Returns the balance associated with a particular address.
     ///
-    /// Accounts that have never received transfers implicitly have a zero-balance
+    /// Accounts that have never received transfers implicitly have a zero-balance.
     pub fn balance_of(&self, owner: &Address) -> Result<TokenAmount> {
         // Don't instantiate an account if unable to resolve to an ID address, as non-initialized
         // addresses have an implicit zero balance
@@ -225,10 +231,10 @@ where
         }
     }
 
-    /// Gets the allowance between owner and operator
+    /// Gets the allowance between owner and operator.
     ///
     /// An allowance is the amount that the operator can transfer or burn out of the owner's account
-    /// via the `transfer` and `burn` methods.
+    /// via the [`Token::transfer`] and [`Token::burn`] methods.
     pub fn allowance(&self, owner: &Address, operator: &Address) -> Result<TokenAmount> {
         // Don't instantiate an account if unable to resolve owner-ID, as non-initialized addresses
         // give implicit zero allowances to all addresses
@@ -254,13 +260,13 @@ where
         Ok(self.state.get_allowance_between(&self.runtime, owner, operator)?)
     }
 
-    /// Increase the allowance that an operator can control of an owner's balance by the requested delta
+    /// Increase the allowance that an operator can control of an owner's balance by the requested
+    /// delta.
     ///
     /// Returns an error if requested delta is negative or there are errors in (de)serialization of
-    /// state.If either owner or operator addresses are not resolvable and cannot be initialised, this
-    /// method returns MessagingError::AddressNotInitialized.
-    ///
-    /// Else returns the new allowance
+    /// state. If either owner or operator addresses are not resolvable and cannot be initialised,
+    /// this method returns [`MessagingError::AddressNotInitialized`]. Otherwise, it returns the new
+    /// allowance.
     pub fn increase_allowance(
         &mut self,
         owner: &Address,
@@ -277,14 +283,13 @@ where
         Ok(new_amount)
     }
 
-    /// Decrease the allowance that an operator controls of the owner's balance by the requested delta
+    /// Decrease the allowance that an operator controls of the owner's balance by the requested
+    /// delta.
     ///
     /// Returns an error if requested delta is negative or there are errors in (de)serialization of
-    /// of state. If the resulting allowance would be negative, the allowance between owner and operator is
-    /// set to zero.Returns an error if either the operator or owner addresses are not resolvable and
-    /// cannot be initialized.
-    ///
-    /// Else returns the new allowance
+    /// of state. If the resulting allowance would be negative, the allowance between owner and
+    /// operator is set to zero. Returns an error if either the operator or owner addresses are not
+    /// resolvable and cannot be initialized. Otherwise it returns the new allowance.
     pub fn decrease_allowance(
         &mut self,
         owner: &Address,
@@ -302,7 +307,7 @@ where
         Ok(new_allowance)
     }
 
-    /// Sets the allowance between owner and operator to zero, returning the old allowance
+    /// Sets the allowance between owner and operator to zero, returning the old allowance.
     pub fn revoke_allowance(&mut self, owner: &Address, operator: &Address) -> Result<TokenAmount> {
         let owner = match self.runtime.resolve_id(owner) {
             Ok(owner) => owner,
@@ -324,7 +329,7 @@ where
         Ok(self.state.revoke_allowance(&self.runtime, owner, operator)?)
     }
 
-    /// Sets the allowance to a specified amount, returning the old allowance
+    /// Sets the allowance to a specified amount, returning the old allowance.
     pub fn set_allowance(
         &mut self,
         owner: &Address,
@@ -346,16 +351,17 @@ where
         Ok(self.state.set_allowance(&self.runtime, owner, operator, amount)?)
     }
 
-    /// Burns an amount of token from the specified address, decreasing total token supply
+    /// Burns an amount of token from the specified address, decreasing total token supply.
     ///
-    /// - The requested value MUST be non-negative
-    /// - The requested value MUST NOT exceed the target's balance
+    /// - The requested value MUST be non-negative.
+    /// - The requested value MUST NOT exceed the target's balance.
     /// - If the burn operation would result in a negative balance for the owner, the burn is
-    /// discarded and this method returns an error
+    ///   discarded and this method returns an error.
     ///
-    /// Upon successful burn
-    /// - The target's balance decreases by the requested value
-    /// - The total_supply decreases by the requested value
+    /// Upon successful burn:
+    ///
+    /// - The target's balance decreases by the requested value.
+    /// - The total supply decreases by the requested value.
     pub fn burn(&mut self, owner: &Address, amount: &TokenAmount) -> Result<BurnReturn> {
         let amount = validate_amount_with_granularity(amount, "burn", self.granularity)?;
 
@@ -369,20 +375,21 @@ where
         })
     }
 
-    /// Burns an amount of token from the specified address, decreasing total token supply
+    /// Burns an amount of token from the specified address, decreasing total token supply.
     ///
     /// If operator and owner are the same address, this method returns an InvalidOperator error.
     ///
-    /// - The requested value MUST be non-negative
-    /// - The requested value MUST NOT exceed the target's balance
+    /// - The requested value MUST be non-negative.
+    /// - The requested value MUST NOT exceed the target's balance.
     /// - If the burn operation would result in a negative balance for the owner, the burn is
-    /// discarded and this method returns an error
-    /// - The operator MUST have an allowance not less than the requested value
+    ///   discarded and this method returns an error.
+    /// - The operator MUST have an allowance not less than the requested value.
     ///
-    /// Upon successful burn
-    /// - The target's balance decreases by the requested value
-    /// - The total_supply decreases by the requested value
-    /// - The operator's allowance is decreased by the requested value
+    /// Upon successful burn:
+    ///
+    /// - The target's balance decreases by the requested value.
+    /// - The total supply decreases by the requested value.
+    /// - The operator's allowance is decreased by the requested value.
     pub fn burn_from(
         &mut self,
         operator: &Address,
@@ -436,24 +443,25 @@ where
         })
     }
 
-    /// Transfers an amount from the caller to another address
+    /// Transfers an amount from the caller to another address.
     ///
-    /// - The requested value MUST be non-negative
-    /// - The requested value MUST NOT exceed the sender's balance
+    /// - The requested value MUST be non-negative.
+    /// - The requested value MUST NOT exceed the sender's balance.
     /// - The receiving actor MUST implement a method called `tokens_received`, corresponding to the
-    /// interface specified for FRC-0046 token receiver. If the receiving hook aborts, when called,
-    /// the transfer is discarded and this method returns an error
+    ///   interface specified for FRC-0046 token receiver. If the receiving hook aborts, when called,
+    ///   the transfer is discarded and this method returns an error.
     ///
     /// Upon successful transfer:
-    /// - The from balance decreases by the requested value
-    /// - The to balance increases by the requested value
     ///
-    /// Returns a ReceiverHook to call the recipient's token receiver hook,
-    /// and a TransferIntermediate struct
-    /// ReceiverHook must be called or it will panic and abort the transaction.
+    /// - The from balance decreases by the requested value.
+    /// - The to balance increases by the requested value.
+    ///
+    /// Returns a [`ReceiverHook`] to call the recipient's token receiver hook, and a
+    /// [`TransferIntermediate`] struct. [`ReceiverHook`] must be called or it will panic and abort
+    /// the transaction.
     ///
     /// Return data from the hook should be passed to transfer_return which will generate
-    /// the Transfereturn struct
+    /// the [`TransferReturn`] struct.
     pub fn transfer(
         &mut self,
         from: &Address,
@@ -488,7 +496,7 @@ where
         Ok(ReceiverHook::new_frc46(*to, params, res)?)
     }
 
-    /// Generate TransferReturn from the intermediate data returned by a receiver hook call
+    /// Generate [`TransferReturn`] from the intermediate data returned by a receiver hook call.
     pub fn transfer_return(&self, intermediate: TransferIntermediate) -> Result<TransferReturn> {
         Ok(TransferReturn {
             from_balance: self.balance_of(&intermediate.from)?,
@@ -497,26 +505,27 @@ where
         })
     }
 
-    /// Transfers an amount from one address to another
+    /// Transfers an amount from one address to another.
     ///
-    /// - The requested value MUST be non-negative
-    /// - The requested value MUST NOT exceed the sender's balance
+    /// - The requested value MUST be non-negative.
+    /// - The requested value MUST NOT exceed the sender's balance.
     /// - The receiving actor MUST implement a method called `tokens_received`, corresponding to the
-    /// interface specified for FRC-0046 token receiver. If the receiving hook aborts, when called,
-    /// the transfer is discarded and this method returns an error
-    ///  - The operator MUST be initialised AND have an allowance not less than the requested value
+    ///   interface specified for FRC-0046 token receiver. If the receiving hook aborts, when called,
+    ///   the transfer is discarded and this method returns an error.
+    /// - The operator MUST be initialised AND have an allowance not less than the requested value.
     ///
     /// Upon successful transfer:
-    /// - The from balance decreases by the requested value
-    /// - The to balance increases by the requested value
-    /// - The owner-operator allowance decreases by the requested value
     ///
-    /// Returns a ReceiverHook to call the recipient's token receiver hook,
-    /// and a TransferFromIntermediate struct.
-    /// ReceiverHook must be called or it will panic and abort the transaction.
+    /// - The from balance decreases by the requested value.
+    /// - The to balance increases by the requested value.
+    /// - The owner-operator allowance decreases by the requested value.
     ///
-    /// Return data from the hook should be passed to transfer_from_return which will generate
-    /// the TransferFromReturn struct
+    /// Returns a [`ReceiverHook`] to call the recipient's token receiver hook, and a
+    /// [`TransferFromIntermediate`]. [`ReceiverHook`] must be called or it will panic and abort the
+    /// transaction.
+    ///
+    /// Return data from the hook should be passed to [`Token::transfer_from_return`] which will
+    /// generate the [`TransferFromReturn`].
     pub fn transfer_from(
         &mut self,
         operator: &Address,
@@ -590,7 +599,7 @@ where
         Ok(ReceiverHook::new_frc46(*to, params, res)?)
     }
 
-    /// Generate TransferReturn from the intermediate data returned by a receiver hook call
+    /// Generate [`TransferReturn`] from the intermediate data returned by a receiver hook call.
     pub fn transfer_from_return(
         &self,
         intermediate: TransferFromIntermediate,
@@ -603,7 +612,7 @@ where
         })
     }
 
-    /// Sets the balance of an account to a specific amount
+    /// Sets the balance of an account to a specific amount.
     ///
     /// Using this library method obeys internal invariants (changing total supply etc.) but does
     /// not invoke the receiver hook on recipient accounts. Returns the old balance.
@@ -629,7 +638,7 @@ where
     S: Syscalls,
     BS: Blockstore,
 {
-    /// Calls the receiver hook, returning the result
+    /// Calls the receiver hook, returning the result.
     pub fn call_receiver_hook(
         &mut self,
         token_receiver: &Address,
@@ -653,7 +662,7 @@ where
         }
     }
 
-    /// Checks the state invariants, throwing an error if they are not met
+    /// Checks the state invariants, throwing an error if they are not met.
     pub fn assert_invariants(&self) -> std::result::Result<StateSummary, Vec<StateInvariantError>> {
         let (summary, errors) = self.check_invariants();
         match errors.is_empty() {
@@ -662,7 +671,7 @@ where
         }
     }
 
-    /// Checks the state invariants, returning a state summary and list of errors
+    /// Checks the state invariants, returning a state summary and list of errors.
     pub fn check_invariants(&self) -> (StateSummary, Vec<StateInvariantError>) {
         self.state.check_invariants(&self.runtime, self.granularity)
     }
@@ -719,19 +728,19 @@ mod test {
     use crate::token::Token;
     use crate::token::TokenError;
 
-    /// Returns a static secp256k1 address
+    /// Returns a static secp256k1 address.
     fn secp_address() -> Address {
         let key = vec![0; 65];
         Address::new_secp256k1(key.as_slice()).unwrap()
     }
 
-    /// Returns a static BLS address
+    /// Returns a static BLS address.
     fn bls_address() -> Address {
         let key = vec![0; BLS_PUB_LEN];
         Address::new_bls(key.as_slice()).unwrap()
     }
 
-    // Returns a new Actor address, that is uninitializable by the FakeMessenger
+    /// Returns a new Actor address, that is uninitializable by the [`FakeMessenger`].
     fn actor_address() -> Address {
         Address::new_actor(Default::default())
     }

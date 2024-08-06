@@ -31,7 +31,7 @@ use crate::types::TransferIntermediate;
 use crate::types::TransferReturn;
 use crate::util::OperatorSet;
 
-/// Opaque cursor to iterate over internal data structures
+/// Opaque cursor to iterate over internal data structures.
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
 pub struct Cursor {
     pub root: Cid,
@@ -53,7 +53,7 @@ pub struct TokenData {
     pub metadata: String,
 }
 
-/// Each owner stores their own balance and other indexed data
+/// Each owner stores their own balance and other indexed data.
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Clone, Debug)]
 pub struct OwnerData {
     pub balance: u64,
@@ -61,16 +61,17 @@ pub struct OwnerData {
     pub operators: BitField, // maybe as a Cid to an Amt
 }
 
-/// NFT state IPLD structure
+/// NFT state IPLD structure.
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
 pub struct NFTState {
-    /// Amt<TokenId, TokenData> encodes information per token - ownership, operators, metadata etc.
+    /// [`Amt<TokenId, TokenData>`] encodes information per token - ownership, operators, metadata
+    /// etc.
     pub token_data: Cid,
-    /// Hamt<ActorID, OwnerData> index for faster lookup of data often queried by owner
+    /// [`Hamt<ActorID, OwnerData>`] index for faster lookup of data often queried by owner.
     pub owner_data: Cid,
-    /// The next available token id for minting
+    /// The next available token id for minting.
     pub next_token: TokenID,
-    /// The number of minted tokens less the number of burned tokens
+    /// The number of minted tokens less the number of burned tokens.
     pub total_supply: u64,
 }
 
@@ -99,13 +100,13 @@ pub enum StateError {
     ReceiverHook(#[from] ReceiverHookError),
     #[error("invalid cursor")]
     InvalidCursor,
-    /// This error is returned for errors that should never happen
+    /// This error is returned for errors that should never happen.
     #[error("invariant failed: {0}")]
     InvariantFailed(String),
 }
 
 impl NFTState {
-    /// Create a new NFT state-tree, without committing it (the root Cid) to a blockstore
+    /// Create a new NFT state-tree, without committing it (the root Cid) to a blockstore.
     pub fn new<BS: Blockstore>(store: &BS) -> Result<Self> {
         // Blockstore is still needed to create valid Cids for the Hamts
         let empty_token_array =
@@ -177,7 +178,7 @@ impl NFTState {
 }
 
 impl NFTState {
-    /// Mint a new token to the specified address
+    /// Mint a new token to the specified address.
     pub fn mint_tokens<BS: Blockstore>(
         &mut self,
         bs: &BS,
@@ -234,7 +235,7 @@ impl NFTState {
         })
     }
 
-    /// Get the number of tokens owned by a particular address
+    /// Get the number of tokens owned by a particular address.
     pub fn get_balance<BS: Blockstore>(&self, bs: &BS, owner: ActorID) -> Result<u64> {
         let owner_data = self.get_owner_data_hamt(bs)?;
         let balance = match owner_data.get(&actor_id_key(owner))? {
@@ -245,7 +246,7 @@ impl NFTState {
         Ok(balance)
     }
 
-    /// Approves an operator to transfer a set of specified tokens
+    /// Approves an operator to transfer a set of specified tokens.
     ///
     /// The caller should own the tokens or an account-level operator on the owner of the tokens.
     pub fn approve_for_tokens<F, BS: Blockstore>(
@@ -273,7 +274,7 @@ impl NFTState {
         Ok(())
     }
 
-    /// Revokes an operator's permission to transfer the specified tokens
+    /// Revokes an operator's permission to transfer the specified tokens.
     ///
     /// The caller should own the tokens or be an account-level operator on the owner of the tokens.
     pub fn revoke_for_tokens<F, BS: Blockstore>(
@@ -300,11 +301,11 @@ impl NFTState {
         Ok(())
     }
 
-    /// Approves an operator to transfer tokens on behalf of the owner
+    /// Approves an operator to transfer tokens on behalf of the owner.
     ///
     /// The operator becomes authorized at account level, meaning all tokens owned by the account
     /// can be transferred, approved or burned by the operator, including future tokens owned by the
-    /// account
+    /// account.
     ///
     /// The caller should be the owning account.
     pub fn approve_for_owner<BS: Blockstore>(
@@ -330,7 +331,7 @@ impl NFTState {
         Ok(())
     }
 
-    /// Revokes an operator's authorization to transfer tokens on behalf of the owner account
+    /// Revokes an operator's authorization to transfer tokens on behalf of the owner account.
     ///
     /// The caller should be the owner of the account.
     pub fn revoke_for_all<BS: Blockstore>(
@@ -361,14 +362,14 @@ impl NFTState {
         Ok(())
     }
 
-    /// Burns a set of tokens, removing them from circulation and deleting associated metadata
+    /// Burns a set of tokens, removing them from circulation and deleting associated metadata.
     ///
     /// If any of the token_ids cannot be burned (e.g. non-existent, already burned), the entire
-    /// transaction should fail atomically
+    /// transaction should fail atomically.
     ///
-    /// The tokens must all be owned by the same owner
+    /// The tokens must all be owned by the same owner.
     ///
-    /// Returns the new balance of the owner if all tokens were burned successfully
+    /// Returns the new balance of the owner if all tokens were burned successfully.
     pub fn burn_tokens<F, BS: Blockstore>(
         &mut self,
         bs: &BS,
@@ -411,7 +412,7 @@ impl NFTState {
         Ok(new_balance)
     }
 
-    /// Transfers a batch of tokens between the owner and receiver
+    /// Transfers a batch of tokens between the owner and receiver.
     ///
     /// The predicate is checked for each token to be transferred, and the entire transfer is
     /// aborted if the predicate fails. It is the caller's responsibility to check that the
@@ -500,7 +501,7 @@ impl NFTState {
         Ok(())
     }
 
-    /// Checks for account-level approval between owner and operator
+    /// Checks for account-level approval between owner and operator.
     pub fn is_account_operator<BS: Blockstore>(
         owner_map: &Hamt<&BS, OwnerData>,
         owner: ActorID,
@@ -512,7 +513,8 @@ impl NFTState {
         Ok(owner_data.operators.contains_actor(&operator))
     }
 
-    /// Asserts that the actor either owns the token or is an account level operator on the owner of the token
+    /// Asserts that the actor either owns the token or is an account level operator on the owner of
+    /// the token.
     pub fn assert_can_approve_token(
         token_data: &TokenData,
         actor: ActorID,
@@ -525,7 +527,7 @@ impl NFTState {
         Ok(())
     }
 
-    /// Asserts that the given operator is permitted authorised for the specified token
+    /// Asserts that the given operator is permitted authorised for the specified token.
     pub fn assert_token_level_approval(
         token_data: &TokenData,
         token_id: TokenID,
@@ -539,7 +541,7 @@ impl NFTState {
         Ok(())
     }
 
-    // Asserts that a given account owns the specified token
+    /// Asserts that a given account owns the specified token.
     pub fn assert_owns_token(
         token_data: &TokenData,
         token_id: TokenID,
@@ -552,9 +554,9 @@ impl NFTState {
         Ok(())
     }
 
-    /// Converts a MintIntermediate to a MintReturn
+    /// Converts a [`MintIntermediate`] to a [`MintReturn`].
     ///
-    /// This function should be called on a freshly loaded or known-up-to-date state
+    /// This function should be called on a freshly loaded or known-up-to-date state.
     pub fn mint_return<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -570,9 +572,9 @@ impl NFTState {
         })
     }
 
-    /// Converts a TransferIntermediate to a TransferReturn
+    /// Converts a [`TransferIntermediate`] to a [`TransferReturn`].
     ///
-    /// This function should be called on a freshly loaded or known-up-to-date state
+    /// This function should be called on a freshly loaded or known-up-to-date state.
     pub fn transfer_return<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -584,21 +586,21 @@ impl NFTState {
         Ok(TransferReturn { from_balance, to_balance, token_ids: intermediate.token_ids })
     }
 
-    /// Get the metadata for a token
+    /// Get the metadata for a token.
     pub fn get_metadata<BS: Blockstore>(&self, bs: &BS, token_id: TokenID) -> Result<String> {
         let token_data_array = self.get_token_data_amt(bs)?;
         let token = token_data_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
         Ok(token.metadata.clone())
     }
 
-    /// Get the owner of a token
+    /// Get the owner of a token.
     pub fn get_owner<BS: Blockstore>(&self, bs: &BS, token_id: TokenID) -> Result<ActorID> {
         let token_data_array = self.get_token_data_amt(bs)?;
         let token = token_data_array.get(token_id)?.ok_or(StateError::TokenNotFound(token_id))?;
         Ok(token.owner)
     }
 
-    /// List all the minted tokens
+    /// List all the minted tokens.
     pub fn list_tokens<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -644,7 +646,7 @@ impl NFTState {
         Ok((token_ids, next_cursor))
     }
 
-    /// List all the token operators for a given token_id
+    /// List all the token operators for a given `token_id`.
     pub fn list_token_operators<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -672,7 +674,7 @@ impl NFTState {
         Ok((actor_set, next_cursor))
     }
 
-    /// Enumerates tokens for which an account is an operator
+    /// Enumerates tokens for which an account is an operator.
     pub fn list_operator_tokens<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -696,7 +698,7 @@ impl NFTState {
         Ok((operatable_tokens, next_cursor))
     }
 
-    /// List all the token operators for a given account
+    /// List all the token operators for a given account.
     pub fn list_account_operators<BS: Blockstore>(
         &self,
         bs: &BS,
@@ -869,7 +871,7 @@ impl NFTState {
         )
     }
 
-    /// Helper to decode keys from bytes, recording errors if they fail
+    /// Helper to decode keys from bytes, recording errors if they fail.
     fn decode_key_addr(key: &BytesKey, errors: &mut Vec<StateInvariantError>) -> Option<ActorID> {
         match decode_actor_id(key) {
             Some(actor_id) => Some(actor_id),

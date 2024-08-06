@@ -18,10 +18,11 @@ pub struct MintParams {
     pub operator_data: RawBytes,
 }
 
-/// Helper routines to simplify common token operations
+/// Helper routines to simplify common token operations.
 pub trait TokenHelper {
-    /// Get balance from token actor for a given address
-    /// This is a very common thing to check during tests
+    /// Get balance from token actor for a given address.
+    ///
+    /// This is a very common thing to check during tests.
     fn token_balance(
         &mut self,
         operator: Address,
@@ -29,7 +30,7 @@ pub trait TokenHelper {
         target: Address,
     ) -> TokenAmount;
 
-    /// Mint tokens from token_actor to target address
+    /// Mint tokens from token_actor to target address.
     fn mint_tokens(
         &mut self,
         operator: Address,
@@ -39,7 +40,7 @@ pub trait TokenHelper {
         operator_data: RawBytes,
     ) -> ApplyRet;
 
-    /// Mint tokens from token_actor to target address and assert a successful result
+    /// Mint tokens from token_actor to target address and assert a successful result.
     fn mint_tokens_ok(
         &mut self,
         operator: Address,
@@ -49,7 +50,7 @@ pub trait TokenHelper {
         operator_data: RawBytes,
     ) -> ApplyRet;
 
-    /// Check token balance, asserting that balance matches the provided amount
+    /// Check token balance, asserting that balance matches the provided amount.
     fn assert_token_balance(
         &mut self,
         operator: Address,
@@ -58,7 +59,7 @@ pub trait TokenHelper {
         amount: TokenAmount,
     );
 
-    /// Check token balance, asserting a zero balance
+    /// Check token balance, asserting a zero balance.
     fn assert_token_balance_zero(
         &mut self,
         operator: Address,
@@ -66,10 +67,10 @@ pub trait TokenHelper {
         target: Address,
     );
 
-    /// Get total supply of tokens
+    /// Get total supply of tokens.
     fn total_supply(&mut self, operator: Address, token_actor: Address) -> TokenAmount;
 
-    /// Check total supply, asserting that it matches the given amount
+    /// Check total supply, asserting that it matches the given amount.
     fn assert_total_supply(
         &mut self,
         operator: Address,

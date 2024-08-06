@@ -17,7 +17,7 @@ use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitC
 use sdk::NO_DATA_BLOCK_ID;
 use serde::{Deserialize, Serialize};
 
-/// Grab the incoming parameters and convert from RawBytes to deserialized struct
+/// Grab the incoming parameters and convert from RawBytes to deserialized struct.
 pub fn deserialize_params<O: DeserializeOwned>(params: u32) -> O {
     let params = sdk::message::params_raw(params).unwrap().unwrap();
     let params = RawBytes::new(params.data);
@@ -32,46 +32,50 @@ where
     sdk::ipld::put_block(DAG_CBOR, &bytes).unwrap()
 }
 
-/// Action to take in receiver hook or Action method
-/// This gets serialized and sent along as operator_data
+/// Action to take in receiver hook or Action method.
+///
+/// This gets serialized and sent along as [`TransferParams::operator_data`].
 #[derive(Serialize, Deserialize, Debug)]
 pub enum TestAction {
-    /// Accept the tokens
+    /// Accept the tokens.
     Accept,
-    /// Reject the tokens (hook aborts)
+    /// Reject the tokens (hook aborts).
     Reject,
-    /// Transfer to another address (with operator_data that can provide further instructions)
+    /// Transfer to another address (with operator_data that can provide further instructions).
     Transfer(Address, RawBytes),
-    /// Burn incoming tokens
+    /// Burn incoming tokens.
     Burn,
-    /// Take action, then abort afterwards
+    /// Take action, then abort afterwards.
     ActionThenAbort(RawBytes),
-    /// Transfer to another address (with instructions for recipient), but take alternative action if rejected
+    /// Transfer to another address (with instructions for recipient), but take alternative action if rejected.
     TransferWithFallback { to: Address, instructions: RawBytes, fallback: RawBytes },
 }
 
-/// Params for Action method call
-/// This gives us a way to supply the token address, since we won't get it as a sender like we do for hook calls
+/// Params for Action method call.
+///
+/// This gives us a way to supply the token address, since we won't get it as a sender like we do
+/// for hook calls.
 #[derive(Serialize_tuple, Deserialize_tuple, Debug)]
 pub struct ActionParams {
-    /// Address of the token actor
+    /// Address of the token actor.
     pub token_address: Address,
-    /// Action to take with our token balance. Only Transfer and Burn actions apply here.
+    /// Action to take with our token balance. Only [`Transfer`][`TestAction::Transfer`] and
+    /// [`TestAction::Burn`] actions apply here.
     pub action: TestAction,
 }
 
-/// Helper for nesting calls to create action sequences
-/// eg. transfer and then the receiver hook rejects:
-/// action(TestAction::Transfer(
-///         some_address,
-///         action(TestAction::Reject),
-///     ),
-/// )
+/// Helper for nesting calls to create action sequences.
+///
+/// E.g., transfer and then the receiver hook rejects:
+///
+/// ```ignore
+/// action(TestAction::Transfer(some_address, action(TestAction::Reject)))
+/// ```
 pub fn action(action: TestAction) -> RawBytes {
     RawBytes::serialize(action).unwrap()
 }
 
-/// Execute the Transfer action
+/// Execute the Transfer action.
 fn transfer(token: Address, to: Address, amount: TokenAmount, operator_data: RawBytes) -> Receipt {
     let transfer_params = TransferParams { to, amount, operator_data };
     let ret = sdk::send::send(
@@ -92,7 +96,7 @@ fn transfer(token: Address, to: Address, amount: TokenAmount, operator_data: Raw
     }
 }
 
-/// Execute the Burn action
+/// Execute the Burn action.
 fn burn(token: Address, amount: TokenAmount) -> u32 {
     let burn_params = BurnParams { amount };
     let ret = sdk::send::send(

@@ -4,8 +4,10 @@ use anyhow::Result;
 use cid::Cid;
 use fvm_ipld_blockstore::MemoryBlockstore;
 
-/// A shared wrapper around MemoryBlockstore
-/// Clones of it will reference the same underlying MemoryBlockstore, allowing for more complex unit testing
+/// A shared wrapper around [`MemoryBlockstore`].
+///
+/// Clones of it will reference the same underlying [`MemoryBlockstore`], allowing for more complex
+/// unit testing.
 #[derive(Debug, Clone)]
 pub struct SharedMemoryBlockstore {
     store: Rc<MemoryBlockstore>,

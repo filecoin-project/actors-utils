@@ -8,7 +8,7 @@ use fvm_shared::{address::Address, MethodNum, Response};
 use super::Syscalls;
 use crate::util::ActorRuntime;
 
-/// Runtime that delegates to fvm_sdk allowing actors to be deployed on-chain
+/// Runtime that delegates to [`fvm_sdk`] allowing actors to be deployed on-chain.
 #[derive(Default, Debug, Clone, Copy)]
 pub struct FvmSyscalls {}
 

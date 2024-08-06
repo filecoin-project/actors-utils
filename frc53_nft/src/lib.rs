@@ -45,7 +45,7 @@ pub enum NFTError {
 
 pub type Result<T> = std::result::Result<T, NFTError>;
 
-/// A helper handle for NFTState that injects services into the state-level operations
+/// A helper handle for NFTState that injects services into the state-level operations.
 pub struct NFT<'st, S, BS>
 where
     S: Syscalls,
@@ -60,18 +60,20 @@ where
     S: Syscalls,
     BS: Blockstore,
 {
-    /// Wrap an instance of the state-tree in a handle for higher-level operations
+    /// Wrap an instance of the state-tree in a handle for higher-level operations.
     pub fn wrap(runtime: ActorRuntime<S, BS>, state: &'st mut NFTState) -> Self {
         Self { runtime, state }
     }
 
-    /// Flush state and return Cid for root
+    /// Flush state and return Cid for root.
     pub fn flush(&mut self) -> Result<Cid> {
         Ok(self.state.save(&self.runtime)?)
     }
 
-    /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing state
-    /// The old state is returned for convenience but can be safely dropped
+    /// Loads a fresh copy of the state from a blockstore from a given cid, replacing existing
+    /// state.
+    ///
+    /// The old state is returned for convenience but can be safely dropped.
     pub fn load_replace(&mut self, cid: &Cid) -> Result<NFTState> {
         let new_state = NFTState::load(&self.runtime, cid)?;
         Ok(std::mem::replace(self.state, new_state))
@@ -82,8 +84,8 @@ where
     ///
     /// If errors are returned by any intermediate state method, it is recommended to abort the
     /// entire transaction by propagating the error. If state-level errors are explicitly handled,
-    /// it is necessary to reload from the blockstore any passed-in owner HAMT or token AMT to ensure
-    /// partial writes are dropped.
+    /// it is necessary to reload from the blockstore any passed-in owner HAMT or token AMT to
+    /// ensure partial writes are dropped.
     ///
     /// If the closure returns an error, the transaction is dropped atomically and no change is
     /// observed on token state.
@@ -98,7 +100,7 @@ where
         Ok(res)
     }
 
-    /// Check the underlying state for consistency errors
+    /// Check the underlying state for consistency errors.
     pub fn check_invariants(&self) -> std::result::Result<StateSummary, Vec<StateInvariantError>> {
         let (summary, errors) = self.state.check_invariants(&self.runtime);
         if errors.is_empty() {
@@ -114,12 +116,12 @@ where
     S: Syscalls,
     BS: Blockstore,
 {
-    /// Return the total number of NFTs in circulation from this collection
+    /// Return the total number of NFTs in circulation from this collection.
     pub fn total_supply(&self) -> u64 {
         self.state.total_supply
     }
 
-    /// Return the number of NFTs held by a particular address
+    /// Return the number of NFTs held by a particular address.
     pub fn balance_of(&self, address: &Address) -> Result<u64> {
         let balance = match self.runtime.resolve_id(address) {
             Ok(owner) => self.state.get_balance(&self.runtime, owner)?,
@@ -129,23 +131,23 @@ where
         Ok(balance)
     }
 
-    /// Return the owner of an NFT
+    /// Return the owner of an NFT.
     pub fn owner_of(&self, token_id: TokenID) -> Result<ActorID> {
         Ok(self.state.get_owner(&self.runtime, token_id)?)
     }
 
-    /// Return the metadata for an NFT
+    /// Return the metadata for an NFT.
     pub fn metadata(&self, token_id: TokenID) -> Result<String> {
         Ok(self.state.get_metadata(&self.runtime, token_id)?)
     }
 
     /// Create new NFTs belonging to the initial_owner. The mint method is not standardised
-    /// as part of the actor's interface but this is a usefuly method at the library level to
+    /// as part of the actor's interface but this is a useful method at the library level to
     /// generate new tokens that will maintain the necessary state invariants.
     ///
     /// For each string in metadata_array, a new NFT will be minted with the given metadata.
     ///
-    /// Returns a MintIntermediate that can be used to construct return data
+    /// Returns a [`MintIntermediate`] that can be used to construct return data.
     pub fn mint(
         &mut self,
         operator: &Address,
@@ -174,10 +176,10 @@ where
             .map_err(StateError::from)?)
     }
 
-    /// Constructs MintReturn data from a MintIntermediate handle
+    /// Constructs MintReturn data from a MintIntermediate handle.
     ///
     /// Creates an up-to-date view of the actor state where necessary to generate the values
-    /// `prior_state_cid` is the CID of the state prior to hook call
+    /// `prior_state_cid` is the CID of the state prior to hook call.
     pub fn mint_return(
         &mut self,
         intermediate: MintIntermediate,
@@ -187,9 +189,9 @@ where
         Ok(self.state.mint_return(&self.runtime, intermediate)?)
     }
 
-    /// Burn a set of NFTs as the owner and returns the resulting balance
+    /// Burn a set of NFTs as the owner and returns the resulting balance.
     ///
-    /// A burnt TokenID can never be minted again
+    /// A burnt [`TokenID`] can never be minted again.
     pub fn burn(&mut self, owner: &Address, token_ids: &[TokenID]) -> Result<u64> {
         let owner = self.runtime.resolve_id(owner)?;
 
@@ -202,9 +204,9 @@ where
         Ok(balance)
     }
 
-    /// Burn a set of NFTs as an operator and returns the resulting balance
+    /// Burn a set of NFTs as an operator and returns the resulting balance.
     ///
-    /// A burnt TokenID can never be minted again
+    /// A burnt [`TokenID`] can never be minted again.
     pub fn burn_from(
         &mut self,
         owner: &Address,
@@ -235,10 +237,10 @@ where
         Ok(balance)
     }
 
-    /// Approve an operator to transfer or burn a single NFT
+    /// Approve an operator to transfer or burn a single NFT.
     ///
-    /// `caller` may be an account-level operator or owner of the NFT
-    /// `operator` is the new address to become an approved operator
+    /// - `caller` may be an account-level operator or owner of the NFT.
+    /// - `operator` is the new address to become an approved operator.
     pub fn approve(
         &mut self,
         caller: &Address,
@@ -258,10 +260,10 @@ where
         Ok(())
     }
 
-    /// Revoke the approval of an operator to transfer a particular NFT
+    /// Revoke the approval of an operator to transfer a particular NFT.
     ///
-    /// `caller` may be an account-level operator or owner of the NFT
-    /// `operator` is the address whose approval is being revoked
+    /// - `caller` may be an account-level operator or owner of the NFT.
+    /// - `operator` is the address whose approval is being revoked.
     pub fn revoke(
         &mut self,
         caller: &Address,
@@ -284,10 +286,10 @@ where
         Ok(())
     }
 
-    /// Approve an operator to transfer or burn on behalf of the account
+    /// Approve an operator to transfer or burn on behalf of the account.
     ///
-    /// `owner` must be the address that called this method
-    /// `operator` is the new address to become an approved operator
+    /// - `owner` must be the address that called this method.
+    /// - `operator` is the new address to become an approved operator.
     pub fn approve_for_owner(&mut self, owner: &Address, operator: &Address) -> Result<()> {
         let owner = self.runtime.resolve_id(owner)?;
         // Attempt to instantiate the accounts if they don't exist
@@ -298,10 +300,10 @@ where
         Ok(())
     }
 
-    /// Revoke the approval of an operator to transfer on behalf of the caller
+    /// Revoke the approval of an operator to transfer on behalf of the caller.
     ///
-    /// `owner` must be the address that called this method
-    /// `operator` is the address whose approval is being revoked
+    /// - `owner` must be the address that called this method.
+    /// - `operator` is the address whose approval is being revoked.
     pub fn revoke_for_all(&mut self, owner: &Address, operator: &Address) -> Result<()> {
         let owner = self.runtime.resolve_id(owner)?;
         let operator = match self.runtime.resolve_id(operator) {
@@ -314,7 +316,7 @@ where
         Ok(())
     }
 
-    /// Transfers a token owned by the caller
+    /// Transfers a token owned by the caller.
     pub fn transfer(
         &mut self,
         owner: &Address,
@@ -344,10 +346,10 @@ where
         Ok(ReceiverHook::new_frc53(*recipient, params, intermediate).map_err(StateError::from)?)
     }
 
-    /// Constructs TransferReturn data from a TransferIntermediate
+    /// Constructs [`TransferReturn`] data from a [`TransferIntermediate`].
     ///
     /// Creates an up-to-date view of the actor state where necessary to generate the values
-    /// `prior_state_cid` is the CID of the state prior to hook call
+    /// `prior_state_cid` is the CID of the state prior to hook call.
     pub fn transfer_return(
         &mut self,
         intermediate: TransferIntermediate,
@@ -357,7 +359,7 @@ where
         Ok(self.state.transfer_return(&self.runtime, intermediate)?)
     }
 
-    /// Transfers a token that the caller is an operator for
+    /// Transfers a token that the caller is an operator for.
     pub fn transfer_from(
         &mut self,
         owner: &Address,
@@ -404,10 +406,10 @@ where
         Ok(ReceiverHook::new_frc53(*recipient, params, intermediate).map_err(StateError::from)?)
     }
 
-    /// Constructs TransferReturn data from a TransferIntermediate
+    /// Constructs [`TransferReturn`] data from a [`TransferIntermediate`].
     ///
     /// Creates an up-to-date view of the actor state where necessary to generate the values
-    /// `prior_state_cid` is the CID of the state prior to hook call
+    /// `prior_state_cid` is the CID of the state prior to hook call.
     pub fn transfer_from_return(
         &mut self,
         intermediate: TransferIntermediate,
@@ -417,7 +419,7 @@ where
         Ok(self.state.transfer_return(&self.runtime, intermediate)?)
     }
 
-    /// Enumerates a page of TokenIDs
+    /// Enumerates a page of [`TokenID`]s.
     pub fn list_tokens(&self, cursor: RawBytes, limit: u64) -> Result<ListTokensReturn> {
         let cursor = Cursor::from_bytes(cursor)?;
         let (tokens, next_cursor) = self.state.list_tokens(&self.runtime, cursor, limit)?;
@@ -425,7 +427,7 @@ where
         Ok(ListTokensReturn { tokens, next_cursor })
     }
 
-    /// Enumerates a page of TokenIDs owned by a specific address
+    /// Enumerates a page of [`TokenID`]s. owned by a specific address.
     pub fn list_owned_tokens(
         &self,
         owner: &Address,
@@ -440,7 +442,7 @@ where
         Ok(ListTokensReturn { tokens, next_cursor })
     }
 
-    /// Returns all the operators approved by an owner for a token
+    /// Returns all the operators approved by an owner for a token.
     pub fn list_token_operators(
         &self,
         token_id: TokenID,
@@ -454,7 +456,7 @@ where
         Ok(ListTokenOperatorsReturn { operators, next_cursor })
     }
 
-    /// Enumerates tokens for which an account is an operator for an owner
+    /// Enumerates tokens for which an account is an operator for an owner.
     pub fn list_operator_tokens(
         &self,
         operator: &Address,
@@ -469,7 +471,7 @@ where
         Ok(ListOperatorTokensReturn { tokens, next_cursor })
     }
 
-    /// Returns all the account-level operators approved by an owner
+    /// Returns all the account-level operators approved by an owner.
     pub fn list_account_operators(
         &self,
         owner: &Address,
@@ -484,10 +486,11 @@ where
         Ok(ListAccountOperatorsReturn { operators, next_cursor })
     }
 
-    /// Reloads the state if the current root cid has diverged (i.e. during re-entrant receiver hooks)
-    /// from the last known expected cid
+    /// Reloads the state if the current root cid has diverged (i.e. during re-entrant receiver
+    /// hooks) from the last known expected cid.
     ///
-    /// Returns the current in-blockstore state if the root cid has changed else RawBytes::default()
+    /// Returns the current in-blockstore state if the root cid has changed else
+    /// [`RawBytes::default()`].
     pub fn reload_if_changed(&mut self, expected_cid: Cid) -> Result<Option<NFTState>> {
         let current_cid = self.runtime.root_cid()?;
         if current_cid != expected_cid {
@@ -500,7 +503,7 @@ where
 }
 
 impl Cursor {
-    /// Generates a cursor from an opaque representation
+    /// Generates a cursor from an opaque representation.
     pub fn from_bytes(bytes: RawBytes) -> Result<Option<Cursor>> {
         if bytes.is_empty() {
             Ok(None)
@@ -509,7 +512,7 @@ impl Cursor {
         }
     }
 
-    /// Generates an opaque representation of the cursor that can be used to resume enumeration
+    /// Generates an opaque representation of the cursor that can be used to resume enumeration.
     pub fn to_bytes(&self) -> Result<RawBytes> {
         Ok(RawBytes::from(fvm_ipld_encoding::to_vec(self)?))
     }
@@ -587,13 +590,7 @@ mod test {
         {
             // mint no tokens
             let mut hook = nft
-                .mint(
-                    &ALICE,
-                    &ALICE,
-                    vec![String::new(); 0],
-                    RawBytes::default(),
-                    RawBytes::default(),
-                )
+                .mint(&ALICE, &ALICE, Vec::default(), RawBytes::default(), RawBytes::default())
                 .unwrap();
             let res = hook.call(&nft.runtime).unwrap();
             assert_eq!(res.token_ids, Vec::<TokenID>::default());

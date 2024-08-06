@@ -24,13 +24,13 @@ use thiserror::Error;
 use util::{caller_address, deserialize_params, RuntimeError};
 
 struct BasicToken<'state> {
-    /// Default token helper impl
+    /// Default token helper impl.
     util: Token<'state, FvmSyscalls, Blockstore>,
 }
 
-/// Implementation of the token API in a FVM actor
+/// Implementation of the token API in a FVM actor.
 ///
-/// Here the Ipld parameter structs are marshalled and passed to the underlying library functions
+/// Here the Ipld parameter structs are marshalled and passed to the underlying library functions.
 impl FRC46Token for BasicToken<'_> {
     type TokenError = RuntimeError;
     fn name(&self) -> String {

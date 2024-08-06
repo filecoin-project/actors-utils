@@ -10,7 +10,7 @@ use crate::hash::Blake2bHasher;
 struct MethodName(LitStr);
 
 impl MethodName {
-    /// Hash the method name
+    /// Hash the method name.
     fn hash(&self) -> u64 {
         let resolver = MethodResolver::new(Blake2bHasher {});
         resolver.method_number(&self.0.value()).unwrap()

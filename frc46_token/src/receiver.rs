@@ -15,7 +15,7 @@ pub trait FRC46ReceiverHook<T: RecipientData> {
 }
 
 impl<T: RecipientData> FRC46ReceiverHook<T> for ReceiverHook<T> {
-    /// Construct a new FRC46 ReceiverHook call
+    /// Construct a new FRC46 [`ReceiverHook`] call.
     fn new_frc46(
         address: Address,
         frc46_params: FRC46TokenReceived,
@@ -30,19 +30,19 @@ impl<T: RecipientData> FRC46ReceiverHook<T> for ReceiverHook<T> {
     }
 }
 
-/// Receive parameters for an FRC46 token
+/// Receive parameters for an FRC46 token.
 #[derive(Serialize_tuple, Deserialize_tuple, PartialEq, Eq, Clone, Debug)]
 pub struct FRC46TokenReceived {
-    /// The account that the tokens are being pulled from (the token actor address itself for mint)
+    /// The account that the tokens are being pulled from (the token actor address itself for mint).
     pub from: ActorID,
-    /// The account that the tokens are being sent to (the receiver address)
+    /// The account that the tokens are being sent to (the receiver address).
     pub to: ActorID,
-    /// Address of the operator that initiated the transfer/mint
+    /// Address of the operator that initiated the transfer/mint.
     pub operator: ActorID,
-    /// Amount of tokens being transferred/minted
+    /// Amount of tokens being transferred/minted.
     pub amount: TokenAmount,
-    /// Data specified by the operator during transfer/mint
+    /// Data specified by the operator during transfer/mint.
     pub operator_data: RawBytes,
-    /// Additional data specified by the token-actor during transfer/mint
+    /// Additional data specified by the token-actor during transfer/mint.
     pub token_data: RawBytes,
 }
