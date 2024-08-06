@@ -1,0 +1,32 @@
+name: Release Checker
+
+on:
+  pull_request_target:
+    paths:
+      - "**/Cargo.toml"
+    types: [ opened, synchronize, reopened, labeled, unlabeled ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-check:
+    uses: ipdxco/unified-github-workflows/.github/workflows/release-check.yml@v1.0
+    with:
+      sources: |
+        [
+          "frc42_dispatch/Cargo.toml",
+          "frc42_dispatch/hasher/Cargo.toml",
+          "frc42_dispatch/macros/Cargo.toml",
+          "frc46_token/Cargo.toml",
+          "frc53_nft/Cargo.toml",
+          "fvm_actor_utils/Cargo.toml",
+          "fvm_dispatch_tools/Cargo.toml"
+        ]
+      separator: "@"
