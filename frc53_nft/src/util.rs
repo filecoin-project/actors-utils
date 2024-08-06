@@ -28,16 +28,17 @@ impl OperatorSet for BitField {
     }
 }
 
-/// Maintains set-like invariants in-memory by maintaining sorted order of the underlying array.
-///
-/// Insertion and deletion are O(n) operations but we expect operator lists to be a relatively small
-/// size.
 // TODO: benchmark this against some other options such as
 // - BTreeSet in memory, Vec serialized
 // - BTreeSet in memory and serialization
 // - HashSets...
 // - Hamt<ActorID, ()>
 // - Amt<ActorID>
+
+/// Maintains set-like invariants in-memory by maintaining sorted order of the underlying array.
+///
+/// Insertion and deletion are O(n) operations but we expect operator lists to be a relatively small
+/// size.
 impl OperatorSet for Vec<ActorID> {
     fn add_operator(&mut self, id: ActorID) {
         if let Err(pos) = self.binary_search(&id) {
