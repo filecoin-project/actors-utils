@@ -1,4 +1,4 @@
-use cid::{multihash::Code, Cid};
+use cid::Cid;
 use frc42_dispatch::match_method;
 use frc46_token::token::{
     state::{StateError, TokenState},
@@ -24,6 +24,7 @@ use fvm_ipld_encoding::{
 use fvm_sdk::error::{StateReadError, StateUpdateError};
 use fvm_sdk::{self as sdk, sys::ErrorNumber, NO_DATA_BLOCK_ID};
 use fvm_shared::{address::Address, econ::TokenAmount, error::ExitCode, ActorID};
+use multihash_codetable::Code;
 use serde::{de::DeserializeOwned, ser::Serialize};
 use thiserror::Error;
 

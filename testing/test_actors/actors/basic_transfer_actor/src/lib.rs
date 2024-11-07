@@ -1,4 +1,4 @@
-use cid::{multihash::Code, Cid};
+use cid::Cid;
 use frc42_dispatch::{match_method, method_hash};
 use frc46_token::receiver::{FRC46TokenReceived, FRC46_TOKEN_TYPE};
 use frc46_token::token::types::TransferParams;
@@ -10,6 +10,7 @@ use fvm_ipld_encoding::{de::DeserializeOwned, RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
 use fvm_shared::sys::SendFlags;
 use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount, error::ExitCode};
+use multihash_codetable::Code;
 use sdk::NO_DATA_BLOCK_ID;
 
 /// Grab the incoming parameters and convert from [`RawBytes`] to the deserialized struct.
