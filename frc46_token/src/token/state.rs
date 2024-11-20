@@ -788,7 +788,6 @@ pub struct StateSummary {
 
 #[cfg(test)]
 mod test {
-    use cid::Cid;
     use fvm_ipld_blockstore::{Block, Blockstore, MemoryBlockstore};
     use fvm_ipld_encoding::DAG_CBOR;
     use fvm_shared::econ::TokenAmount;
@@ -811,11 +810,12 @@ mod test {
     fn it_handles_missing_data_load() {
         // try to load from an empty blockstore (and default Cid)
         let bs = &MemoryBlockstore::new();
-        let cid = Cid::default();
+        let block = Block { codec: DAG_CBOR, data: Vec::new() };
+        let cid = block.cid(Code::Blake2b256);
         let res = TokenState::load(bs, &cid);
         match res {
             Err(StateError::MissingState(_)) => {}
-            _ => panic!("unexpected result"),
+            r => panic!("unexpected result {r:?}"),
         }
     }
 
