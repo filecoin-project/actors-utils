@@ -40,8 +40,8 @@ anyhow = { version = "1.0.56" }
 multihash-codetable = { version = "0.1.4" }
 
 # internal deps of published packages
-frc42_dispatch = { version = "7.0.0", path = "./frc42_dispatch", default-features = false }
-fvm_actor_utils = { version = "11.0.0", path = "./fvm_actor_utils" }
+frc42_dispatch = { version = "8.0.0", path = "./frc42_dispatch", default-features = false }
+fvm_actor_utils = { version = "12.0.0", path = "./fvm_actor_utils" }
 
 # only consumed by non-published packages
 frc53_nft = { path = "./frc53_nft" }
