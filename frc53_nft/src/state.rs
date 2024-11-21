@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::mem;
 use std::vec;
 
-use cid::multihash::Code;
 use cid::Cid;
 use fvm_actor_utils::receiver::ReceiverHookError;
 use fvm_ipld_amt::Amt;
@@ -20,6 +19,7 @@ use fvm_ipld_hamt::Error as HamtError;
 use fvm_ipld_hamt::Hamt;
 use fvm_shared::ActorID;
 use integer_encoding::VarInt;
+use multihash_codetable::Code;
 use thiserror::Error;
 
 use crate::types::ActorIDSet;

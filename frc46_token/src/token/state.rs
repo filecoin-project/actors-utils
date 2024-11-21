@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Neg;
 
-use cid::multihash::Code;
 use cid::Cid;
 use fvm_ipld_blockstore::Block;
 use fvm_ipld_blockstore::Blockstore;
@@ -16,6 +15,7 @@ use fvm_shared::econ::TokenAmount;
 use fvm_shared::error::ExitCode;
 use fvm_shared::ActorID;
 use integer_encoding::VarInt;
+use multihash_codetable::Code;
 use thiserror::Error;
 
 /// This value has been chosen to optimise to reduce gas-costs when accessing the balances map. Non-
@@ -788,12 +788,11 @@ pub struct StateSummary {
 
 #[cfg(test)]
 mod test {
-    use cid::multihash::Code;
-    use cid::Cid;
     use fvm_ipld_blockstore::{Block, Blockstore, MemoryBlockstore};
     use fvm_ipld_encoding::DAG_CBOR;
     use fvm_shared::econ::TokenAmount;
     use fvm_shared::{bigint::Zero, ActorID};
+    use multihash_codetable::Code;
 
     use super::TokenState;
     use crate::token::state::{actor_id_key, OwnerAllowanceMap, StateError, StateInvariantError};
@@ -811,11 +810,12 @@ mod test {
     fn it_handles_missing_data_load() {
         // try to load from an empty blockstore (and default Cid)
         let bs = &MemoryBlockstore::new();
-        let cid = Cid::default();
+        let block = Block { codec: DAG_CBOR, data: Vec::new() };
+        let cid = block.cid(Code::Blake2b256);
         let res = TokenState::load(bs, &cid);
         match res {
             Err(StateError::MissingState(_)) => {}
-            _ => panic!("unexpected result"),
+            r => panic!("unexpected result {r:?}"),
         }
     }
 

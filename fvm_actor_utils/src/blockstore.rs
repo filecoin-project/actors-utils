@@ -1,9 +1,9 @@
 use anyhow::anyhow;
 use anyhow::Result;
-use cid::multihash::Code;
 use cid::Cid;
 use fvm_ipld_blockstore::Block;
 use fvm_sdk::ipld;
+use multihash_codetable::Code;
 
 /// A blockstore that delegates to IPLD syscalls.
 #[derive(Default, Debug, Copy, Clone)]

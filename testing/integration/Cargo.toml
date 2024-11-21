@@ -23,6 +23,6 @@ serde = { workspace = true }
 serde_tuple = { workspace = true }
 
 [dev-dependencies]
-actors-v12 = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", branch = "fvm-next" }
+actors = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", branch = "steb/update-multihash" }
 helix_test_actors = { path = "../test_actors" }
 token_impl = { path = "../test_actors/actors/frc46_factory_token/token_impl" }
