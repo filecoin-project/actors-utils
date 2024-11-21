@@ -37,7 +37,7 @@ thiserror = { version = "1.0.31" }
 integer-encoding = { version = "4.0.0" }
 num-traits = { version = "0.2.15" }
 anyhow = { version = "1.0.56" }
-multihash-codetable = { version = "0.1.4" }
+multihash-codetable = { version = "0.1.4", default-features = false }
 
 # internal deps of published packages
 frc42_dispatch = { version = "8.0.0", path = "./frc42_dispatch", default-features = false }
