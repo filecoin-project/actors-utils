@@ -9,6 +9,11 @@ WASM_EXCLUSION = \
 	--exclude frc46_factory_token \
 	--exclude frc53_test_actor
 
+ACTORS_VERSION=v15.0.0
+ACTORS_NETWORK=mainnet
+ACTORS_BUNDLE_NAME=builtin-actors-${ACTORS_VERSION}-${ACTORS_NETWORK}.car
+ACTORS_URL=https://github.com/filecoin-project/builtin-actors/releases/download/${ACTORS_VERSION}/builtin-actors-${ACTORS_NETWORK}.car
+
 # actors are built to WASM via the helix_test_actors crate and be built individually as standalone
 # crates so we exclude the from this convenience target
 build: install-toolchain
@@ -20,18 +25,30 @@ check: install-toolchain
 
 check-build: check build
 
+
+testing/bundles/${ACTORS_BUNDLE_NAME}:
+	curl -fL --create-dirs --output $@ ${ACTORS_URL}
+
+fetch-bundle: testing/bundles/${ACTORS_BUNDLE_NAME}
+	ln -sf ${ACTORS_BUNDLE_NAME} testing/bundles/builtin-actors.car
+.PHONY: fetch-bundle
+
+
+test-deps: install-toolchain fetch-bundle
+.PHONY: test-deps
+
 # run all tests, this will not work if using RUSTFLAGS="-Zprofile" to generate profile info or coverage reports
 # as any WASM targets will fail to build
-test: install-toolchain
+test: test-deps
 	cargo test
 
 # tests excluding actors so we can generate coverage reports during CI build
 # WASM targets such as actors do not support this so are excluded
-test-coverage: install-toolchain
+test-coverage: test-deps
 	cargo test --workspace $(WASM_EXCLUSION)
 
 # separate actor testing stage to run from CI without coverage support
-test-actors: install-toolchain
+test-actors: test-deps
 	cargo test --package greeter --package helix_integration_tests
 
 install-toolchain:
@@ -44,6 +61,7 @@ clean:
 	cargo clean
 	find . -name '*.profraw' -delete
 	rm Cargo.lock
+	rm -r testing/bundles
 
 # generate local coverage report in html format using grcov
 # install it with `cargo install grcov`
