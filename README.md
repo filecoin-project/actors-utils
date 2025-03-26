@@ -6,7 +6,7 @@ store humanity's most important information.
 This repo contains utilities and libraries to work with the
 [Filecoin Virtual Machine](https://fvm.filecoin.io/)
 
-[![Coverage Status](https://coveralls.io/repos/github/helix-onchain/filecoin/badge.svg?branch=main)](https://coveralls.io/github/helix-onchain/filecoin?branch=main)
+[![codecov](https://codecov.io/gh/filecoin-project/actors-utils/graph/badge.svg?token=5I8ddKxkjm)](https://codecov.io/gh/filecoin-project/actors-utils)
 
 ## Packages
 
