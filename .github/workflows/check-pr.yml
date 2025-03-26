@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Build
         run: make check-build
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Test Actors
         run: make test-actors
@@ -33,15 +33,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     - name: Installing Cargo llvm-cov
-      uses: taiki-e/install-action@bc0a06a003a8225fe3e896c9ed3a4c3cc2e8416a
+      uses: taiki-e/install-action@5651179950649c44da31d346537e20c0534f0f25
       with:
         tool: cargo-llvm-cov@0.4.5
     - name: Running tests with coverage
       run: make ci-test-coverage
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@d9f34f8cd5cb3b3eb79b3e4b5dae3a16df499a70
+      uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574
       with:
         files: ci-coverage.info
         token: ${{ secrets.CODECOV_TOKEN }}
