@@ -32,6 +32,12 @@ test-coverage: install-toolchain
 	RUSTFLAGS='-Cinstrument-coverage -C codegen-units=1 -C llvm-args=--inline-threshold=0 -C overflow-checks=off' \
 	LLVM_PROFILE_FILE='target/coverage/raw/cargo-test-%p-%m.profraw' \
 	cargo test --workspace $(WASM_EXCLUSION)
+	grcov . --binary-path ./target/debug/deps/ -s . -t html --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o target/coverage/html
+
+# Just run the tests we want coverage of (for CI)
+ci-test-coverage: install-toolchain
+	rustup component add llvm-tools-preview
+	cargo llvm-cov --lcov --output-path ci-coverage.info --workspace $(WASM_EXCLUSION)
 
 # separate actor testing stage to run from CI without coverage support
 test-actors: install-toolchain
@@ -48,4 +54,3 @@ clean:
 # generate local coverage report in html format using grcov
 # install it with `cargo install grcov`
 local-coverage: test-coveuage
-	grcov . --binary-path ./target/debug/deps/ -s . -t html --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o target/coverage/html

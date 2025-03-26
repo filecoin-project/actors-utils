@@ -29,26 +29,22 @@ jobs:
       - name: Test Actors
         run: make test-actors
   code-coverage:
-    if: github.event.pull_request.draft == false 
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Test Libraries
-        run: make test-coverage
-        env:
-          CARGO_INCREMENTAL: '0'
-          RUSTFLAGS: '-C instrument-coverage -C codegen-units=1 -C llvm-args=--inline-threshold=0 -C overflow-checks=off'
-          RUSTDOCFLAGS: '-C instrument-coverage -C codegen-units=1 -C llvm-args=--inline-threshold=0 -C overflow-checks=off'
-          RUSTC_BOOTSTRAP: '1'
-
-      - name: Generate Coverage Report
-        id: coverage
-        uses: actions-rs/grcov@v0.1
-
-      - name: Upload to Coveralls
-        uses: coverallsapp/github-action@master
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: ${{ steps.coverage.outputs.report }}
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Installing Cargo llvm-cov
+      uses: taiki-e/install-action@bc0a06a003a8225fe3e896c9ed3a4c3cc2e8416a
+      with:
+        tool: cargo-llvm-cov@0.4.5
+    - name: Running tests with coverage
+      run: make ci-test-coverage
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@d9f34f8cd5cb3b3eb79b3e4b5dae3a16df499a70
+      with:
+        files: ci-coverage.info
+        token: ${{ secrets.CODECOV_TOKEN }}
+        # Codecov is flaky and will randomly fail. We'd rather not have random failures on master.
+        fail_ci_if_error: false
+        verbose: true
