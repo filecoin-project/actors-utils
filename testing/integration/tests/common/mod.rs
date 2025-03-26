@@ -18,6 +18,8 @@ use serde::Serialize;
 pub mod frc46_token_helpers;
 pub mod frc53_nft_helpers;
 
+static BUNDLE_CAR: &'static [u8] = include_bytes!("../../../bundles/builtin-actors.car");
+
 /// Helper routines to simplify common operations with a [`Tester`].
 pub trait TestHelpers {
     /// Call a method on an actor.
@@ -65,7 +67,7 @@ pub fn load_actor_wasm(path: &str) -> Vec<u8> {
 /// This mainly cuts down on noise with importing the built-in actor bundle and network/state tree
 /// versions.
 pub fn construct_tester<BS: Blockstore + Clone, E: Externs>(blockstore: &BS) -> Tester<BS, E> {
-    let bundle_root = bundle::import_bundle(&blockstore, actors::BUNDLE_CAR).unwrap();
+    let bundle_root = bundle::import_bundle(&blockstore, BUNDLE_CAR).unwrap();
 
     Tester::new(NetworkVersion::V21, StateTreeVersion::V5, bundle_root, blockstore.clone()).unwrap()
 }

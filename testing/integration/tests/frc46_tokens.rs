@@ -2,20 +2,20 @@ use cid::Cid;
 use frc42_dispatch::method_hash;
 use frc46_token::token::{state::TokenState, types::MintReturn};
 use fvm::executor::{ApplyKind, Executor};
-use fvm_integration_tests::bundle;
 use fvm_integration_tests::dummy::DummyExterns;
-use fvm_integration_tests::tester::{Account, Tester};
+use fvm_integration_tests::tester::Account;
 use fvm_ipld_blockstore::MemoryBlockstore;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::bigint::Zero;
 use fvm_shared::econ::TokenAmount;
 use fvm_shared::message::Message;
-use fvm_shared::state::StateTreeVersion;
-use fvm_shared::version::NetworkVersion;
 use helix_test_actors::BASIC_RECEIVING_ACTOR_BINARY;
 use helix_test_actors::BASIC_TOKEN_ACTOR_BINARY;
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
+
+mod common;
+use common::construct_tester;
 
 // Duplicated type from basic_token_actor
 #[derive(Serialize_tuple, Deserialize_tuple, Clone, Debug)]
@@ -28,10 +28,7 @@ pub struct MintParams {
 #[test]
 fn it_mints_tokens() {
     let blockstore = MemoryBlockstore::default();
-    let bundle_root = bundle::import_bundle(&blockstore, actors::BUNDLE_CAR).unwrap();
-    let mut tester =
-        Tester::new(NetworkVersion::V21, StateTreeVersion::V5, bundle_root, blockstore.clone())
-            .unwrap();
+    let mut tester = construct_tester(&blockstore);
 
     let minter: [Account; 1] = tester.create_accounts().unwrap();
 

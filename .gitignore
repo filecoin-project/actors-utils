@@ -16,3 +16,5 @@ Cargo.lock
 # Code coverage instrumentation
 coverage/
 *.profraw
+
+testing/bundles/

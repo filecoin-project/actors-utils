@@ -23,6 +23,5 @@ serde = { workspace = true }
 serde_tuple = { workspace = true }
 
 [dev-dependencies]
-actors = { package = "fil_builtin_actors_bundle", git = "https://github.com/filecoin-project/builtin-actors", branch = "master" }
 helix_test_actors = { path = "../test_actors" }
 token_impl = { path = "../test_actors/actors/frc46_factory_token/token_impl" }

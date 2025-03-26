@@ -62,6 +62,10 @@ Dual-licensed: [MIT](./LICENSE-MIT),
 
 ## Testing
 
+The tests require downloading a builtin-actors bundle. Either run the tests with `make test` or run `make test-deps` before running tests manually with cargo.
+
+You can change the actors version by changing `ACTORS_VERSION` in the `Makefile`. If you want to test with a custom bundle entirely, replace the `testing/bundles/builtin-actors.car` symlink with the custom bundle. Note, however, that running `make test` will revert that change, so you'll want to test with `cargo test` manually.
+
 For local coverage testing, please install the `grcov` crate.
 
 <sub>Copyright Protocol Labs, Inc, 2022</sub>
