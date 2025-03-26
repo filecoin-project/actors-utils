@@ -24,5 +24,4 @@ serde_tuple = { workspace = true }
 
 [dev-dependencies]
 helix_test_actors = { path = "../test_actors" }
-reqwest = "0.12.15"
 token_impl = { path = "../test_actors/actors/frc46_factory_token/token_impl" }
