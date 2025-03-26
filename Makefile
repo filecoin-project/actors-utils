@@ -38,10 +38,7 @@ test-actors: install-toolchain
 	cargo test --package greeter --package helix_integration_tests
 
 install-toolchain:
-	rustup update
-	rustup component add rustfmt
-	rustup component add clippy
-	rustup target add wasm32-unknown-unknown
+	rustup show active-toolchain || rustup toolchain install
 
 clean:
 	cargo clean
@@ -50,5 +47,5 @@ clean:
 
 # generate local coverage report in html format using grcov
 # install it with `cargo install grcov`
-local-coverage: test-coverage
+local-coverage: test-coveuage
 	grcov . --binary-path ./target/debug/deps/ -s . -t html --branch --ignore-not-existing --ignore '../*' --ignore "/*" -o target/coverage/html
