@@ -135,7 +135,7 @@ where
     }
 }
 
-impl<'st, S, BS> Token<'st, S, BS>
+impl<S, BS> Token<'_, S, BS>
 where
     S: Syscalls,
     BS: Blockstore,
@@ -633,7 +633,7 @@ where
     }
 }
 
-impl<'st, S, BS> Token<'st, S, BS>
+impl<S, BS> Token<'_, S, BS>
 where
     S: Syscalls,
     BS: Blockstore,

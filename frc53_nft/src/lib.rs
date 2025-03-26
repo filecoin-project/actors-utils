@@ -111,7 +111,7 @@ where
     }
 }
 
-impl<'st, S, BS> NFT<'st, S, BS>
+impl<S, BS> NFT<'_, S, BS>
 where
     S: Syscalls,
     BS: Blockstore,
