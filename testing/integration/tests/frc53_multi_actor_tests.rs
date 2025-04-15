@@ -10,9 +10,9 @@ use fvm_shared::{address::Address, receipt::Receipt};
 mod common;
 use common::frc53_nft_helpers::{MintParams, NFTHelper};
 use common::{construct_tester, TestHelpers};
+use fvm_ipld_encoding::tuple::*;
 use helix_test_actors::{BASIC_NFT_ACTOR_BINARY, FRC53_TEST_ACTOR_BINARY};
 use serde::{Deserialize, Serialize};
-use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
 fn action_params(token_address: Address, action: TestAction) -> RawBytes {
     RawBytes::serialize(ActionParams { token_address, action }).unwrap()

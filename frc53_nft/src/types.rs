@@ -2,7 +2,7 @@
 use cid::Cid;
 use fvm_actor_utils::receiver::RecipientData;
 use fvm_ipld_bitfield::BitField;
-use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
+use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::ActorID;

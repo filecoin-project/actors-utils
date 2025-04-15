@@ -14,7 +14,6 @@ fvm_ipld_encoding = { workspace = true }
 fvm_sdk = { workspace = true }
 fvm_shared = { workspace = true }
 serde = { workspace = true }
-serde_tuple = { workspace = true }
 thiserror = { workspace = true }
 token_impl = { path = "token_impl" }
 

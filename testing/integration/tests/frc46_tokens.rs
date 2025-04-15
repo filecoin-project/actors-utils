@@ -5,6 +5,7 @@ use fvm::executor::{ApplyKind, Executor};
 use fvm_integration_tests::dummy::DummyExterns;
 use fvm_integration_tests::tester::Account;
 use fvm_ipld_blockstore::MemoryBlockstore;
+use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::address::Address;
 use fvm_shared::bigint::Zero;
@@ -12,7 +13,6 @@ use fvm_shared::econ::TokenAmount;
 use fvm_shared::message::Message;
 use helix_test_actors::BASIC_RECEIVING_ACTOR_BINARY;
 use helix_test_actors::BASIC_TOKEN_ACTOR_BINARY;
-use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
 mod common;
 use common::construct_tester;

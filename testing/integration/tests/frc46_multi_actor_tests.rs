@@ -10,9 +10,9 @@ use fvm_shared::{
 mod common;
 use common::frc46_token_helpers::TokenHelper;
 use common::{construct_tester, TestHelpers};
+use fvm_ipld_encoding::tuple::*;
 use helix_test_actors::{FRC46_FACTORY_TOKEN_ACTOR_BINARY, FRC46_TEST_ACTOR_BINARY};
 use serde::{Deserialize, Serialize};
-use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 use token_impl::ConstructorParams;
 
 #[test]

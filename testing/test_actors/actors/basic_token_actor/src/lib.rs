@@ -11,7 +11,7 @@ use frc46_token::token::Token;
 use fvm_actor_utils::blockstore::Blockstore;
 use fvm_actor_utils::syscalls::fvm_syscalls::FvmSyscalls;
 use fvm_actor_utils::util::ActorRuntime;
-use fvm_ipld_encoding::tuple::{Deserialize_tuple, Serialize_tuple};
+use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::{RawBytes, DAG_CBOR};
 use fvm_sdk as sdk;
 use fvm_shared::address::Address;
