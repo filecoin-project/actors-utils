@@ -19,9 +19,9 @@ ACTORS_URL=https://github.com/filecoin-project/builtin-actors/releases/download/
 build: install-toolchain
 	cargo build --workspace $(WASM_EXCLUSION)
 
-check: install-toolchain
+check: install-toolchain fetch-bundle
 	cargo fmt --check
-	cargo clippy --workspace -- -D warnings
+	cargo clippy --workspace --all-targets -- -D warnings
 
 check-build: check build
 
