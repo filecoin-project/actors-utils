@@ -17,8 +17,8 @@ members = [
 ]
 
 [workspace.dependencies]
-blake2b_simd = { version = "1.0.0" }
-clap = { version = "4.3.21", features = ["derive"] }
+blake2b_simd = { version = "1.0.3" }
+clap = { version = "4.5.36", features = ["derive"] }
 cid = { version = "0.11.1", default-features = false, features = [
     "serde",
 ] }
@@ -31,11 +31,11 @@ fvm_ipld_encoding = "0.5.3"
 fvm_ipld_hamt = "0.10.4"
 fvm_sdk = "~4.7"
 fvm_shared = "~4.7"
-serde = { version = "1.0.136", features = ["derive"] }
-thiserror = { version = "1.0.31" }
-integer-encoding = { version = "4.0.0" }
-num-traits = { version = "0.2.15" }
-anyhow = { version = "1.0.56" }
+serde = { version = "1.0.219", features = ["derive"] }
+thiserror = { version = "2.0.12" }
+integer-encoding = { version = "4.0.2" }
+num-traits = { version = "0.2.19" }
+anyhow = { version = "1.0.98" }
 multihash-codetable = { version = "0.1.4", default-features = false }
 
 # internal deps of published packages

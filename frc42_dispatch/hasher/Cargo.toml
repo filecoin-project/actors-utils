@@ -9,7 +9,7 @@ edition = "2021"
 [dependencies]
 fvm_sdk = { workspace = true, optional = true }
 fvm_shared = { workspace = true, optional = true }
-thiserror = { version = "1.0.31" }
+thiserror = { version = "2.0.12" }
 
 [features]
 # The fvm dependencies are optional. Useful for proc macro and similar purposes.
