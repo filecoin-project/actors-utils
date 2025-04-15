@@ -18,7 +18,7 @@ use serde::Serialize;
 pub mod frc46_token_helpers;
 pub mod frc53_nft_helpers;
 
-static BUNDLE_CAR: &'static [u8] = include_bytes!("../../../bundles/builtin-actors.car");
+static BUNDLE_CAR: &[u8] = include_bytes!("../../../bundles/builtin-actors.car");
 
 /// Helper routines to simplify common operations with a [`Tester`].
 pub trait TestHelpers {
