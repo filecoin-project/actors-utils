@@ -3,9 +3,9 @@ use frc53_nft::types::TokenID;
 use fvm::{executor::ApplyRet, externs::Externs};
 use fvm_integration_tests::tester::Tester;
 use fvm_ipld_blockstore::Blockstore;
+use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, ActorID};
-use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
 use super::TestHelpers;
 

@@ -2,9 +2,9 @@ use frc42_dispatch::method_hash;
 use fvm::{executor::ApplyRet, externs::Externs};
 use fvm_integration_tests::tester::Tester;
 use fvm_ipld_blockstore::Blockstore;
+use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, bigint::Zero, econ::TokenAmount};
-use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
 use super::TestHelpers;
 

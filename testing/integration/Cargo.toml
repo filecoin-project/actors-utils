@@ -20,7 +20,6 @@ fvm_ipld_bitfield = { workspace = true }
 fvm_ipld_encoding = { workspace = true }
 fvm_shared = { workspace = true }
 serde = { workspace = true }
-serde_tuple = { workspace = true }
 
 [dev-dependencies]
 helix_test_actors = { path = "../test_actors" }

@@ -32,7 +32,6 @@ fvm_ipld_hamt = "0.10.4"
 fvm_sdk = "~4.7"
 fvm_shared = "~4.7"
 serde = { version = "1.0.136", features = ["derive"] }
-serde_tuple = { version = "0.5.0" }
 thiserror = { version = "1.0.31" }
 integer-encoding = { version = "4.0.0" }
 num-traits = { version = "0.2.15" }

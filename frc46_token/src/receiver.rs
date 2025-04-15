@@ -1,8 +1,8 @@
 use frc42_dispatch::method_hash;
 use fvm_actor_utils::receiver::{ReceiverHook, ReceiverHookError, ReceiverType, RecipientData};
+use fvm_ipld_encoding::tuple::*;
 use fvm_ipld_encoding::RawBytes;
 use fvm_shared::{address::Address, econ::TokenAmount, ActorID};
-use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
 pub const FRC46_TOKEN_TYPE: ReceiverType = method_hash!("FRC46") as u32;
 

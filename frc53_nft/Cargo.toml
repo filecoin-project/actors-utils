@@ -24,5 +24,4 @@ integer-encoding = { workspace = true }
 multihash-codetable = { workspace = true, features = ["blake2b"] }
 num-traits = { workspace = true }
 serde = { workspace = true }
-serde_tuple = { workspace = true }
 thiserror = { workspace = true }

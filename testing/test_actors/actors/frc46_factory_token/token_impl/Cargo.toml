@@ -15,6 +15,5 @@ fvm_sdk = { workspace = true }
 fvm_shared = { workspace = true }
 multihash-codetable = { workspace = true, features = ["blake2b"] }
 serde = { workspace = true }
-serde_tuple = { workspace = true }
 thiserror = { workspace = true }
 
