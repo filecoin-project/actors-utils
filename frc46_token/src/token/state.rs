@@ -117,7 +117,7 @@ pub struct TokenState {
     /// `balances[owner][operator]`.
     pub allowances: Cid,
     /// Bit-width to use when loading Hamts.
-    hamt_bit_width: u32,
+    pub hamt_bit_width: u32,
 }
 
 /// An abstraction over the IPLD layer to get and modify token state without dealing with HAMTs etc.
