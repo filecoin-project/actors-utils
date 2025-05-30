@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use frc42_dispatch::match_method;
 use fvm_actor_utils::{
     blockstore::Blockstore, syscalls::fvm_syscalls::FvmSyscalls, util::ActorRuntime,

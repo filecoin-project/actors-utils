@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 mod util;
 
 use cid::Cid;
