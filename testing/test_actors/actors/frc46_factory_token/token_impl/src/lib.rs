@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use cid::Cid;
 use frc42_dispatch::match_method;
 use frc46_token::token::{
