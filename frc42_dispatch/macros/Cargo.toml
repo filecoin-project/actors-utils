@@ -3,7 +3,7 @@ name = "frc42_macros"
 version = "8.0.0"
 license = "MIT OR Apache-2.0"
 description = "Filecoin FRC-0042 calling convention procedural macros"
-repository = "https://github.com/helix-onchain/filecoin/"
+repository = "https://github.com/filecoin-project/actors-utils"
 edition = "2021"
 
 [lib]

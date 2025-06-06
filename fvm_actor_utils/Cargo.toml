@@ -4,7 +4,7 @@ description = "Utils for authoring native actors for the Filecoin Virtual Machin
 version = "14.0.0"
 license = "MIT OR Apache-2.0"
 keywords = ["filecoin", "fvm"]
-repository = "https://github.com/helix-onchain/filecoin/"
+repository = "https://github.com/filecoin-project/actors-utils"
 edition = "2021"
 
 [dependencies]
