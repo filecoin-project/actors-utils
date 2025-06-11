@@ -55,6 +55,67 @@ A configurable actor that can be used as a factory to create instances of
 tokens, based on [frc46_token](./frc46_token/README.md) and implemented
 [here](./testing/test_actors/actors/frc46_factory_token/)
 
+## Release Process
+
+This section documents the release process for actor-utils packages.
+
+### Published Packages
+
+The following packages are published to [crates.io](https://crates.io):
+
+- **`fvm_actor_utils`** - Core utilities for FVM native actors
+- **`frc42_dispatch`** - Method dispatch macros and utilities  
+- **`frc42_hasher`** - FRC-0042 method hashing utilities
+- **`frc42_macros`** - FRC-0042 procedural macros
+- **`frc46_token`** - Fungible token reference implementation
+- **`frc53_nft`** - Non-fungible token reference implementation
+- **`fvm_dispatch_tools`** - CLI utilities for method dispatch
+
+#### Release Steps
+
+1. **Version Bumping**
+   ```bash
+   # Update version in package Cargo.toml
+   # Update workspace dependencies in root Cargo.toml if needed
+   ```
+
+2. **Pre-publish Validation**
+   ```bash
+   # Check compilation
+   cargo check -p <package-name>
+   
+   # Dry run publish
+   cargo publish --dry-run -p <package-name>
+   ```
+
+3. **Publishing**
+   ```bash
+   # Authenticate with crates.io
+   cargo login <your-token>
+   
+   # Publish in dependency order:
+   # 1. frc42_hasher (base dependency)
+   # 2. frc42_macros (depends on frc42_hasher)
+   # 3. frc42_dispatch (depends on frc42_hasher and frc42_macros)
+   # 4. fvm_actor_utils (depends on frc42_dispatch)
+   # 5. frc46_token (depends on frc42_dispatch and fvm_actor_utils)
+   # 6. frc53_nft (depends on frc42_dispatch and fvm_actor_utils)
+   # 7. fvm_dispatch_tools (depends on frc42_dispatch)
+   cargo publish -p <package-name>
+   ```
+
+4. **Post-Release**
+   ```bash
+   # Tag the release
+   git tag <package-name>@<version>
+   git push origin <package-name>@<version>
+   ```
+
+#### Coordination Points
+
+- **FVM Releases**: TODO - Document coordination process with FVM releases
+- **Built-in Actors / Network Upgrade**: TODO - Document alignment with built-in actors and Network Upgrades
+
 ## License
 
 Dual-licensed: [MIT](./LICENSE-MIT),
