@@ -113,6 +113,8 @@ The following packages are published to [crates.io](https://crates.io):
 
 #### Coordination Points
 
+Note: before documenting the coordination points more, we should first see about simplifying this repo by potentially removing unused functionality and moving some of it into actors-utils itself.  This is discussed in [issue #203](https://github.com/filecoin-project/actors-utils/issues/203).
+
 - **FVM Releases**: TODO - Document coordination process with FVM releases
 - **Built-in Actors / Network Upgrade**: TODO - Document alignment with built-in actors and Network Upgrades
 
