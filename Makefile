@@ -9,6 +9,8 @@ WASM_EXCLUSION = \
 	--exclude frc46_factory_token \
 	--exclude frc53_test_actor
 
+RUST_TOOLCHAIN = $(shell sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+
 ACTORS_VERSION=v15.0.0
 ACTORS_NETWORK=mainnet
 ACTORS_BUNDLE_NAME=builtin-actors-${ACTORS_VERSION}-${ACTORS_NETWORK}.car
@@ -61,7 +63,7 @@ test-actors: test-deps
 	cargo test --package greeter --package helix_integration_tests
 
 install-toolchain:
-	rustup show active-toolchain || rustup toolchain install
+	rustup toolchain install $(RUST_TOOLCHAIN) --component clippy --component rustfmt --target wasm32-unknown-unknown
 
 clean:
 	cargo clean

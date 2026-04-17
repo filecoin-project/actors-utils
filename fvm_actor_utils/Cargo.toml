@@ -1,11 +1,12 @@
 [package]
 name = "fvm_actor_utils"
 description = "Utils for authoring native actors for the Filecoin Virtual Machine"
-version = "14.0.0"
+version = "15.0.0"
 license = "MIT OR Apache-2.0"
 keywords = ["filecoin", "fvm"]
 repository = "https://github.com/filecoin-project/actors-utils"
 edition = "2021"
+rust-version = "1.88"
 
 [dependencies]
 frc42_dispatch = { workspace = true }
