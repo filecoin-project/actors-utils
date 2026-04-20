@@ -1,17 +1,18 @@
 [package]
 name = "frc42_macros"
-version = "8.0.0"
+version = "9.0.0"
 license = "MIT OR Apache-2.0"
 description = "Filecoin FRC-0042 calling convention procedural macros"
 repository = "https://github.com/filecoin-project/actors-utils"
 edition = "2021"
+rust-version = "1.88"
 
 [lib]
 proc-macro = true
 
 [dependencies]
 blake2b_simd = { version = "1.0.3" }
-frc42_hasher = { version = "8.0.0", path = "../hasher", default-features = false }
+frc42_hasher = { version = "9.0.0", path = "../hasher", default-features = false }
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "2.0", features = ["full"] }

@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .join("Cargo.toml");
 
     for file in ["Cargo.toml", "src", "actors"] {
-        println!("cargo:rerun-if-changed={}", file);
+        println!("cargo:rerun-if-changed={file}");
     }
 
     // Cargo build command for all actors at once.
