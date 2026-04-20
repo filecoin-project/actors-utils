@@ -69,7 +69,6 @@ The following packages are published to [crates.io](https://crates.io):
 - **`frc42_macros`** - FRC-0042 procedural macros
 - **`frc46_token`** - Fungible token reference implementation
 - **`frc53_nft`** - Non-fungible token reference implementation
-- **`fvm_dispatch_tools`** - CLI utilities for method dispatch
 
 #### Release Steps
 
@@ -100,7 +99,6 @@ The following packages are published to [crates.io](https://crates.io):
    # 4. fvm_actor_utils (depends on frc42_dispatch)
    # 5. frc46_token (depends on frc42_dispatch and fvm_actor_utils)
    # 6. frc53_nft (depends on frc42_dispatch and fvm_actor_utils)
-   # 7. fvm_dispatch_tools (depends on frc42_dispatch)
    cargo publish -p <package-name>
    ```
 
