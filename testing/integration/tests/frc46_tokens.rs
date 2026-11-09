@@ -76,10 +76,10 @@ fn it_mints_tokens() {
 
     // Construct the token actor
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("Constructor"), None);
-    println!("token actor constructor return data: {:#?}", &ret_val);
+    println!("token actor constructor return data: {:#?}", ret_val);
 
     let ret_val = call_method(minter[0].1, receive_address, method_hash!("Constructor"), None);
-    println!("receiving actor constructor return data: {:#?}", &ret_val);
+    println!("receiving actor constructor return data: {:#?}", ret_val);
 
     // Mint some tokens
     let mint_params = MintParams {
@@ -89,19 +89,19 @@ fn it_mints_tokens() {
     };
     let params = RawBytes::serialize(mint_params).unwrap();
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("Mint"), Some(params));
-    println!("mint return data {:#?}", &ret_val);
+    println!("mint return data {:#?}", ret_val);
     let return_data = ret_val.msg_receipt.return_data;
     if return_data.is_empty() {
         println!("return data was empty");
     } else {
         let mint_result: MintReturn = return_data.deserialize().unwrap();
-        println!("new total supply: {:?}", &mint_result.supply);
+        println!("new total supply: {:?}", mint_result.supply);
     }
 
     // Check balance
     let params = RawBytes::serialize(receive_address).unwrap();
     let ret_val = call_method(minter[0].1, actor_address, method_hash!("BalanceOf"), Some(params));
-    println!("balance return data {:#?}", &ret_val);
+    println!("balance return data {:#?}", ret_val);
 
     let return_data = ret_val.msg_receipt.return_data;
     let balance: TokenAmount = return_data.deserialize().unwrap();
