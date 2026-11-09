@@ -32,7 +32,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
     - name: Installing Cargo llvm-cov
-      uses: taiki-e/install-action@5651179950649c44da31d346537e20c0534f0f25
+      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
       with:
         tool: cargo-llvm-cov@0.4.5
     - name: Running tests with coverage

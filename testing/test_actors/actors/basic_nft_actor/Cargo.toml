@@ -9,8 +9,6 @@ frc42_dispatch = { workspace = true }
 frc53_nft = { workspace = true }
 fvm_actor_utils = { workspace = true }
 
-cid = { workspace = true }
-fvm_ipld_blockstore = { workspace = true }
 fvm_ipld_encoding = { workspace = true }
 fvm_sdk = { workspace = true }
 fvm_shared = { workspace = true }
