@@ -16,6 +16,12 @@ members = [
     "testing/test_actors/actors/frc46_factory_token/token_impl",
 ]
 
+[workspace.metadata.cargo-shear]
+# Referenced only from derive-macro expansions (serde derives, `Serialize_tuple`), which cargo-shear does not expand.
+ignored = ["serde"]
+# trybuild compile-fail fixtures.
+ignored-paths = ["frc42_dispatch/macros/tests/naming/*.rs"]
+
 [workspace.dependencies]
 blake2b_simd = { version = "1.0.3" }
 clap = { version = "4.5.36", features = ["derive"] }

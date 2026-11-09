@@ -13,7 +13,6 @@ proc-macro = true
 [dependencies]
 blake2b_simd = { version = "1.0.3" }
 frc42_hasher = { version = "9.0.0", path = "../hasher", default-features = false }
-proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "2.0", features = ["full"] }
 
