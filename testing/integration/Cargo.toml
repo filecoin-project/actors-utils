@@ -5,22 +5,18 @@ repository = "https://github.com/helix-collective/filecoin"
 edition = "2021"
 publish = false
 
-[dependencies]
-frc42_dispatch = { workspace = true }
-frc46_token = { workspace = true  }
-frc53_nft = { workspace = true }
-fvm_actor_utils = { workspace = true }
-
-anyhow = { workspace = true, features = ["backtrace"] }
-cid = { workspace = true }
-fvm = { workspace = true }
-fvm_integration_tests = { workspace = true }
-fvm_ipld_blockstore = { workspace = true }
-fvm_ipld_bitfield = { workspace = true }
-fvm_ipld_encoding = { workspace = true }
-fvm_shared = { workspace = true }
-serde = { workspace = true }
-
 [dev-dependencies]
 helix_test_actors = { path = "../test_actors" }
 token_impl = { path = "../test_actors/actors/frc46_factory_token/token_impl" }
+cid = { workspace = true }
+frc42_dispatch = { workspace = true }
+frc46_token = { workspace = true  }
+frc53_nft = { workspace = true }
+fvm = { workspace = true }
+fvm_actor_utils = { workspace = true }
+fvm_integration_tests = { workspace = true }
+fvm_ipld_bitfield = { workspace = true }
+fvm_ipld_blockstore = { workspace = true }
+fvm_ipld_encoding = { workspace = true }
+fvm_shared = { workspace = true }
+serde = { workspace = true }
