@@ -52,9 +52,9 @@ fn transfer_tokens() {
         TokenAmount::from_atto(100),
         RawBytes::default(),
     );
-    println!("minting return data {:#?}", &ret_val);
+    println!("minting return data {:#?}", ret_val);
     let mint_result: MintReturn = ret_val.msg_receipt.return_data.deserialize().unwrap();
-    println!("minted - total supply: {:?}", &mint_result.supply);
+    println!("minted - total supply: {:?}", mint_result.supply);
     assert_eq!(mint_result.supply, TokenAmount::from_atto(100));
 
     // check balance of transfer actor
@@ -66,7 +66,7 @@ fn transfer_tokens() {
     let params = RawBytes::serialize(receiver_address).unwrap();
     let ret_val =
         tester.call_method(operator[0].1, transfer_address, method_hash!("Forward"), Some(params));
-    println!("forwarding return data {:#?}", &ret_val);
+    println!("forwarding return data {:#?}", ret_val);
 
     // check balance of receiver actor
     let balance = tester.token_balance(operator[0].1, token_address, transfer_address);

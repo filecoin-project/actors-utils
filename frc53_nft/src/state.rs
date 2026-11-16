@@ -192,19 +192,13 @@ impl NFTState {
         let mut owner_map = self.get_owner_data_hamt(bs)?;
 
         // update owner data map
-        let new_owner_data = match owner_map.get(&actor_id_key(initial_owner)) {
-            Ok(entry) => {
-                if let Some(existing_data) = entry {
-                    //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
-                    OwnerData {
-                        balance: existing_data.balance + metadatas.len() as u64,
-                        ..existing_data.clone()
-                    }
-                } else {
-                    OwnerData { balance: metadatas.len() as u64, operators: BitField::default() }
-                }
-            }
-            Err(e) => return Err(e.into()),
+        let new_owner_data = match owner_map.get(&actor_id_key(initial_owner))? {
+            //TODO: a move or replace here may avoid the clone (which may be expensive on the vec)
+            Some(existing_data) => OwnerData {
+                balance: existing_data.balance + metadatas.len() as u64,
+                ..existing_data.clone()
+            },
+            None => OwnerData { balance: metadatas.len() as u64, operators: BitField::default() },
         };
         owner_map.set(actor_id_key(initial_owner), new_owner_data)?;
 
