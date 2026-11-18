@@ -10,11 +10,9 @@ frc46_token = { path = "../../../../frc46_token" }
 fvm_actor_utils = { path = "../../../../fvm_actor_utils" }
 
 cid = { workspace = true }
-fvm_ipld_blockstore = { workspace = true }
 fvm_ipld_encoding = { workspace = true }
 fvm_sdk = { workspace = true }
 fvm_shared = { workspace = true }
-num-traits = { version = "0.2.19" }
 serde = { version = "1.0.219", features = ["derive"] }
 thiserror = { version = "2.0.12" }
 
